@@ -1,0 +1,15 @@
+{
+  "expo": {
+    "name": "AAO · The Viewing Room",
+    "slug": "aao-viewing-room",
+    "version": "0.1.0",
+    "scheme": "aao",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "ios": { "bundleIdentifier": "com.aao.prototype", "supportsTablet": true },
+    "android": { "package": "com.aao.prototype" },
+    "web": { "output": "single", "name": "AAO · The Viewing Room" },
+    "plugins": ["expo-router", "expo-font"],
+    "experiments": { "typedRoutes": true }
+  }
+}

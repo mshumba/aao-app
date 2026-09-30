@@ -1,0 +1,32 @@
+node_modules/
+.expo/
+dist/
+expo-env.d.ts
+*.log
+.DS_Store
+test-results/
+playwright-report/
+.env*
+!.env.example
+artifacts/native-export/
+artifacts/final-export/
+
+# Local project history, private coordination and generated evidence.
+# Preserve on disk; these do not belong in a future public source repository.
+AGENTS.md
+CLAUDE.md
+.agents/
+.codex/
+.tastemaker/
+artifacts/
+design/
+docs/*
+!docs/development/
+# Native project directories are generated locally when native build tooling is chosen.
+/ios/
+/android/
+*.p12
+*.p8
+*.mobileprovision
+*.keystore
+*.jks
