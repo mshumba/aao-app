@@ -3,7 +3,7 @@ import { test as base, expect, type Locator, type Page } from "@playwright/test"
 /**
  * Who the test starts as. The web server runs the on-device stand-in account
  * service (EXPO_PUBLIC_AUTH_MODE=local), so nothing leaves the browser.
- * - member: signed in as viewer@example.com, onboarding done (the default,
+ * - member: signed in as mufaro@example.com, onboarding done (the default,
  *   so playback tests can press Watch without the sign-up sheet);
  * - guest: onboarding done, no account;
  * - new: a first launch (the welcome shows).
@@ -11,8 +11,8 @@ import { test as base, expect, type Locator, type Page } from "@playwright/test"
 export type Viewer = "member" | "guest" | "new";
 
 export const MEMBER = {
-  id: "local:viewer@example.com",
-  email: "viewer@example.com",
+  id: "local:mufaro@example.com",
+  email: "mufaro@example.com",
   provider: "email",
 };
 

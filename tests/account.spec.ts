@@ -19,11 +19,11 @@ test.describe("signed in", () => {
 
   test("a name set in Account greets the viewer on Home", async ({ page }) => {
     await page.goto("/account/name");
-    await page.getByTestId("name-input").fill("Ada");
+    await page.getByTestId("name-input").fill("Mufaro");
     await page.getByTestId("save-name").click();
     await expect(page.getByTestId("toast")).toContainText("Name updated");
     await page.goto("/");
-    await expect(shown(page.getByText(/, Ada$/))).toBeVisible();
+    await expect(shown(page.getByText(/, Mufaro$/))).toBeVisible();
   });
 
   test("saving and unsaving a sermon updates Saved", async ({ page }) => {
@@ -161,17 +161,17 @@ test.describe("guest", () => {
     page,
   }) => {
     await openSignIn(page);
-    await page.getByTestId("password-email").fill("viewer@example.com");
+    await page.getByTestId("password-email").fill("mufaro@example.com");
     await page.getByTestId("password-input").fill("wrong-password");
     await page.getByTestId("password-submit").click();
     await expect(page.getByText(/don’t match/).first()).toBeVisible();
     // What was typed stays, so only the password needs fixing.
-    await expect(page.getByTestId("password-email")).toHaveValue("viewer@example.com");
+    await expect(page.getByTestId("password-email")).toHaveValue("mufaro@example.com");
     await page.getByTestId("password-input").fill("a-long-password");
     await page.getByTestId("password-submit").click();
     await expect(page.getByTestId("toast")).toContainText("signed in");
     await tab(page, "Account").click();
-    await expect(shown(page.getByText("viewer@example.com"))).toBeVisible();
+    await expect(shown(page.getByText("mufaro@example.com"))).toBeVisible();
   });
 
   test("password sign-up confirms the email with a code", async ({ page }) => {
@@ -224,7 +224,7 @@ test.describe("guest", () => {
 
   test("forgot password resets with a code and a new password", async ({ page }) => {
     await openSignIn(page);
-    await page.getByTestId("password-email").fill("viewer@example.com");
+    await page.getByTestId("password-email").fill("mufaro@example.com");
     await page.getByTestId("forgot-password").click();
     await page.getByTestId("reset-send-code").click();
     await page.getByTestId("code-input").fill(CODE);

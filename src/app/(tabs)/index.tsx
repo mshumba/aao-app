@@ -51,7 +51,7 @@ type TabsNavigation = {
   navigate: (name: "search", params: undefined, options: { merge: boolean }) => void;
 };
 
-/** "Good evening, Ada", from the first word of the name on the account. */
+/** "Good evening, Mufaro", from the first word of the name on the account. */
 function greeting(name: string) {
   const hour = new Date().getHours();
   const part = hour < 12 ? "morning" : hour < 17 ? "afternoon" : "evening";

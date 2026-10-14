@@ -51,7 +51,7 @@ test("Get started picks topics, creates an account and starts watching", async (
   ).toBeVisible();
   await expect(shown(page.getByText("Step 2 of 3", { exact: true }))).toBeVisible();
   await page.getByTestId("continue-email").click();
-  await page.getByTestId("email-input").fill("ada@example.com");
+  await page.getByTestId("email-input").fill("mufaro.shumba@example.com");
   await page.getByTestId("email-send-code").click();
   await page.getByTestId("code-input").fill(CODE);
 
@@ -60,12 +60,12 @@ test("Get started picks topics, creates an account and starts watching", async (
     page.getByRole("heading", { name: "What should we call you?" }),
   ).toBeVisible();
   await expect(shown(page.getByText("Step 3 of 3", { exact: true }))).toBeVisible();
-  await page.getByTestId("name-input").fill("Ada");
+  await page.getByTestId("name-input").fill("Mufaro");
   await page.getByTestId("name-continue").click();
 
   // Done: one recommended sermon from the chosen topic.
   await expect(
-    page.getByRole("heading", { name: /You’re all set, Ada/ }),
+    page.getByRole("heading", { name: /You’re all set, Mufaro/ }),
   ).toBeVisible();
   await page.getByTestId("done-start-watching").click();
   await expect(page).toHaveURL(/\/sermon\//);
@@ -74,7 +74,7 @@ test("Get started picks topics, creates an account and starts watching", async (
   // Signed in and onboarded: no welcome after a reload.
   await page.goto("/");
   await expect(page.getByTestId("welcome-get-started")).toHaveCount(0);
-  await expect(shown(page.getByText(/, Ada$/))).toBeVisible();
+  await expect(shown(page.getByText(/, Mufaro$/))).toBeVisible();
 });
 
 test("Not now on the account step keeps the chosen topics on the device", async ({

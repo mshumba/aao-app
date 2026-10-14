@@ -183,7 +183,7 @@ export default function AccountTab() {
   );
 }
 
-/** "Mufaro Shumba" → "MS", "ada" → "A"; the email's first letter without a name. */
+/** "Mufaro Shumba" → "MS", "mufaro" → "M"; the email's first letter without a name. */
 function initials(name: string | null, email: string | null) {
   const words = (name ?? "").trim().split(/\s+/).filter(Boolean);
   const parts = words.length

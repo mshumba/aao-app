@@ -130,7 +130,7 @@ test("an invalid code keeps the guest on the code step with a fix", async ({
   await page.goto(pray);
   await page.getByTestId("save-sermon").click();
   await page.getByTestId("continue-email").click();
-  await page.getByTestId("email-input").fill("viewer@example.com");
+  await page.getByTestId("email-input").fill("mufaro@example.com");
   await page.getByTestId("email-send-code").click();
   await page.getByTestId("code-input").fill("000000");
   await expect(page.getByText(/expired/i).first()).toBeVisible();
