@@ -1,6 +1,7 @@
 import { router, useNavigation } from "expo-router";
 import { StyleSheet, View } from "react-native";
 import { useAccount } from "../../auth/AccountProvider";
+import { ContinueWatching } from "../../continueWatching";
 import { eventLine, headline } from "../../data/display";
 import { Sermon, sermonCategoryIds, sermons } from "../../data/sermons";
 import { requestSearchFocus, useGo, usePageTitle } from "../../navigation";
@@ -76,6 +77,8 @@ export default function Browse() {
         <Icon name="search-outline" color={c.muted} size={20} />
         <T style={styles.searchText}>Search sermons</T>
       </Tap>
+
+      <ContinueWatching />
 
       <Tap
         accessibilityRole="button"

@@ -23,6 +23,8 @@ import {
   GuestWatch,
   Profile,
   ProfileChanges,
+  ProgressUpdate,
+  WatchProgress,
 } from "./types";
 
 /** The account service is chosen once, at launch. */
@@ -86,6 +88,24 @@ type Account = {
   /** Requires a signed-in user. */
   setSaved: (sermonId: string, saved: boolean) => Promise<void>;
 
+  /** The account's watch progress, most recently watched first. Empty for guests. */
+  progress: WatchProgress[];
+  progressFor: (sermonId: string) => WatchProgress | null;
+  /** The account's progress has loaded, so `progressFor` can be trusted. */
+  progressReady: boolean;
+  /**
+   * The account's progress once it has loaded (at once if it has), or null
+   * for a guest or when it can't be loaded. Tries again after a failure.
+   */
+  whenProgressReady: () => Promise<WatchProgress[] | null>;
+  /**
+   * Records where the viewer is in a sermon. Applies at once and is written
+   * in the background; never throws or waits. Does nothing for guests, or
+   * until the account's progress has loaded, so a new device can't overwrite
+   * a place saved on another one.
+   */
+  saveProgress: (update: ProgressUpdate) => void;
+
   /** What guests may watch without an account (a remote setting). */
   guestWatch: GuestWatch;
   /** Sermons opened from a shared link, which guests may watch. */
@@ -134,6 +154,18 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   const [restored, setRestored] = useState(false);
   const [user, setUser] = useState<AuthUser | null>(null);
   const [data, setData] = useState<AccountData | null>(null);
+  // Watch progress, kept apart from the profile because it changes while
+  // a sermon plays.
+  const [progressData, setProgressData] = useState<{
+    userId: string;
+    items: WatchProgress[];
+  } | null>(null);
+  // The latest load of an account's progress; `items` is set once it succeeds.
+  const progressLoad = useRef<{
+    userId: string;
+    promise: Promise<WatchProgress[] | null>;
+    items?: WatchProgress[];
+  } | null>(null);
   const [onboarding, setOnboarding] = useState<Onboarding | null>(null);
   const [passes, setPasses] = useState<string[]>([]);
   const [guestWatch, setGuestWatch] = useState<GuestWatch>("shared");
@@ -316,6 +348,78 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   const needsSync = !!mine && (!mine.profile || mine.unsynced);
   const saved = useMemo(() => mine?.saved ?? [], [mine]);
   const savedError = !!mine?.savedError;
+
+  const progress = useMemo(
+    () => (progressData && progressData.userId === userId ? progressData.items : []),
+    [progressData, userId],
+  );
+  const loadProgress = useCallback((id: string) => {
+    if (!backend) return Promise.resolve(null);
+    const entry: NonNullable<typeof progressLoad.current> = {
+      userId: id,
+      promise: backend.listProgress(id).then(
+        (items) => {
+          entry.items = items;
+          setProgressData({ userId: id, items });
+          return items;
+        },
+        // Kept unloaded: nothing is saved over what can't be seen.
+        () => null,
+      ),
+    };
+    progressLoad.current = entry;
+    return entry.promise;
+  }, []);
+  useEffect(() => {
+    if (userId) loadProgress(userId);
+  }, [userId, loadProgress]);
+  const progressReady =
+    !!userId && !!progressData && progressData.userId === userId;
+
+  const whenProgressReady = useCallback(async () => {
+    if (!userId) return null;
+    const entry = progressLoad.current;
+    if (entry?.userId === userId) {
+      const items = entry.items ?? (await entry.promise);
+      if (items) return items;
+    }
+    // Not asked for this account yet, or the last try failed: try again.
+    return loadProgress(userId);
+  }, [loadProgress, userId]);
+
+  // Writes go out one at a time, and only the latest position for each
+  // sermon is sent, so a burst of saves (pause, dock, close) is one request
+  // and an older position can never land after a newer one.
+  const outbox = useRef({
+    pending: new Map<string, { userId: string; update: ProgressUpdate }>(),
+    busy: false,
+  });
+  const flushProgress = useCallback(async () => {
+    const box = outbox.current;
+    if (box.busy || !backend) return;
+    box.busy = true;
+    while (box.pending.size) {
+      const [key, job] = box.pending.entries().next().value!;
+      box.pending.delete(key);
+      // A failed save is dropped; the next one carries a newer position.
+      await backend.saveProgress(job.userId, job.update).catch(() => {});
+    }
+    box.busy = false;
+  }, []);
+
+  const saveProgress = useCallback(
+    (update: ProgressUpdate) => {
+      if (!userId || !backend) return;
+      const loaded = progressLoad.current;
+      if (loaded?.userId !== userId || !loaded.items) return;
+      const item: WatchProgress = { ...update, updatedAt: new Date().toISOString() };
+      loaded.items = [item, ...loaded.items.filter((p) => p.sermonId !== update.sermonId)];
+      setProgressData({ userId, items: loaded.items });
+      outbox.current.pending.set(`${userId}|${update.sermonId}`, { userId, update });
+      flushProgress();
+    },
+    [flushProgress, userId],
+  );
 
   /** Reads the profile again; true once it has loaded and is saved. */
   const refreshProfile = useCallback(
@@ -505,6 +609,11 @@ export function AccountProvider({ children }: { children: ReactNode }) {
       reloadSaved,
       isSaved: (id) => saved.includes(id),
       setSaved,
+      progress,
+      progressFor: (id) => progress.find((item) => item.sermonId === id) ?? null,
+      progressReady,
+      whenProgressReady,
+      saveProgress,
       guestWatch,
       hasPass: (id) => passes.includes(id),
       grantPass,
@@ -545,6 +654,10 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     saved,
     savedError,
     reloadSaved,
+    progress,
+    progressReady,
+    whenProgressReady,
+    saveProgress,
     passes,
     guestWatch,
     setInterests,

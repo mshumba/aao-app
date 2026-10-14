@@ -7,6 +7,7 @@ import {
   CodePurpose,
   Profile,
   Provider,
+  WatchProgress,
 } from "./types";
 
 /**
@@ -31,7 +32,8 @@ const TAKEN = "taken@example.com";
 const UNCONFIRMED = "unconfirmed@example.com";
 const WRONG = "wrong-password";
 
-type Stored = { profile: Profile; saved: string[] };
+// Accounts stored before watch progress existed have no `progress`.
+type Stored = { profile: Profile; saved: string[]; progress?: WatchProgress[] };
 const emptyProfile: Profile = { displayName: null, interests: [], onboardedAt: null };
 
 const wait = (ms = 450) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -58,19 +60,28 @@ export function createLocalBackend(): AuthBackend {
       provider,
     };
     await writeJSON(keys.localSession, user);
-    if (displayName) {
-      const data = await load(user.id);
-      if (!data.profile.displayName)
-        await save(user.id, { ...data, profile: { ...data.profile, displayName } });
-    }
+    if (displayName)
+      await change(user.id, (data) =>
+        data.profile.displayName
+          ? data
+          : { ...data, profile: { ...data.profile, displayName } },
+      );
     emit(user);
     return { status: "signedIn" } as const;
   }
 
   const load = (userId: string) =>
     readJSON<Stored>(keys.localData(userId), { profile: emptyProfile, saved: [] });
-  const save = (userId: string, data: Stored) =>
-    writeJSON(keys.localData(userId), data);
+  // Changes run one at a time, so a progress save landing during a profile
+  // or saved-list change can't overwrite it with what it read before.
+  let queue: Promise<unknown> = Promise.resolve();
+  const change = (userId: string, update: (data: Stored) => Stored) => {
+    const next = queue.then(async () =>
+      writeJSON(keys.localData(userId), update(await load(userId))),
+    );
+    queue = next.catch(() => {});
+    return next;
+  };
 
   function checkCode(code: string) {
     if (code === EXPIRED_CODE) throw new AuthError("expired_code");
@@ -169,8 +180,10 @@ export function createLocalBackend(): AuthBackend {
     },
     async updateProfile(userId, changes) {
       reachable();
-      const data = await load(userId);
-      await save(userId, { ...data, profile: { ...data.profile, ...changes } });
+      await change(userId, (data) => ({
+        ...data,
+        profile: { ...data.profile, ...changes },
+      }));
     },
     async listSaved(userId) {
       reachable();
@@ -180,9 +193,30 @@ export function createLocalBackend(): AuthBackend {
     },
     async setSaved(userId, sermonId, saved) {
       reachable();
-      const data = await load(userId);
-      const rest = data.saved.filter((id) => id !== sermonId);
-      await save(userId, { ...data, saved: saved ? [sermonId, ...rest] : rest });
+      await change(userId, (data) => {
+        const rest = data.saved.filter((id) => id !== sermonId);
+        return { ...data, saved: saved ? [sermonId, ...rest] : rest };
+      });
+    },
+    // Like the profile, progress arrives a moment after it's asked for, so
+    // a Watch straight after signing in starts before it does, as it can
+    // with Supabase.
+    async listProgress(userId) {
+      reachable();
+      const { progress = [] } = await load(userId);
+      await wait(250);
+      return [...progress].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    },
+    async saveProgress(userId, progress) {
+      reachable();
+      const item: WatchProgress = { ...progress, updatedAt: new Date().toISOString() };
+      await change(userId, (data) => ({
+        ...data,
+        progress: [
+          item,
+          ...(data.progress ?? []).filter((p) => p.sermonId !== item.sermonId),
+        ],
+      }));
     },
   };
 }

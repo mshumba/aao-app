@@ -7,10 +7,25 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
-import { ActivityIndicator, StyleSheet, View } from "react-native";
+import {
+  AccessibilityInfo,
+  ActivityIndicator,
+  StyleSheet,
+  View,
+} from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { font, radius, space } from "../theme";
-import { Icon, T, Tap, c, moveFocus, pressedTint, s, web } from "../ui";
+import {
+  Icon,
+  T,
+  Tap,
+  TextButton,
+  c,
+  moveFocus,
+  pressedTint,
+  s,
+  web,
+} from "../ui";
 import {
   asksViewer,
   clock,
@@ -69,6 +84,32 @@ export function NowPlaying({
   );
   return (
     <View style={styles.panel}>
+      {session.resumedFrom > 0 && (
+        <View style={styles.resume} testID="resume-note">
+          <Icon name="time-outline" size={16} color={c.muted} />
+          <T
+            style={s.meta}
+            accessibilityLabel={`Resuming at ${spokenClock(session.resumedFrom)}`}
+          >
+            {`Resuming at ${clock(session.resumedFrom)}`}
+          </T>
+          <T style={[s.meta, s.separator]} {...web({ "aria-hidden": true })}>
+            ·
+          </T>
+          <TextButton
+            label="Start over"
+            hint="Plays the sermon from the beginning"
+            onPress={() => {
+              session.startOver();
+              // The note and its button go; carry on from Play/Pause.
+              moveFocus(toggle.current);
+              AccessibilityInfo.announceForAccessibility(
+                "Starting from the beginning.",
+              );
+            }}
+          />
+        </View>
+      )}
       <Scrubber scroll={scroll} center={speed} />
       <View style={styles.transport}>
         <Skip seconds={-15} disabled={loading} />
@@ -237,6 +278,14 @@ const styles = StyleSheet.create({
   // The scrubber's touch band reaches 6pt further above its track than it
   // used to; the margin gives that back, so the track stays where it was.
   panel: { marginTop: space.md - 6, gap: space.xs },
+  // A quiet line above the scrubber; Start over is the one link in it.
+  resume: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    justifyContent: "center",
+    columnGap: 6,
+  },
   // A 44pt band to grab, around a 4pt track.
   hit: { height: 44, justifyContent: "center" },
   // A neutral track (a wash of the text colour) under the navy progress, so

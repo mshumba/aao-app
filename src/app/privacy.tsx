@@ -42,6 +42,7 @@ export default function Privacy() {
             "How you sign in: Apple, Google or email.",
             "The topics you choose.",
             "The sermons you save.",
+            "Where you stopped in each sermon you watch, so it can pick up there.",
           ]}
         />
         <P>
@@ -65,8 +66,9 @@ export default function Privacy() {
 
       <Section title="How it’s used">
         <P>
-          Only to run your account: to sign you in, keep your topics and saved
-          sermons on any device, and greet you by name. AAO emails you only to
+          Only to run your account: to sign you in, keep your topics, saved
+          sermons and place in each sermon on any device, and greet you by
+          name. AAO emails you only to
           send codes for signing in, confirming your email or resetting your
           password.
         </P>
@@ -139,7 +141,8 @@ export default function Privacy() {
         <P>
           Your information is kept while you have an account. You can delete
           your account at any time in Account › Delete account. Your account,
-          name, topics and saved sermons are removed immediately. If database
+          name, topics, saved sermons and watch progress are removed
+          immediately. If database
           backups are turned on, a copy may remain in them for a short time
           until they’re replaced.
         </P>

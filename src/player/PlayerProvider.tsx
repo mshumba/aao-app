@@ -9,7 +9,10 @@ import {
   type ReactNode,
 } from "react";
 import { AccessibilityInfo, AppState, Linking, Platform } from "react-native";
+import { useAccount } from "../auth/AccountProvider";
+import type { WatchProgress } from "../auth/types";
 import { Sermon } from "../data/sermons";
+import { MIN_RESUME, SAVE_EVERY, isFinished, resumePoint } from "./progress";
 import { EmbedHandle, PlayerCommand, PlayerEvent, playerError } from "./types";
 
 export type Phase = "idle" | "loading" | "ready" | "error";
@@ -23,6 +26,13 @@ type Session = {
   error: number | null;
   attempt: number;
   start: number;
+  /**
+   * Where this sermon picked up from the viewer's saved progress, until they
+   * start over or are well past it; 0 when it started from the beginning.
+   */
+  resumedFrom: number;
+  /** Back to the beginning of a resumed sermon. */
+  startOver: () => void;
   cover: "on" | "fading" | "off";
   /** The sermon screen currently showing (and ready for) the full player. */
   stage: string | null;
@@ -96,18 +106,37 @@ function statusFor(state: number) {
   }
 }
 
+/** How far past the resume point the "Resuming at" note stays. */
+const RESUME_NOTE_FOR = 120;
+
 /**
  * One YouTube player for the whole app, so a sermon keeps playing (docked)
  * while the viewer browses. It pauses when the app goes to the background;
  * there is no background audio.
+ *
+ * For a signed-in viewer it also keeps their place: a sermon starts where
+ * they left it, and the position is saved every 15 seconds while playing,
+ * on pause, when the player docks or closes, when another sermon loads and
+ * when the app goes to the background. Saving never waits on the network.
  */
 export function PlayerProvider({ children }: { children: ReactNode }) {
   const embed = useRef<EmbedHandle>(null);
+  const account = useAccount();
+  // Read when saving, so saves never re-create the player's callbacks.
+  const accountRef = useRef(account);
+  useEffect(() => {
+    accountRef.current = account;
+  }, [account]);
   const [sermon, setSermon] = useState<Sermon | null>(null);
   const [phase, setPhase] = useState<Phase>("idle");
+  const phaseRef = useRef<Phase>("idle");
+  useEffect(() => {
+    phaseRef.current = phase;
+  }, [phase]);
   const [error, setError] = useState<number | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [start, setStart] = useState(0);
+  const [resumedFrom, setResumedFrom] = useState(0);
   const [cover, setCover] = useState<"on" | "fading" | "off">("off");
   const [stage, setStageState] = useState<string | null>(null);
   const [dockAboveTabs, setDockAboveTabs] = useState(false);
@@ -118,6 +147,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState("");
   const [started, setStarted] = useState(false);
   const position = useRef(0);
+  // The loaded sermon and its length, for saves made from callbacks.
+  const current = useRef<Sermon | null>(null);
+  const length = useRef(0);
+  const savedAt = useRef(0);
+  const resumeNote = useRef(0);
   const autoplay = useRef(false);
   // A second tap on Watch before the first one renders must not load twice.
   const pending = useRef(false);
@@ -134,6 +168,38 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   const command = useCallback((c: PlayerCommand) => {
     embed.current?.command(c);
+  }, []);
+
+  /**
+   * Saves the viewer's place in the loaded sermon. A "tick" (every second
+   * while playing) saves at most every SAVE_EVERY; other moments save at
+   * once. Nothing is sent when the place hasn't changed, before the length
+   * is known, or for a sermon only just started and never saved before.
+   */
+  const persist = useCallback((reason: "tick" | "moment" | "ended") => {
+    const sermon = current.current;
+    const viewer = accountRef.current;
+    const total = Math.floor(length.current);
+    if (!sermon || !viewer.user || !total) return;
+    const now = Date.now();
+    if (reason === "tick" && now - savedAt.current < SAVE_EVERY) return;
+    const at = Math.min(total, Math.floor(reason === "ended" ? total : position.current));
+    const finished = reason === "ended" || isFinished(at, total);
+    const before = viewer.progressFor(sermon.id);
+    if (!before && !finished && at < MIN_RESUME) return;
+    if (
+      before &&
+      before.finished === finished &&
+      Math.abs(before.positionSeconds - at) < 1
+    )
+      return;
+    savedAt.current = now;
+    viewer.saveProgress({
+      sermonId: sermon.id,
+      positionSeconds: at,
+      durationSeconds: total,
+      finished,
+    });
   }, []);
 
   // The provider drops commands until it's ready, so a pause while loading
@@ -160,6 +226,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   }, [clearBlockedCheck]);
 
   const begin = useCallback((next: Sermon, from: number) => {
+    // Keep the place in the sermon being replaced.
+    if (current.current && current.current.id !== next.id) persist("moment");
+    current.current = next;
+    length.current = 0;
+    savedAt.current = Date.now();
     clearBlockedCheck();
     latestState.current = -1;
     starting.current = false;
@@ -182,14 +253,45 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     // iOS has no live regions, so the loading step is announced there.
     if (Platform.OS === "ios")
       AccessibilityInfo.announceForAccessibility("Loading the sermon.");
-  }, [clearBlockedCheck]);
+  }, [clearBlockedCheck, persist]);
+
+  /**
+   * The account's progress arrived after this sermon started loading (a
+   * Watch straight after signing in). Jump to the saved place, unless the
+   * viewer has already moved on from the start.
+   */
+  const catchUp = useCallback(
+    (id: string, items: WatchProgress[]) => {
+      const loaded = current.current;
+      if (!loaded || loaded.id !== id) return;
+      const from = resumePoint(items.find((item) => item.sermonId === id) ?? null);
+      if (!from || position.current >= MIN_RESUME) return;
+      resumeNote.current = from;
+      setResumedFrom(from);
+      if (phaseRef.current === "loading") return begin(loaded, from);
+      position.current = from;
+      if (phaseRef.current !== "ready") return; // Try again starts there.
+      setSeconds(from);
+      command({ type: "seek", seconds: from });
+    },
+    [begin, command],
+  );
 
   const load = useCallback(
     (next: Sermon) => {
       if (pending.current && sermon?.id === next.id) return;
-      begin(next, 0);
+      // A signed-in viewer picks up where they left off.
+      const viewer = accountRef.current;
+      let from = 0;
+      if (viewer.user && viewer.progressReady)
+        from = resumePoint(viewer.progressFor(next.id));
+      else if (viewer.user)
+        viewer.whenProgressReady().then((items) => items && catchUp(next.id, items));
+      resumeNote.current = from;
+      setResumedFrom(from);
+      begin(next, from);
     },
-    [begin, sermon],
+    [begin, catchUp, sermon],
   );
 
   const retry = useCallback(() => {
@@ -197,6 +299,10 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   }, [begin, sermon]);
 
   const close = useCallback(() => {
+    persist("moment");
+    current.current = null;
+    resumeNote.current = 0;
+    setResumedFrom(0);
     clearBlockedCheck();
     pending.current = false;
     autoplay.current = false;
@@ -206,7 +312,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     setCover("off");
     setStatus("");
     setState(-1);
-  }, [clearBlockedCheck]);
+  }, [clearBlockedCheck, persist]);
 
   const watchOnYouTube = useCallback(() => {
     if (!sermon) return;
@@ -223,7 +329,10 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       pending.current = false;
       setCover((c) => (c === "on" ? "fading" : c));
       setPhase("ready");
-      if (e.duration) setDuration(e.duration);
+      if (e.duration) {
+        length.current = e.duration;
+        setDuration(e.duration);
+      }
       if (e.type === "ready") {
         // The viewer pressed Watch, so start as soon as the provider can,
         // unless the app has gone to the background meanwhile. Until it
@@ -266,7 +375,15 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       if (typeof e.seconds === "number") {
         position.current = e.seconds;
         setSeconds(e.seconds);
+        // Well past the resume point: the "Resuming at" note has done its job.
+        if (resumeNote.current && e.seconds > resumeNote.current + RESUME_NOTE_FOR) {
+          resumeNote.current = 0;
+          setResumedFrom(0);
+        }
       }
+      if (e.state === 1) persist("tick");
+      else if (e.state === 2) persist("moment");
+      else if (e.state === 0) persist("ended");
       setState(e.state);
       if (Platform.OS === "ios" && e.state === 0)
         AccessibilityInfo.announceForAccessibility("Sermon ended.");
@@ -275,7 +392,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       if (starting.current) return;
       setStatus(blocked.current ? BLOCKED : statusFor(e.state));
     },
-    [command, fail, clearBlockedCheck],
+    [command, fail, clearBlockedCheck, persist],
   );
 
   // Loading can't hang forever.
@@ -297,10 +414,33 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   // "inactive" for Control Center and Notification Center, which isn't leaving.
   useEffect(() => {
     const sub = AppState.addEventListener("change", (next) => {
-      if (next === "background") hold();
+      if (next !== "background") return;
+      // Saved straight away: the app may be suspended before the pause lands.
+      persist("moment");
+      hold();
     });
     return () => sub.remove();
-  }, [hold]);
+  }, [hold, persist]);
+
+  // Docking (leaving the sermon's screen) is a natural place to stop.
+  const full = !!sermon && stage === sermon.id;
+  const wasFull = useRef(false);
+  useEffect(() => {
+    if (wasFull.current && !full) persist("moment");
+    wasFull.current = full;
+  }, [full, persist]);
+
+  const startOver = useCallback(() => {
+    resumeNote.current = 0;
+    setResumedFrom(0);
+    const loaded = current.current;
+    if (!loaded) return;
+    // The provider drops commands while it loads, so start it again from 0.
+    if (phase !== "ready") return begin(loaded, 0);
+    position.current = 0;
+    setSeconds(0);
+    command({ type: "seek", seconds: 0 });
+  }, [begin, command, phase]);
 
   const attach = useCallback((handle: EmbedHandle | null) => {
     embed.current = handle;
@@ -319,6 +459,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       error,
       attempt,
       start,
+      resumedFrom,
+      startOver,
       cover,
       stage,
       setStage,
@@ -339,6 +481,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       error,
       attempt,
       start,
+      resumedFrom,
+      startOver,
       cover,
       stage,
       setStage,

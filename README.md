@@ -26,6 +26,7 @@ On a phone, use a development build: Expo Go can't play the sermons (YouTube err
 - **Guest browsing with a gate:** guests open every screen. Watch (except from a shared link) and Save ask for a free account, then carry on with what was tapped. A remote `guest_watch` setting can open watching to everyone without a new build.
 - **Shared links:** `/s/<id>` lets anyone watch that sermon without an account.
 - **Saved sermons** and an Account tab for your name, topics, sign-out and Delete account.
+- **Resume where you left off:** for signed-in viewers, a sermon picks up where they stopped ("Resuming at 42:10 · Start over"), and Home opens with a **Continue watching** row of unfinished sermons, each with its progress. Progress is kept with the account, so it follows the viewer across devices.
 - A floating tab bar (Home, Topics, Search, Account). Topic pages and sermons open over the tabs with Back.
 - One app-wide player: **Watch sermon** starts the YouTube player on a Now Playing screen tinted from the sermon's artwork, with play/pause, back 15s, forward 30s, a scrubber and speed. Going back docks the video above the tabs and it keeps playing while you browse; close it from the dock.
 - Stable local category IDs, one primary topic plus optional secondary topics and tags per sermon. Assignments are explicitly **demo / unreviewed** and live in their own module (`src/data/edification.ts`), apart from the verified source titles, channel, duration and thumbnails in `src/data/sermons.ts`.
