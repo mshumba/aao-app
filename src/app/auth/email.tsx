@@ -85,6 +85,7 @@ function EmailForm() {
       }
     >
       <FlowTitle
+        serif={false}
         title={mode === "sign-in" ? "Sign in with email" : "Continue with email"}
         lead="We’ll email you a 6-digit code. No password needed."
       />

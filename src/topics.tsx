@@ -15,7 +15,7 @@ import {
 import { sermonsInCategory } from "./data/sermons";
 import { useGo } from "./navigation";
 import { font, radius, space, type } from "./theme";
-import { Icon, IconName, Notice, T, Tap, c, s, web } from "./ui";
+import { Icon, IconName, Notice, T, Tap, c, s, useRadioKeys, web } from "./ui";
 
 export function TopicNotice() {
   return <Notice>{topicDisclaimer}</Notice>;
@@ -87,7 +87,7 @@ export function TopicRow({ category }: { category: Category }) {
         <T nativeID={`topic-${category.id}-description`} style={s.meta}>
           {category.description}
         </T>
-        <T style={[s.meta, { color: c.text }]}>{sermonCount(count)}</T>
+        <T style={s.meta}>{sermonCount(count)}</T>
       </View>
       <View style={{ alignSelf: "center" }}>
         <Icon name="chevron-forward" color={c.muted} size={18} />
@@ -142,6 +142,12 @@ export function TopicFilter({
     })),
   ];
   const selectedKey = value ?? "all";
+  // One Tab stop for the strip; the arrow keys move between topics.
+  const radio = useRadioKeys(
+    options.map((option) => option.id ?? "all"),
+    selectedKey,
+    (key) => onChange(key === "all" ? undefined : (key as CategoryId)),
+  );
   // Keep the selected topic in view, including one chosen before arriving.
   useEffect(() => {
     const x = offsets.current[selectedKey];
@@ -166,6 +172,7 @@ export function TopicFilter({
         return (
           <Tap
             key={key}
+            {...radio(key)}
             onLayout={(e) => {
               offsets.current[key] = e.nativeEvent.layout.x;
               if (selected && e.nativeEvent.layout.x > 0)

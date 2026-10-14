@@ -34,6 +34,8 @@ export async function removeKey(key: string) {
 export const keys = {
   onboarding: "aao.onboarding.v1",
   pendingIntent: "aao.pendingIntent.v1",
+  /** Apple's name for a new account, until the profile has it. */
+  pendingName: "aao.pendingName.v1",
   sharedPasses: "aao.sharedPasses.v1",
   guestWatch: "aao.guestWatch.v1",
   localSession: "aao.local.session.v1",

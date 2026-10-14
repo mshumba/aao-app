@@ -159,3 +159,40 @@ export async function ytLog(page: Page) {
         .__yt ?? { created: 0, destroyed: 0, commands: [] },
   );
 }
+
+/**
+ * The connection drops: navigator.onLine reads false (before the next load
+ * too, and now if a page is open), which the stand-in account service
+ * treats like the real one being out of reach. The app itself still loads
+ * from the dev server. goOnline brings it back, as the browser would.
+ */
+export async function goOffline(page: Page) {
+  const drop = (now: boolean) => {
+    try {
+      if (now || !sessionStorage.getItem("__aao_net"))
+        sessionStorage.setItem("__aao_net", "offline");
+    } catch {
+      // No storage on about:blank; the next load sets it.
+    }
+    Object.defineProperty(Navigator.prototype, "onLine", {
+      configurable: true,
+      get: () => {
+        try {
+          return sessionStorage.getItem("__aao_net") !== "offline";
+        } catch {
+          return true;
+        }
+      },
+    });
+    if (now) window.dispatchEvent(new Event("offline"));
+  };
+  await page.addInitScript(drop, false);
+  if (page.url().startsWith("http")) await page.evaluate(drop, true);
+}
+
+export async function goOnline(page: Page) {
+  await page.evaluate(() => {
+    sessionStorage.setItem("__aao_net", "online");
+    window.dispatchEvent(new Event("online"));
+  });
+}

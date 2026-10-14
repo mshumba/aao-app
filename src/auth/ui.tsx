@@ -1,6 +1,6 @@
 import * as AppleAuthentication from "expo-apple-authentication";
 import * as Haptics from "expo-haptics";
-import { router } from "expo-router";
+import { Link, router } from "expo-router";
 import {
   useCallback,
   useRef,
@@ -12,6 +12,8 @@ import {
 import {
   AccessibilityInfo,
   ActivityIndicator,
+  Image,
+  type ImageSourcePropType,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -21,7 +23,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { useGo } from "../navigation";
+import { useGo, usePageTitle } from "../navigation";
 import { useToast } from "../toast";
 import { font, radius, space, type } from "../theme";
 import {
@@ -212,26 +214,53 @@ export function FlowScreen({
   );
 }
 
+/**
+ * Where the step is in the flow: segments, with "Step 2 of 3" written under
+ * them, so how far there is to go doesn't rest on the segments alone.
+ */
 function StepBar({ current, total }: { current: number; total: number }) {
+  const label = `Step ${current} of ${total}`;
   return (
     <View
-      style={styles.steps}
-      accessible
-      accessibilityLabel={`Step ${current} of ${total}`}
-      {...web({ role: "img", "aria-label": `Step ${current} of ${total}` })}
+      style={styles.stepBar}
+      // One stop for VoiceOver and TalkBack; on the web the text is read.
+      accessible={Platform.OS !== "web"}
+      accessibilityLabel={label}
     >
-      {Array.from({ length: total }, (_, i) => (
-        <View key={i} style={[styles.step, i < current && styles.stepOn]} />
-      ))}
+      <View style={styles.steps} {...web({ "aria-hidden": true })}>
+        {Array.from({ length: total }, (_, i) => (
+          <View key={i} style={[styles.step, i < current && styles.stepOn]} />
+        ))}
+      </View>
+      <T style={styles.stepLabel} maxFontSizeMultiplier={1.4} testID="step-label">
+        {label}
+      </T>
     </View>
   );
 }
 
-/** Large serif question or headline with an optional lead line. */
-export function FlowTitle({ title, lead }: { title: string; lead?: ReactNode }) {
+/**
+ * A step's headline with an optional lead line. The serif is kept for the
+ * emotional moments (onboarding questions); the sign-in forms pass
+ * serif={false} and use the app's sans display, like other utility pages.
+ */
+export function FlowTitle({
+  title,
+  lead,
+  serif = true,
+}: {
+  title: string;
+  lead?: ReactNode;
+  serif?: boolean;
+}) {
+  usePageTitle(title);
   return (
     <View style={{ gap: space.md }}>
-      <Heading level={1} style={type.question} maxFontSizeMultiplier={1.6}>
+      <Heading
+        level={1}
+        style={serif ? type.question : type.display}
+        maxFontSizeMultiplier={1.6}
+      >
         {title}
       </Heading>
       {lead ? <T style={[type.lead, { color: c.muted }]}>{lead}</T> : null}
@@ -413,7 +442,11 @@ export function CodeInput({
                 error && styles.codeBoxError,
               ]}
             >
-              <T style={styles.codeDigit}>{digit.trim()}</T>
+              {/* Capped so the digit stays inside its box at the largest
+                  text sizes; the real input still reads the code out. */}
+              <T style={styles.codeDigit} maxFontSizeMultiplier={1.5}>
+                {digit.trim()}
+              </T>
             </View>
           );
         })}
@@ -463,14 +496,16 @@ export function FormAlert({ message }: { message: string | null }) {
 /**
  * A full-width action for the sign-in screens. "primary" is the app's navy;
  * "apple" is the black style Apple's guidelines ask for on light
- * backgrounds; "surface" is white with a hairline (Google); "outline" is a
- * quiet bordered alternative.
+ * backgrounds; "surface" is white with Google's grey stroke (Google's light
+ * theme); "outline" is a quiet bordered alternative. `image` replaces the
+ * icon with a full-colour mark (Google's G).
  */
 export function FlowButton({
   label,
   onPress,
   tone = "primary",
   icon,
+  image,
   busy = false,
   disabled = false,
   testID,
@@ -479,6 +514,7 @@ export function FlowButton({
   onPress: () => void;
   tone?: "primary" | "apple" | "surface" | "outline";
   icon?: IconName;
+  image?: ImageSourcePropType;
   busy?: boolean;
   disabled?: boolean;
   testID?: string;
@@ -499,6 +535,8 @@ export function FlowButton({
     >
       {busy ? (
         <ActivityIndicator color={fg} size="small" />
+      ) : image ? (
+        <Image source={image} style={styles.flowButtonImage} accessible={false} />
       ) : icon ? (
         <Icon name={icon} size={20} color={fg} />
       ) : null}
@@ -588,7 +626,8 @@ export function ProviderButtons({
         <FlowButton
           testID="continue-google"
           label={mode === "sign-in" ? "Sign in with Google" : "Continue with Google"}
-          icon="logo-google"
+          // Google's standard four-colour G, as its branding guidelines ask.
+          image={googleG}
           tone="surface"
           busy={busy === "google"}
           disabled={locked && busy !== "google"}
@@ -622,29 +661,57 @@ export function ProviderButtons({
   );
 }
 
-/** Terms and Privacy, linked, under any sign-up action. */
+// Drawn from Google's published G (assets/google-g*.png at 1x, 2x and 3x).
+const googleG = require("../../assets/google-g.png");
+
+/**
+ * Terms and Privacy, linked, under any sign-up action. Real links: on the
+ * web Enter opens them (and they open in a new tab like any link), and they
+ * take the sentence's own size rather than the body text's.
+ */
 export function LegalNote({ action = "continuing" }: { action?: string }) {
-  const go = useGo();
   return (
     <T style={styles.legal}>
       By {action}, you agree to the{" "}
-      <T
-        style={styles.legalLink}
-        accessibilityRole="link"
-        onPress={() => go.push("/terms")}
-      >
+      <Link href="/terms" push style={styles.legalLink}>
         Terms of Use
-      </T>{" "}
+      </Link>{" "}
       and confirm you’ve read the{" "}
-      <T
-        style={styles.legalLink}
-        accessibilityRole="link"
-        onPress={() => go.push("/privacy")}
-      >
+      <Link href="/privacy" push style={styles.legalLink}>
         Privacy Policy
-      </T>
+      </Link>
       .
     </T>
+  );
+}
+
+/**
+ * What a free account adds, in the same words and icons wherever it's
+ * offered: "lead" on the onboarding step, "body" in the Account tab's card.
+ * Watching isn't listed when guests can already watch everything.
+ */
+export function AccountBenefits({ size = "body" }: { size?: "lead" | "body" }) {
+  const account = useAccount();
+  const text = size === "lead" ? type.lead : type.body;
+  const items: { icon: IconName; text: string }[] = [
+    ...(account.guestWatch === "all"
+      ? []
+      : [{ icon: "play-circle-outline" as const, text: "Watch every sermon in full" }]),
+    { icon: "bookmark-outline", text: "Save sermons to come back to" },
+    { icon: "sync-outline", text: "Keep your topics on any device" },
+  ];
+  return (
+    <View style={{ gap: size === "lead" ? space.lg : space.md }} role="list">
+      {items.map((item) => (
+        <View key={item.text} style={styles.benefit} role="listitem">
+          {/* Centred on the first line of text, however many lines it takes. */}
+          <View style={{ height: text.lineHeight, justifyContent: "center" }}>
+            <Icon name={item.icon} size={size === "lead" ? 22 : 20} color={c.accent} />
+          </View>
+          <T style={[text, styles.benefitText]}>{item.text}</T>
+        </View>
+      ))}
+    </View>
   );
 }
 
@@ -669,7 +736,7 @@ const styles = StyleSheet.create({
   flowTrailing: { minWidth: 48, alignItems: "flex-end", paddingEnd: space.lg },
   flowScroll: {
     flexGrow: 1,
-    paddingHorizontal: space.xl,
+    paddingHorizontal: space.gutter,
     paddingTop: space.sm,
     paddingBottom: space.xl,
     width: "100%",
@@ -678,18 +745,24 @@ const styles = StyleSheet.create({
   },
   flowBody: { gap: space.xl, flexGrow: 1 },
   flowFooter: {
-    paddingHorizontal: space.xl,
+    paddingHorizontal: space.gutter,
     paddingTop: space.md,
     gap: space.sm,
     width: "100%",
     maxWidth: 560,
     alignSelf: "center",
   },
+  stepBar: { alignItems: "center", gap: 6 },
   steps: { flexDirection: "row", gap: 6, width: 120 },
-  step: { flex: 1, height: 4, borderRadius: 2, backgroundColor: c.border },
+  // Steps still to come in the field edge (3:1 on the ivory page), not the
+  // decorative hairline, so they can be counted.
+  step: { flex: 1, height: 4, borderRadius: 2, backgroundColor: fieldBorder },
   stepOn: { backgroundColor: c.accent },
+  stepLabel: { ...type.caption, fontSize: 12, lineHeight: 16, color: c.muted },
   field: { gap: space.sm },
   label: { ...type.label, fontSize: 14, lineHeight: 20 },
+  // A point of padding inside the 1pt border, so focus can take it for a
+  // 2pt border without the field growing or the text moving.
   inputRow: {
     borderWidth: 1,
     borderColor: FIELD_BORDER,
@@ -698,10 +771,17 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     paddingStart: 14,
+    paddingEnd: 1,
+    paddingVertical: 1,
   },
-  // Focus thickens the border rather than only recolouring it; padding
-  // compensates so the text doesn't shift.
-  inputFocused: { borderColor: c.accent, borderWidth: 2, paddingStart: 13 },
+  // Focus thickens the border rather than only recolouring it.
+  inputFocused: {
+    borderColor: c.accent,
+    borderWidth: 2,
+    paddingStart: 13,
+    paddingEnd: 0,
+    paddingVertical: 0,
+  },
   inputError: { borderColor: c.error },
   input: {
     flex: 1,
@@ -725,12 +805,15 @@ const styles = StyleSheet.create({
     minHeight: 52,
     borderRadius: radius.md,
     borderWidth: 1,
+    // As with fields: the active box's 2pt border takes this point, so the
+    // boxes stay the same size as the active one moves along.
+    padding: 1,
     borderColor: FIELD_BORDER,
     backgroundColor: c.surface,
     alignItems: "center",
     justifyContent: "center",
   },
-  codeBoxActive: { borderColor: c.accent, borderWidth: 2 },
+  codeBoxActive: { borderColor: c.accent, borderWidth: 2, padding: 0 },
   codeBoxError: { borderColor: c.error },
   codeDigit: {
     color: c.text,
@@ -772,7 +855,9 @@ const styles = StyleSheet.create({
   },
   primary: { backgroundColor: c.accent },
   apple: { backgroundColor: c.black },
-  surface: { backgroundColor: c.surface, borderWidth: 1, borderColor: c.border },
+  // Google's light-theme stroke (#747775): the button keeps its edge on the
+  // white sign-up sheet, level with the black Apple button.
+  surface: { backgroundColor: c.surface, borderWidth: 1, borderColor: "#747775" },
   outline: { borderWidth: 1, borderColor: FIELD_BORDER },
   flowButtonText: {
     fontFamily: font.bold,
@@ -781,6 +866,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
     flexShrink: 1,
   },
+  flowButtonImage: { width: 20, height: 20 },
   providers: { gap: space.md },
   // Pulled up a little: the link's touch area is taller than its words, so
   // it would otherwise read as further away than the buttons are apart.
@@ -791,6 +877,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  benefit: { flexDirection: "row", alignItems: "flex-start", gap: space.md },
+  benefitText: { flex: 1, color: c.text },
   legal: { ...type.caption, color: c.muted, textAlign: "center" },
   legalLink: { color: c.text, textDecorationLine: "underline" },
 });

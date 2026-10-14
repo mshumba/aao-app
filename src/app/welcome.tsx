@@ -13,9 +13,10 @@ import Animated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAccount } from "../auth/AccountProvider";
 import { useFinishFlow } from "../auth/gate";
+import { SwitchLine } from "../auth/screens/shared";
 import { FlowButton } from "../auth/ui";
 import { useReducedMotion } from "../motion";
-import { useGo } from "../navigation";
+import { useGo, usePageTitle } from "../navigation";
 import { ArtworkCollage } from "../onboarding/ArtworkCollage";
 import { motion } from "../onboarding/parts";
 import { easeOut, font, space, type } from "../theme";
@@ -32,6 +33,7 @@ const MIN_ART = 200;
  * as easy to find as getting started.
  */
 export default function Welcome() {
+  usePageTitle("Welcome");
   const account = useAccount();
   const go = useGo();
   const finish = useFinishFlow();
@@ -107,8 +109,9 @@ export default function Welcome() {
             />
             <View>
               {!unavailable && (
-                <TextButton
-                  label="I already have an account"
+                <SwitchLine
+                  prompt="Already have an account?"
+                  label="Sign in"
                   testID="welcome-sign-in"
                   onPress={() =>
                     go.push({
@@ -171,7 +174,7 @@ const styles = StyleSheet.create({
     width: "100%",
     maxWidth: 560,
     alignSelf: "center",
-    paddingHorizontal: space.xl,
+    paddingHorizontal: space.gutter,
     gap: space.lg,
   },
   wordmark: { flexDirection: "row", alignItems: "center", gap: 10 },

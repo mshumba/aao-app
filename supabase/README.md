@@ -33,7 +33,9 @@ Row level security is on for both tables: each viewer can only read and change t
   - `http://localhost:8081/auth/callback` (local web development)
   - `exp://**` (Expo Go during development, optional)
 
-**Authentication → Providers → Email**: keep **Email** enabled and **Confirm email** on. Minimum password length 8.
+**Authentication → Providers → Email**: keep **Email** enabled and **Confirm email** on. Minimum password length 8. Keep **Email OTP Length** at **6**: the code screen has six boxes and checks a code at six digits.
+
+**Authentication → Rate Limits**: Supabase sends one email per address a minute. The code screen's **Resend code** waits 60 seconds to match (`RESEND_SECONDS` in `src/app/auth/code.tsx`); change both together.
 
 **Authentication → Email Templates**: the app asks for a 6-digit code rather than relying on links, so each template must include `{{ .Token }}`. Replace the bodies of these three templates:
 
@@ -70,8 +72,10 @@ Supabase's built-in email sender is limited to a few messages an hour and is mea
 
 Needs the paid Apple Developer Program.
 
-1. Apple Developer → **Identifiers**: open the app ID (`com.aao.prototype` until a production bundle ID is chosen; see `app.json`) and enable **Sign in with Apple**. EAS adds the capability automatically when it builds, because `ios.usesAppleSignIn` is set.
-2. Supabase → **Authentication → Providers → Apple**: enable it and add the bundle ID to **Client IDs**. Native iOS sign-in uses the ID token directly; no secret key is needed for it.
+1. Apple Developer → **Identifiers**: open the app ID (`com.mshumba.aao`; see `app.json`) and enable **Sign in with Apple**. EAS adds the capability automatically when it builds, because `ios.usesAppleSignIn` is set.
+2. Supabase → **Authentication → Providers → Apple**: enable it and add the bundle ID `com.mshumba.aao` to **Client IDs**. Native iOS sign-in uses the ID token directly; no secret key is needed for it. Then make sure `apple` is in `EXPO_PUBLIC_AUTH_METHODS` (in `.env` and every EAS environment) and restart Metro.
+
+Expo Go signs in with Apple as its own app (`host.exp.Exponent`), which isn't in **Client IDs**, so the app hides the Apple button in Expo Go (`src/auth/config.ts`); testers there use Google or email. Development, TestFlight and App Store builds show it.
 3. Apple on the **web** preview is optional and off by default. To offer it, create a Services ID with return URL `https://<project-ref>.supabase.co/auth/v1/callback` and a Sign in with Apple key, enter the Services ID and generated secret in the same Supabase screen (Apple requires a new secret every 6 months), then add `apple-web` to `EXPO_PUBLIC_AUTH_METHODS`.
 
 ## 5. Google

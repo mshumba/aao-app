@@ -3,7 +3,7 @@ import { StyleSheet, View } from "react-native";
 import { useAccount } from "../../auth/AccountProvider";
 import { eventLine, headline } from "../../data/display";
 import { Sermon, sermonCategoryIds, sermons } from "../../data/sermons";
-import { requestSearchFocus, useGo } from "../../navigation";
+import { requestSearchFocus, useGo, usePageTitle } from "../../navigation";
 import { font, radius, space, type } from "../../theme";
 import { TopicGrid, TopicNotice, sermonCount } from "../../topics";
 import {
@@ -38,6 +38,7 @@ function greeting(name: string) {
 }
 
 export default function Browse() {
+  usePageTitle("Home");
   const go = useGo();
   const tabs = useNavigation<TabsNavigation>();
   const narrow = useNarrow();

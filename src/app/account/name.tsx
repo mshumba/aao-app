@@ -16,6 +16,33 @@ import { Button, Header, Page, PageTitle, StatePanel, c } from "../../ui";
 export default function NameScreen() {
   const account = useAccount();
   const go = useGo();
+  const [retrying, setRetrying] = useState(false);
+
+  async function retry() {
+    if (retrying) return;
+    setRetrying(true);
+    // A second failure shows this state again; nothing else to report.
+    await account.reloadProfile();
+    setRetrying(false);
+  }
+
+  // Without the saved name the field can't start from it, and a name typed
+  // blind could replace one that's there.
+  if (account.user && account.profileError && !retrying)
+    return (
+      <Page>
+        <Header back />
+        <StatePanel
+          level={1}
+          tone="error"
+          icon="cloud-offline-outline"
+          title="Your name didn’t load"
+          body="Check your connection and try again."
+          label="Try again"
+          action={retry}
+        />
+      </Page>
+    );
 
   // The profile arrives a moment after the session; wait for it so the
   // field starts with the saved name.

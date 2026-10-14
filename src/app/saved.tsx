@@ -20,9 +20,8 @@ export default function Saved() {
   const account = useAccount();
   const go = useGo();
   const [retrying, setRetrying] = useState(false);
-  // The saved list arrives with the profile, a moment after the session.
-  const loading =
-    retrying || !account.ready || (!!account.user && !account.profile);
+  // The saved list arrives a moment after the session.
+  const loading = retrying || !account.ready || (!!account.user && !account.loaded);
 
   async function retry() {
     if (retrying) return;

@@ -54,8 +54,10 @@ function translate(error: unknown): AuthError {
       weak_password: "weak_password",
       same_password: "same_password",
       email_address_invalid: "invalid_email",
-      validation_failed: "invalid_email",
       otp_expired: "expired_code",
+      // A link that was already used, or waited too long.
+      flow_state_not_found: "expired_code",
+      flow_state_expired: "expired_code",
       // PKCE links only finish where they were requested.
       pkce_code_verifier_not_found: "other_device",
       over_email_send_rate_limit: "rate_limited",
@@ -66,6 +68,10 @@ function translate(error: unknown): AuthError {
       signup_disabled: "provider_unavailable",
     };
     if (map[code]) return new AuthError(map[code], error.message);
+    // Supabase reports many kinds of bad input this way; only an address
+    // it couldn't accept is the email field's to fix.
+    if (code === "validation_failed")
+      return new AuthError(/email/i.test(error.message) ? "invalid_email" : "unknown", error.message);
     if (error.status === 429) return new AuthError("rate_limited", error.message);
     if (error.name === "AuthRetryableFetchError" || error.status === 0)
       return new AuthError("network", error.message);
@@ -171,6 +177,8 @@ export function createSupabaseBackend(): AuthBackend {
       const value = query[key];
       return typeof value === "string" ? value : undefined;
     };
+    // Declining on the provider's consent screen is a cancel, as on the web.
+    if (param("error") === "access_denied") return { status: "cancelled" };
     const failure = param("error_description") ?? param("error");
     if (failure) throw new AuthError("provider_unavailable", failure);
     const code = param("code");
@@ -233,14 +241,22 @@ export function createSupabaseBackend(): AuthBackend {
       return { status: "signedIn" };
     },
     async resendCode(email, purpose) {
+      // The same return address as the first email, so the link in a resent
+      // one opens the app too (and carries a new PKCE challenge).
+      const redirect = authRedirect();
       if (purpose === "sign-in") {
         await run(() =>
-          client.auth.signInWithOtp({ email, options: { shouldCreateUser: true } }),
+          client.auth.signInWithOtp({
+            email,
+            options: { shouldCreateUser: true, emailRedirectTo: redirect },
+          }),
         );
       } else if (purpose === "confirm") {
-        await run(() => client.auth.resend({ type: "signup", email }));
+        await run(() =>
+          client.auth.resend({ type: "signup", email, options: { emailRedirectTo: redirect } }),
+        );
       } else {
-        await run(() => client.auth.resetPasswordForEmail(email));
+        await run(() => client.auth.resetPasswordForEmail(email, { redirectTo: redirect }));
       }
     },
     async signInWithApple() {
@@ -268,30 +284,46 @@ export function createSupabaseBackend(): AuthBackend {
         throw new AuthError("provider_unavailable", String(error));
       }
       if (!credential.identityToken) throw new AuthError("provider_unavailable");
-      const data = await run(() =>
-        client.auth.signInWithIdToken({
-          provider: "apple",
-          token: credential.identityToken!,
-          nonce: rawNonce,
-        }),
-      );
-      // Apple shares the name only on the very first sign-in; keep it.
+      try {
+        await run(() =>
+          client.auth.signInWithIdToken({
+            provider: "apple",
+            token: credential.identityToken!,
+            nonce: rawNonce,
+          }),
+        );
+      } catch (error) {
+        // A token Supabase won't accept (an app ID missing from the Apple
+        // provider's Client IDs, a nonce mismatch) is the option being
+        // unavailable, not something the viewer typed.
+        const code = (error as AuthError).code;
+        if (code === "unknown" || code === "invalid_email")
+          throw new AuthError("provider_unavailable", (error as Error).message);
+        throw error;
+      }
+      // Apple shares the name only on the very first sign-in. The account
+      // saves it to the profile once that has loaded, and keeps trying
+      // until it's saved, so a failed write doesn't lose it for good.
       const name = [credential.fullName?.givenName, credential.fullName?.familyName]
         .filter(Boolean)
-        .join(" ");
-      if (name && data.user) {
-        await client
-          .from("profiles")
-          .update({ display_name: name })
-          .eq("id", data.user.id)
-          .is("display_name", null);
-      }
-      return { status: "signedIn" };
+        .join(" ")
+        .trim();
+      return name ? { status: "signedIn", name } : { status: "signedIn" };
     },
     signInWithGoogle: () => oauth("google"),
     async exchangeCode(code) {
       // On web, supabase-js may already have exchanged it on load.
       const { data } = await client.auth.getSession();
+      if (!data.session && Platform.OS === "web") {
+        // If that exchange failed (a link already used, or too old),
+        // supabase-js has dropped the link's verifier, so exchanging again
+        // would wrongly say the link belongs to another device. Its own
+        // error says what happened. (A dropped connection keeps the
+        // verifier, so that one is worth another try below.)
+        const { error } = await client.auth.initialize();
+        const failure = error ? translate(error) : null;
+        if (failure && failure.code !== "network") throw failure;
+      }
       // Exchanging a reset link's code reports PASSWORD_RECOVERY too.
       if (!data.session) await run(() => client.auth.exchangeCodeForSession(code));
       const recovery = recoveryLink;

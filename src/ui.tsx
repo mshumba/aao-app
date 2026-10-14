@@ -4,6 +4,7 @@ import React, {
   PropsWithChildren,
   ReactNode,
   Ref,
+  useRef,
   useState,
 } from "react";
 import {
@@ -33,7 +34,7 @@ import { CategoryId, getCategory } from "./data/categories";
 import { eventLine, headline } from "./data/display";
 import { Sermon, sermonCategoryIds } from "./data/sermons";
 import { useReducedMotion } from "./motion";
-import { useGo } from "./navigation";
+import { useGo, usePageTitle } from "./navigation";
 import { useDockInset } from "./player/useDockInset";
 import { c, easeOut, font, press, radius, space, type } from "./theme";
 export { c };
@@ -76,6 +77,73 @@ export function moveFocus(node: View | null) {
   if (!node) return;
   if (Platform.OS === "web") (node as unknown as HTMLElement).focus();
   else AccessibilityInfo.sendAccessibilityEvent(node, "focus");
+}
+
+/**
+ * Web: once a dialog or the docked player closes, keyboard focus goes back
+ * to `target` (the control that opened it) if it's still on the page, or
+ * else to the screen's selected tab, Back or Close, rather than dropping to
+ * the top of the document. Left alone if something has already taken focus
+ * (the sermon's Play after Watch).
+ */
+export function returnFocus(target?: Element | null) {
+  if (Platform.OS !== "web") return;
+  setTimeout(() => {
+    const active = document.activeElement;
+    if (active && active !== document.body && active.isConnected) return;
+    const shown = (node: Element): node is HTMLElement =>
+      node instanceof HTMLElement &&
+      node.isConnected &&
+      !node.closest('[aria-hidden="true"], [inert]');
+    if (target && target !== document.body && shown(target)) {
+      target.focus();
+      if (document.activeElement === target) return;
+    }
+    Array.from(
+      document.querySelectorAll(
+        '[role="tab"][aria-selected="true"], [aria-label="Back"], [aria-label="Close"]',
+      ),
+    )
+      .find(shown)
+      ?.focus();
+  }, 0);
+}
+
+/** A key press on the web, as react-native-web passes it to handlers. */
+export type WebKey = { key: string; preventDefault: () => void };
+
+/**
+ * Web keyboard for a group of radios, as the ARIA radio group pattern
+ * expects: one Tab stop (the checked option, or the first), and the arrow
+ * keys move to the next or previous option and select it, wrapping round.
+ * Spread the result for each option onto its Tap.
+ */
+export function useRadioKeys<K extends string>(
+  keys: readonly K[],
+  checked: K | undefined,
+  select: (key: K) => void,
+) {
+  const nodes = useRef<Partial<Record<K, View | null>>>({});
+  const stop = checked !== undefined && keys.includes(checked) ? checked : keys[0];
+  return (key: K) => ({
+    ref: (node: View | null) => {
+      nodes.current[key] = node;
+    },
+    ...web({ tabIndex: key === stop ? 0 : -1 }),
+    onWebKey: (e: WebKey) => {
+      const step =
+        e.key === "ArrowRight" || e.key === "ArrowDown"
+          ? 1
+          : e.key === "ArrowLeft" || e.key === "ArrowUp"
+            ? -1
+            : 0;
+      if (!step) return;
+      e.preventDefault();
+      const next = keys[(keys.indexOf(key) + step + keys.length) % keys.length];
+      select(next);
+      moveFocus(nodes.current[next] ?? null);
+    },
+  });
 }
 
 /**
@@ -186,6 +254,7 @@ export function Tap({
   onPress,
   onPressIn,
   onPressOut,
+  onWebKey,
   ref,
   ...rest
 }: Omit<PressableProps, "style"> & {
@@ -194,6 +263,8 @@ export function Tap({
   highlightColor?: string;
   busy?: boolean;
   ref?: Ref<View>;
+  /** Web only: other keys this control handles (a radio group's arrows). */
+  onWebKey?: (e: WebKey) => void;
 }) {
   const [pressed, setPressed] = useState(false);
   const reduced = useReducedMotion();
@@ -225,16 +296,17 @@ export function Tap({
           }
         : null)}
       // On web, Space selects radios and tabs as it does native controls.
-      {...(role === "radio" || role === "tab"
+      {...(role === "radio" || role === "tab" || onWebKey
         ? web({
-            onKeyDown: (e: {
-              key: string;
-              preventDefault: () => void;
-            }) => {
-              if ((e.key === " " || e.key === "Spacebar") && !disabled && !busy) {
+            onKeyDown: (e: WebKey) => {
+              const space = e.key === " " || e.key === "Spacebar";
+              if (space && (role === "radio" || role === "tab")) {
+                if (disabled || busy) return;
                 e.preventDefault();
                 onPress?.(e as never);
+                return;
               }
+              onWebKey?.(e);
             },
           })
         : null)}
@@ -476,6 +548,7 @@ export function PageTitle({
   lead,
   children,
 }: PropsWithChildren<{ title: string; lead?: ReactNode }>) {
+  usePageTitle(title);
   return (
     <View style={s.pageTitleBlock}>
       {children}
@@ -557,6 +630,8 @@ export function StatePanel({
   tone?: "neutral" | "error";
   level?: 1 | 2;
 }) {
+  // A panel that is the page's heading names the page.
+  usePageTitle(level === 1 ? title : null);
   return (
     <View style={s.state}>
       <View style={s.stateIcon}>

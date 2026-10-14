@@ -30,9 +30,10 @@ export type GuestWatch = "shared" | "all" | "none";
 export type AuthResult =
   /**
    * Signed in. `recovery` marks a sign-in from a password-reset link, which
-   * should go on to choosing a new password.
+   * should go on to choosing a new password. `name` is the name Apple shares
+   * on the first sign-in only, for the account's profile.
    */
-  | { status: "signedIn"; recovery?: boolean }
+  | { status: "signedIn"; recovery?: boolean; name?: string }
   /** An email with a 6-digit code was sent; verify it to finish. */
   | { status: "codeSent"; email: string; purpose: CodePurpose }
   /** The viewer closed Apple's or Google's sheet. Not an error. */

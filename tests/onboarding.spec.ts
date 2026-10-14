@@ -1,4 +1,14 @@
-import { CODE, expect, fakeYouTube, shown, tab, test, ytLog } from "./fixtures";
+import {
+  CODE,
+  expect,
+  fakeYouTube,
+  goOffline,
+  goOnline,
+  shown,
+  tab,
+  test,
+  ytLog,
+} from "./fixtures";
 
 // A first launch: no account, no onboarding yet.
 test.use({ viewer: "new" });
@@ -28,6 +38,8 @@ test("Get started picks topics, creates an account and starts watching", async (
   await expect(
     page.getByRole("heading", { name: "What would you like to grow in?" }),
   ).toBeVisible();
+  // How far there is to go is written out, not only drawn.
+  await expect(shown(page.getByText("Step 1 of 3", { exact: true }))).toBeVisible();
   const prayer = page.getByRole("checkbox", { name: /Prayer/ });
   await prayer.click();
   await expect(prayer).toHaveAttribute("aria-checked", "true");
@@ -37,6 +49,7 @@ test("Get started picks topics, creates an account and starts watching", async (
   await expect(
     page.getByRole("heading", { name: "Create your free account" }),
   ).toBeVisible();
+  await expect(shown(page.getByText("Step 2 of 3", { exact: true }))).toBeVisible();
   await page.getByTestId("continue-email").click();
   await page.getByTestId("email-input").fill("ada@example.com");
   await page.getByTestId("email-send-code").click();
@@ -46,6 +59,7 @@ test("Get started picks topics, creates an account and starts watching", async (
   await expect(
     page.getByRole("heading", { name: "What should we call you?" }),
   ).toBeVisible();
+  await expect(shown(page.getByText("Step 3 of 3", { exact: true }))).toBeVisible();
   await page.getByTestId("name-input").fill("Ada");
   await page.getByTestId("name-continue").click();
 
@@ -90,4 +104,30 @@ test("I already have an account signs in and skips the rest", async ({ page }) =
   ).toBeVisible();
   await page.getByTestId("done-home").click();
   await expect(tab(page, "Home")).toHaveAttribute("aria-selected", "true");
+});
+
+test("Apple's name is kept until the account can save it", async ({ page }) => {
+  await page.goto("/");
+  await page.getByTestId("welcome-get-started").click();
+  await page.getByTestId("topics-continue").click();
+  await expect(
+    page.getByRole("heading", { name: "Create your free account" }),
+  ).toBeVisible();
+  // The connection drops as Apple hands over: the account's profile can't
+  // be read, nor Apple's name saved to it.
+  await goOffline(page);
+  await page.getByTestId("continue-apple").click();
+  // No asking for a name the account may already have; a way on instead.
+  await expect(page.getByTestId("name-skip")).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "What should we call you?" }),
+  ).toHaveCount(0);
+
+  await goOnline(page);
+  // Apple's name reaches the profile, and onboarding carries on with it.
+  await expect(
+    page.getByRole("heading", { name: /You’re all set, Apple/ }),
+  ).toBeVisible();
+  await page.getByTestId("done-home").click();
+  await expect(shown(page.getByText(/, Apple/))).toBeVisible();
 });

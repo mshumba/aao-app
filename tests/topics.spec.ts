@@ -244,3 +244,32 @@ test("Home's search field keeps what the Search tab holds", async ({
     page.getByRole("radio", { name: "Prayer", exact: true }),
   ).toBeChecked();
 });
+
+test("keyboard: topic filters are one Tab stop, and the arrows move and select", async ({
+  page,
+}) => {
+  await page.goto("/search");
+  const radios = page.getByRole("radiogroup", { name: "Filter by topic" }).getByRole("radio");
+  const all = page.getByRole("radio", { name: "All", exact: true });
+  await expect(page.locator('[role="radio"][tabindex="0"]')).toHaveCount(1);
+  await expect(all).toHaveAttribute("tabindex", "0");
+  await all.focus();
+  await page.keyboard.press("ArrowRight");
+  const second = radios.nth(1);
+  await expect(second).toBeChecked();
+  await expect(second).toBeFocused();
+  await expect(second).toHaveAttribute("tabindex", "0");
+  await expect(all).toHaveAttribute("tabindex", "-1");
+  await page.keyboard.press("ArrowLeft");
+  await expect(all).toBeChecked();
+  await expect(all).toBeFocused();
+  // Wraps from the first to the last.
+  await page.keyboard.press("ArrowUp");
+  await expect(radios.last()).toBeChecked();
+  await expect(radios.last()).toBeFocused();
+  // Tab leaves the group rather than stepping through every chip.
+  await page.keyboard.press("Tab");
+  expect(
+    await page.evaluate(() => document.activeElement?.getAttribute("role")),
+  ).not.toBe("radio");
+});

@@ -122,7 +122,7 @@ function NewPasswordForm() {
         />
       }
     >
-      <FlowTitle title="Choose a new password" />
+      <FlowTitle serif={false} title="Choose a new password" />
       <AuthField
         id="new-password-input"
         kind="new-password"

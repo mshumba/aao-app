@@ -19,13 +19,14 @@ import { CategoryId, getCategory } from "../../data/categories";
 import { eventLine, headline } from "../../data/display";
 import { Sermon, sermonCategoryIds, sermons } from "../../data/sermons";
 import { useReducedMotion } from "../../motion";
-import { useGo } from "../../navigation";
+import { useGo, usePageTitle } from "../../navigation";
 import { font, radius, space, type } from "../../theme";
 import {
   Heading,
   Icon,
   SermonTitle,
   T,
+  Tap,
   TextButton,
   Thumbnail,
   c,
@@ -59,6 +60,7 @@ export default function OnboardingDone() {
 
   const first = account.displayName?.trim().split(/\s+/)[0];
   const title = first ? `You’re all set, ${first}` : "You’re all set";
+  usePageTitle(title);
   const { sermon, lead } = recommend(account.interests);
   const kicker = topicLabels(sermon, lead).slice(0, 2).join(" · ");
   // Signed in, or a guest when playback is open to guests.
@@ -112,14 +114,16 @@ export default function OnboardingDone() {
       </View>
 
       <View style={{ gap: space.md }}>
-        <T style={s.lead}>Here’s a place to start.</T>
-        <View
+        <T style={[s.lead, styles.caption]}>Here’s a place to start.</T>
+        {/* Looks like the app's other sermon cards, so it does what they do:
+            the same action as the button below. */}
+        <Tap
+          accessibilityRole="button"
+          accessibilityLabel={`${playable ? "Start watching" : "View sermon"}: ${sermonLabel(sermon, lead)}`}
+          onPress={start}
+          feedback="scaleLarge"
           style={styles.card}
-          // One stop for screen readers on native; a labelled group on web,
-          // where an accessible View would also take keyboard focus.
-          accessible={Platform.OS !== "web"}
-          accessibilityLabel={`Recommended: ${sermonLabel(sermon, lead)}`}
-          {...web({ role: "group", "aria-label": "Recommended sermon" })}
+          testID="done-recommended"
         >
           <Thumbnail sermon={sermon} duration />
           <View style={styles.cardBody}>
@@ -129,7 +133,7 @@ export default function OnboardingDone() {
               {eventLine(sermon)} · {nowrap(sermon.date)}
             </T>
           </View>
-        </View>
+        </Tap>
       </View>
     </FlowScreen>
   );
@@ -162,7 +166,7 @@ function Check({ reduced }: { reduced: boolean }) {
   );
 }
 
-/** The topics they picked, as quiet tags. */
+/** The topics they picked, as quiet labels (sand, no edge: not buttons). */
 function TopicChips({ ids }: { ids: CategoryId[] }) {
   const labels = ids.map((id) => getCategory(id)?.label).filter(Boolean) as string[];
   return (
@@ -211,14 +215,13 @@ const styles = StyleSheet.create({
     minHeight: 32,
     paddingHorizontal: space.md,
     borderRadius: radius.pill,
-    borderWidth: 1,
-    borderColor: c.border,
-    backgroundColor: c.surface,
+    backgroundColor: c.feature,
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
   },
   chipLabel: { ...type.label, fontSize: 14, lineHeight: 20 },
+  caption: { textAlign: "center" },
   // White on the ivory page, edged with a hairline rather than a shadow.
   card: {
     borderRadius: radius.lg,

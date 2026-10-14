@@ -24,8 +24,12 @@ import { font, space, type } from "../../theme";
 import { useToast } from "../../toast";
 import { StatePanel, T, TextButton, c, s } from "../../ui";
 
-/** Seconds before another code can be sent, matching the service's limit. */
-const RESEND_SECONDS = 30;
+/**
+ * Seconds before another code can be sent: Supabase allows one email per
+ * address a minute (Auth → Rate Limits), so an earlier resend would only be
+ * refused.
+ */
+const RESEND_SECONDS = 60;
 
 const why: Record<CodePurpose, string> = {
   "sign-in": "",
@@ -134,6 +138,7 @@ function CodeForm({
     >
       <View>
         <FlowTitle
+          serif={false}
           title="Check your email"
           lead={
             <>

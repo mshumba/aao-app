@@ -28,7 +28,7 @@ import { NowPlaying } from "../../player/NowPlaying";
 import { usePlayerSession } from "../../player/PlayerProvider";
 import { canRetry, canWatchOnYouTube, playerError } from "../../player/types";
 import { useDockInset } from "../../player/useDockInset";
-import { exitTo, firstParam } from "../../navigation";
+import { exitTo, firstParam, usePageTitle } from "../../navigation";
 import { shareSermon } from "../../share";
 import { font, radius, space, type } from "../../theme";
 import { useToast } from "../../toast";
@@ -130,6 +130,7 @@ function useStage(id: string) {
 }
 
 function NowPlayingScreen({ sermon }: { sermon: Sermon }) {
+  usePageTitle(headline(sermon));
   const session = usePlayerSession();
   const account = useAccount();
   const gate = useGate();
@@ -252,9 +253,11 @@ function NowPlayingScreen({ sermon }: { sermon: Sermon }) {
             </T>
           </View>
 
-          <SermonActions sermon={sermon} />
-
+          {/* Transport stays with the video it controls; Save and Share
+              follow, as secondary actions. */}
           {current && <NowPlaying focusTransport={watched} scroll={scroll} />}
+
+          <SermonActions sermon={sermon} />
 
           {/* The exact title as published, kept with its source. */}
           <View style={styles.source}>
@@ -306,9 +309,10 @@ function NowPlayingScreen({ sermon }: { sermon: Sermon }) {
 }
 
 /**
- * Save and Share, under the sermon's title. Saving asks a guest for a free
- * account first, then saves once they have one (the gate carries it out).
- * Builds without an account service leave Save out.
+ * Save and Share, under the title (and under the transport once playing).
+ * Saving asks a guest for a free account first, then saves once they have
+ * one (the gate carries it out). Builds without an account service leave
+ * Save out.
  */
 function SermonActions({ sermon }: { sermon: Sermon }) {
   const account = useAccount();

@@ -61,6 +61,7 @@ function ResetForm() {
       }
     >
       <FlowTitle
+        serif={false}
         title="Reset your password"
         lead="We’ll email you a 6-digit code to set a new password."
       />

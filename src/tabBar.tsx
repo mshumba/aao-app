@@ -3,11 +3,14 @@ import type { ComponentProps } from "react";
 import { Platform, StyleSheet, View } from "react-native";
 import { setChrome } from "./player/layout";
 import { font, radius, space } from "./theme";
-import { Icon, IconName, T, Tap, c, pressedTint } from "./ui";
+import { Icon, IconName, T, Tap, c, gradient, pressedTint } from "./ui";
 
 type BottomTabBarProps = Parameters<
   NonNullable<ComponentProps<typeof Tabs>["tabBar"]>
 >[0];
+
+// How far the bar's fade reaches up over the page.
+const FADE = space.xl;
 
 const icons: Record<string, [IconName, IconName]> = {
   index: ["home", "home-outline"],
@@ -23,12 +26,19 @@ const icons: Record<string, [IconName, IconName]> = {
  * Labels stop growing at 1.4× (as system tab bars don't scale); on iOS a long
  * press shows the large content viewer instead. The docked player sits on top
  * of the bar, so its real height is shared.
+ *
+ * The bar overlaps the bottom of the page by FADE and fades it out there, so
+ * content scrolling down meets a soft edge rather than a hard cut above the
+ * pill. The fade passes touches through to the page.
  */
 export function TabBar({ state, descriptors, navigation, insets }: BottomTabBarProps) {
   return (
     <View
+      pointerEvents="box-none"
       style={[styles.wrap, { paddingBottom: insets.bottom + space.sm }]}
-      onLayout={(e) => setChrome("tabBar", e.nativeEvent.layout.height)}
+      // The fade sits over the page, so the dock and toasts measure from
+      // the bar below it.
+      onLayout={(e) => setChrome("tabBar", e.nativeEvent.layout.height - FADE)}
     >
       <View style={styles.pill} accessibilityRole="tablist">
         {state.routes.map((route, index) => {
@@ -77,9 +87,11 @@ export function TabBar({ state, descriptors, navigation, insets }: BottomTabBarP
 
 const styles = StyleSheet.create({
   wrap: {
-    backgroundColor: c.bg,
-    paddingTop: space.sm,
+    marginTop: -FADE,
+    paddingTop: FADE + space.sm,
     paddingHorizontal: space.md,
+    backgroundColor: "transparent",
+    ...gradient(`linear-gradient(180deg, ${c.bg}00 0%, ${c.bg} ${FADE}px)`),
   },
   pill: {
     flexDirection: "row",

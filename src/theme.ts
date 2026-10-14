@@ -44,7 +44,9 @@ export const space = {
   lg: 16,
   xl: 24,
   xxl: 32,
-  gutter: 22,
+  // The one page gutter: app pages, onboarding and sign-in steps and the
+  // sign-up sheet all start their content here, on the 4pt scale.
+  gutter: 24,
 };
 
 export const radius = {

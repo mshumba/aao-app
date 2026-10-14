@@ -66,6 +66,23 @@ export function exitTo(href: "/" | "/topics") {
   setTimeout(() => router.navigate(href), 0);
 }
 
+const APP_NAME = "AAO";
+
+/**
+ * Names the browser tab and history entry after the screen on the web
+ * ("Search · AAO"), so pages are told apart in tabs, history and by screen
+ * readers. Set each time the screen comes to the front, since screens under
+ * it (and other tabs) stay mounted.
+ */
+export function usePageTitle(title?: string | null) {
+  useFocusEffect(
+    useCallback(() => {
+      if (Platform.OS !== "web" || !title) return;
+      document.title = `${title} · ${APP_NAME}`;
+    }, [title]),
+  );
+}
+
 /** Route params can repeat (?q=a&q=b) and arrive as arrays; use the first. */
 export function firstParam(value?: string | string[]) {
   return Array.isArray(value) ? value[0] : value;

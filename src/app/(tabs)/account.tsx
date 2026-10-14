@@ -10,7 +10,7 @@ import {
 } from "react-native";
 import { useAccount } from "../../auth/AccountProvider";
 import type { Provider } from "../../auth/types";
-import { FormAlert, useAuthTask } from "../../auth/ui";
+import { AccountBenefits, FormAlert, useAuthTask } from "../../auth/ui";
 import { getCategory } from "../../data/categories";
 import { sermons } from "../../data/sermons";
 import { useGo } from "../../navigation";
@@ -58,7 +58,7 @@ export default function AccountTab() {
   const task = useAuthTask();
   const user = account.user;
   // The profile and saved list arrive a moment after the session.
-  const loaded = !!account.profile;
+  const loaded = account.loaded;
 
   const topics = account.interests
     .map((id) => getCategory(id)?.label)
@@ -95,7 +95,11 @@ export default function AccountTab() {
             title: "Name",
             icon: "person-outline",
             route: "/account/name",
-            value: loaded ? account.displayName?.trim() || "Not set" : undefined,
+            value: account.profile
+              ? account.displayName?.trim() || "Not set"
+              : account.profileError
+                ? "Couldn’t load"
+                : undefined,
           } satisfies Row,
         ]
       : []),
@@ -245,14 +249,6 @@ function ProfileCard() {
 function GuestCard() {
   const account = useAccount();
   const go = useGo();
-  const benefits: { icon: IconName; text: string }[] = [
-    // Not a benefit when guests can already watch everything.
-    ...(account.guestWatch === "all"
-      ? []
-      : [{ icon: "play-circle-outline" as const, text: "Watch every sermon" }]),
-    { icon: "bookmark-outline", text: "Save sermons to come back to" },
-    { icon: "albums-outline", text: "Keep your topics on any device" },
-  ];
   return (
     <View style={styles.card}>
       <View style={styles.cardHead}>
@@ -263,14 +259,7 @@ function GuestCard() {
           Create your free account
         </Heading>
       </View>
-      <View style={styles.benefits} role="list">
-        {benefits.map((benefit) => (
-          <View key={benefit.text} style={styles.benefit} role="listitem">
-            <Icon name={benefit.icon} color={c.accent} size={20} />
-            <T style={styles.benefitText}>{benefit.text}</T>
-          </View>
-        ))}
-      </View>
+      <AccountBenefits />
       <View style={styles.actions}>
         <Button
           label="Create free account"
@@ -395,9 +384,6 @@ const styles = StyleSheet.create({
     color: c.accent,
   },
   cardTitle: { ...type.heading, flex: 1 },
-  benefits: { gap: space.md },
-  benefit: { flexDirection: "row", alignItems: "flex-start", gap: space.md },
-  benefitText: { ...type.body, flex: 1, color: c.text },
   actions: { gap: space.md },
   profile: { flexDirection: "row", alignItems: "center", gap: space.lg },
   profileText: { flex: 1, gap: 2 },

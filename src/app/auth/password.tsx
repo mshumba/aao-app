@@ -94,6 +94,18 @@ function PasswordForm() {
     await after(result, { email: value });
   }
 
+  // Signed up earlier but never entered the code: email a fresh one to
+  // confirm the address, which also signs in.
+  async function confirmEmail() {
+    const value = email.trim();
+    let sent = false;
+    await task.run("confirm", async () => {
+      await account.resendCode(value, "confirm");
+      sent = true;
+    });
+    if (sent) await after({ status: "codeSent", email: value, purpose: "confirm" });
+  }
+
   // Back to the code step when it's underneath; otherwise open it.
   function toCode() {
     const routes = navigation.getState()?.routes ?? [];
@@ -118,7 +130,7 @@ function PasswordForm() {
           />
           {signUp ? (
             <SwitchLine
-              prompt="Have an account?"
+              prompt="Already have an account?"
               label="Sign in"
               testID="password-switch"
               disabled={busy}
@@ -136,7 +148,10 @@ function PasswordForm() {
         </>
       }
     >
-      <FlowTitle title={signUp ? "Create your account" : "Sign in with your password"} />
+      <FlowTitle
+        serif={false}
+        title={signUp ? "Create your account" : "Sign in with your password"}
+      />
       <View style={styles.fields}>
         <AuthField
           id="password-email"
@@ -206,6 +221,15 @@ function PasswordForm() {
               testID="password-sign-in-instead"
               align="start"
               onPress={() => switchMode("sign-in")}
+            />
+          )}
+          {failed === "email_not_confirmed" && (
+            <TextButton
+              label="Send a new code"
+              testID="password-confirm-email"
+              align="start"
+              disabled={busy}
+              onPress={confirmEmail}
             />
           )}
         </View>

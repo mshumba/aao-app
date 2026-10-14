@@ -14,6 +14,7 @@ import {
   Thumbnail,
   c,
   s,
+  useRadioKeys,
 } from "../ui";
 
 const options = [
@@ -49,6 +50,11 @@ export default function States() {
 
 function Samples() {
   const [state, setState] = useState<Sample>("empty");
+  const radio = useRadioKeys(
+    options.map((option) => option.id),
+    state,
+    setState,
+  );
   return (
     <Page>
       <Header back />
@@ -66,6 +72,7 @@ function Samples() {
           return (
             <Tap
               key={option.id}
+              {...radio(option.id)}
               accessibilityRole="radio"
               accessibilityLabel={option.label}
               aria-checked={selected}

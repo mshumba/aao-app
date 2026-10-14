@@ -8,8 +8,9 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { AppState, Platform } from "react-native";
 import { CategoryId, categories } from "../data/categories";
-import { keys, readJSON, writeJSON } from "../lib/storage";
+import { keys, readJSON, removeKey, writeJSON } from "../lib/storage";
 import { authMode, enabledMethods } from "./config";
 import { createLocalBackend } from "./localBackend";
 import { createSupabaseBackend } from "./supabaseBackend";
@@ -41,7 +42,10 @@ function need(): AuthBackend {
 type Onboarding = {
   /** Finished or skipped the welcome flow. */
   welcomed: boolean;
-  /** Topics chosen during onboarding, before any account existed. */
+  /**
+   * Topics chosen as a guest. They move into the first account that signs
+   * in (or give way to its own), so they're empty while signed in.
+   */
   interests: CategoryId[];
 };
 
@@ -51,8 +55,21 @@ type Account = {
   mode: typeof authMode;
   methods: typeof enabledMethods;
   user: AuthUser | null;
+  /** The account's profile: null while it loads, and when loading failed. */
   profile: Profile | null;
+  /**
+   * The profile couldn't be loaded (not just empty). It's tried again
+   * shortly, and when the viewer comes back to the app.
+   */
+  profileError: boolean;
+  /** Fetches the profile again now. Never throws; a failure keeps profileError. */
+  reloadProfile: () => Promise<void>;
   displayName: string | null;
+  /**
+   * The signed-in account's profile and saved list have been asked for and
+   * have answered (or failed). Until then `saved` is empty, not known.
+   */
+  loaded: boolean;
 
   welcomed: boolean;
   /** The viewer's topics: the account's once signed in, else this device's. */
@@ -90,6 +107,24 @@ type Account = {
   deleteAccount: () => Promise<void>;
 };
 
+/** The signed-in account's profile and saved list. */
+type AccountData = {
+  /** The account they belong to, so another account never shows them. */
+  userId: string;
+  /** Null when it couldn't be loaded; it's fetched again (profileError). */
+  profile: Profile | null;
+  /** What this device added to the profile (guest topics, Apple's name) isn't saved yet. */
+  unsynced: boolean;
+  saved: string[];
+  savedError: boolean;
+};
+
+/** A save or unsave, and when it reached the service (an edit sequence number). */
+type SavedEdit = { saved: boolean; settled: number | null };
+
+/** The name Apple gave for a new account, until its profile has it. */
+type PendingName = { userId: string; name: string };
+
 const AccountContext = createContext<Account | null>(null);
 
 const validTopic = (id: string): id is CategoryId =>
@@ -98,14 +133,7 @@ const validTopic = (id: string): id is CategoryId =>
 export function AccountProvider({ children }: { children: ReactNode }) {
   const [restored, setRestored] = useState(false);
   const [user, setUser] = useState<AuthUser | null>(null);
-  // Profile and saved list, tagged with the account they belong to, so a
-  // sign-out or account switch never shows the previous account's data.
-  const [data, setData] = useState<{
-    userId: string;
-    profile: Profile;
-    saved: string[];
-    savedError: boolean;
-  } | null>(null);
+  const [data, setData] = useState<AccountData | null>(null);
   const [onboarding, setOnboarding] = useState<Onboarding | null>(null);
   const [passes, setPasses] = useState<string[]>([]);
   const [guestWatch, setGuestWatch] = useState<GuestWatch>("shared");
@@ -114,6 +142,15 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     onboardingRef.current = onboarding;
   }, [onboarding]);
+  // Apple's name for a new account, kept (on the device too) until saved.
+  const pendingName = useRef<PendingName | null>(null);
+  // An Apple sign-in still finishing. The profile read waits for it, so the
+  // name it brings is part of that read rather than racing it.
+  const appleSignIn = useRef<Promise<unknown> | null>(null);
+  // Saves and unsaves, laid over every saved list read until one read after
+  // they reached the service: an older read would otherwise undo them.
+  const savedEdits = useRef(new Map<string, SavedEdit>());
+  const editSeq = useRef(0);
 
   // Restore the session and this device's onboarding state together, so
   // the first route decision sees both.
@@ -123,13 +160,15 @@ export function AccountProvider({ children }: { children: ReactNode }) {
       backend?.restore().catch(() => null) ?? Promise.resolve(null),
       readJSON<Onboarding>(keys.onboarding, { welcomed: false, interests: [] }),
       readJSON<string[]>(keys.sharedPasses, []),
-    ]).then(([restoredUser, stored, storedPasses]) => {
+      readJSON<PendingName | null>(keys.pendingName, null),
+    ]).then(([restoredUser, stored, storedPasses, storedName]) => {
       if (!active) return;
       setOnboarding({
         welcomed: !!stored.welcomed,
         interests: (stored.interests ?? []).filter(validTopic),
       });
       setPasses(Array.isArray(storedPasses) ? storedPasses : []);
+      if (storedName?.userId && storedName.name) pendingName.current = storedName;
       setUser(restoredUser);
       setRestored(true);
     });
@@ -155,47 +194,113 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  // Load (and on first sign-in, seed) the account's profile and saved list.
+  const persistOnboarding = useCallback((next: Onboarding) => {
+    onboardingRef.current = next;
+    setOnboarding(next);
+    writeJSON(keys.onboarding, next);
+  }, []);
+
+  const holdName = useCallback((next: PendingName | null) => {
+    pendingName.current = next;
+    if (next) writeJSON(keys.pendingName, next);
+    else removeKey(keys.pendingName);
+  }, []);
+
+  /**
+   * Reads the account's profile and adds what this device holds for it:
+   * topics picked as a guest (moved into an account that has none) and the
+   * name Apple gave at sign-in. Null when the read fails, so a failure is
+   * never taken for an empty profile and written over the real one.
+   */
+  const fetchProfile = useCallback(
+    async (userId: string, welcomed: boolean) => {
+      if (!backend) return null;
+      let loaded: Profile;
+      try {
+        loaded = await backend.getProfile(userId);
+      } catch {
+        return null;
+      }
+      const local = onboardingRef.current;
+      const name =
+        pendingName.current?.userId === userId ? pendingName.current.name : null;
+      // The account already has a name of its own; Apple's isn't needed.
+      if (name && loaded.displayName) holdName(null);
+      const changes: ProfileChanges = {};
+      if (!loaded.interests.length && local?.interests.length)
+        changes.interests = local.interests;
+      if (!loaded.onboardedAt && welcomed) changes.onboardedAt = new Date().toISOString();
+      if (name && !loaded.displayName) changes.displayName = name;
+      let synced = true;
+      if (Object.keys(changes).length)
+        synced = await backend.updateProfile(userId, changes).then(
+          () => true,
+          () => false,
+        );
+      if (synced) {
+        if (changes.displayName) holdName(null);
+        // While signed in, topics live with the account: the guest's moved
+        // into it, or it had its own. Either way they're no longer the
+        // device's, so they can't fill some later account or outlive
+        // signing out.
+        const now = onboardingRef.current;
+        if (now?.interests.length) persistOnboarding({ ...now, interests: [] });
+      }
+      const profile = { ...loaded, ...changes };
+      return {
+        profile: { ...profile, interests: profile.interests.filter(validTopic) },
+        synced,
+      };
+    },
+    [holdName, persistOnboarding],
+  );
+
+  /** The saved list with recent saves laid over it; null when it fails. */
+  const fetchSaved = useCallback(async (userId: string) => {
+    if (!backend) return null;
+    const since = editSeq.current;
+    let list: string[];
+    try {
+      list = await backend.listSaved(userId);
+    } catch {
+      return null;
+    }
+    savedEdits.current.forEach((edit, sermonId) => {
+      // It reached the service before this read began, so the list has it.
+      if (edit.settled !== null && edit.settled <= since) {
+        savedEdits.current.delete(sermonId);
+        return;
+      }
+      const rest = list.filter((id) => id !== sermonId);
+      list = edit.saved ? [sermonId, ...rest] : rest;
+    });
+    return list;
+  }, []);
+
+  // Load the account's profile and saved list.
   const userId = user?.id ?? null;
-  const mine = data && data.userId === userId ? data : null;
-  const profile = mine?.profile ?? null;
-  const saved = useMemo(() => mine?.saved ?? [], [mine]);
-  const savedError = !!mine?.savedError;
   useEffect(() => {
     if (!userId || !backend) return;
     let active = true;
+    // Another account's saves don't carry over.
+    savedEdits.current.clear();
     (async () => {
+      await appleSignIn.current;
+      const welcomed = !!onboardingRef.current?.welcomed;
       const [loaded, list] = await Promise.all([
-        backend.getProfile(userId).catch(() => null),
+        fetchProfile(userId, welcomed),
         // A failure is kept apart from an empty list, so Saved can offer a retry.
-        backend.listSaved(userId).catch(() => null),
+        fetchSaved(userId),
       ]);
       if (!active) return;
-      let next = loaded ?? { displayName: null, interests: [], onboardedAt: null };
-      // Topics picked as a guest carry over to a new account.
-      const local = onboardingRef.current;
       // Anyone who has signed in on this device has seen the app; signing
       // out later shouldn't bring the welcome back.
-      if (local && !local.welcomed) {
-        const welcomed = { ...local, welcomed: true };
-        onboardingRef.current = welcomed;
-        setOnboarding(welcomed);
-        writeJSON(keys.onboarding, welcomed);
-      }
-      if (local && (!next.interests.length || !next.onboardedAt)) {
-        const changes: ProfileChanges = {};
-        if (!next.interests.length && local.interests.length)
-          changes.interests = local.interests;
-        if (!next.onboardedAt && local.welcomed)
-          changes.onboardedAt = new Date().toISOString();
-        if (Object.keys(changes).length) {
-          next = { ...next, ...changes };
-          backend.updateProfile(userId, changes).catch(() => {});
-        }
-      }
+      const local = onboardingRef.current;
+      if (local && !local.welcomed) persistOnboarding({ ...local, welcomed: true });
       setData({
         userId,
-        profile: { ...next, interests: next.interests.filter(validTopic) },
+        profile: loaded?.profile ?? null,
+        unsynced: !!loaded && !loaded.synced,
         saved: list ?? [],
         savedError: !list,
       });
@@ -203,42 +308,107 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     return () => {
       active = false;
     };
-  }, [userId]);
+  }, [userId, fetchProfile, fetchSaved, persistOnboarding]);
 
-  const persistOnboarding = useCallback((next: Onboarding) => {
-    onboardingRef.current = next;
-    setOnboarding(next);
-    writeJSON(keys.onboarding, next);
-  }, []);
+  const mine = data && data.userId === userId ? data : null;
+  const profile = mine?.profile ?? null;
+  const profileError = !!mine && !mine.profile;
+  const needsSync = !!mine && (!mine.profile || mine.unsynced);
+  const saved = useMemo(() => mine?.saved ?? [], [mine]);
+  const savedError = !!mine?.savedError;
 
-  /** Changes this account's profile or saved list in place. */
-  const change = useCallback(
-    (update: (current: { profile: Profile; saved: string[]; savedError: boolean }) => {
-      profile: Profile;
-      saved: string[];
-      savedError: boolean;
-    }) =>
+  /** Reads the profile again; true once it has loaded and is saved. */
+  const refreshProfile = useCallback(
+    async (id: string) => {
+      const loaded = await fetchProfile(id, !!onboardingRef.current?.welcomed);
+      if (!loaded) return false;
       setData((current) =>
-        current && current.userId === userId
-          ? { userId: current.userId, ...update(current) }
+        current && current.userId === id
+          ? { ...current, profile: loaded.profile, unsynced: !loaded.synced }
           : current,
+      );
+      return loaded.synced;
+    },
+    [fetchProfile],
+  );
+
+  // A profile that didn't load (or the device's additions that didn't
+  // save) is tried again: a few times shortly after, then whenever the
+  // viewer comes back to the app or the connection returns.
+  useEffect(() => {
+    if (!userId || !needsSync) return;
+    let active = true;
+    let running = false;
+    let tries = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const attempt = async () => {
+      if (running) return;
+      running = true;
+      clearTimeout(timer);
+      const done = await refreshProfile(userId);
+      running = false;
+      if (!active || done) return;
+      tries += 1;
+      if (tries < 5) timer = setTimeout(attempt, 2000 * 2 ** tries);
+    };
+    timer = setTimeout(attempt, 2000);
+    const appState = AppState.addEventListener("change", (state) => {
+      if (state === "active") attempt();
+    });
+    const web = Platform.OS === "web" && typeof window !== "undefined";
+    if (web) window.addEventListener("online", attempt);
+    return () => {
+      active = false;
+      clearTimeout(timer);
+      appState.remove();
+      if (web) window.removeEventListener("online", attempt);
+    };
+  }, [userId, needsSync, refreshProfile]);
+
+  const reloadProfile = useCallback(async () => {
+    if (userId) await refreshProfile(userId);
+  }, [refreshProfile, userId]);
+
+  /** Changes this account's loaded data in place; nothing before it loads. */
+  const change = useCallback(
+    (update: (current: AccountData) => AccountData) =>
+      setData((current) =>
+        current && current.userId === userId ? update(current) : current,
       ),
     [userId],
+  );
+
+  const updateProfile = useCallback(
+    async (changes: ProfileChanges) => {
+      if (!userId) throw new AuthError("invalid_credentials", "Not signed in");
+      // Optimistic, rolled back if the service refuses.
+      const before = profile;
+      if (before)
+        change((d) => (d.profile ? { ...d, profile: { ...d.profile, ...changes } } : d));
+      try {
+        await need().updateProfile(userId, changes);
+      } catch (error) {
+        if (before) change((d) => ({ ...d, profile: before }));
+        throw error;
+      }
+      // Saved, with no loaded profile to show it in: read the whole one.
+      if (!before) refreshProfile(userId);
+    },
+    [change, profile, refreshProfile, userId],
   );
 
   const setInterests = useCallback(
     async (ids: CategoryId[]) => {
       const clean = ids.filter(validTopic);
+      // Signed in, they're kept with the account only, so an account's
+      // topics never stay on the device after signing out.
+      if (userId && backend) return updateProfile({ interests: clean });
       persistOnboarding({
         welcomed: onboardingRef.current?.welcomed ?? false,
         interests: clean,
       });
-      if (userId && backend) {
-        change((d) => ({ ...d, profile: { ...d.profile, interests: clean } }));
-        await backend.updateProfile(userId, { interests: clean });
-      }
     },
-    [change, persistOnboarding, userId],
+    [persistOnboarding, updateProfile, userId],
   );
 
   const finishWelcome = useCallback(async () => {
@@ -248,7 +418,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     });
     if (userId && backend && !profile?.onboardedAt) {
       const onboardedAt = new Date().toISOString();
-      change((d) => ({ ...d, profile: { ...d.profile, onboardedAt } }));
+      change((d) => (d.profile ? { ...d, profile: { ...d.profile, onboardedAt } } : d));
       await backend.updateProfile(userId, { onboardedAt }).catch(() => {});
     }
   }, [change, persistOnboarding, userId, profile?.onboardedAt]);
@@ -256,16 +426,25 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   const setSaved = useCallback(
     async (sermonId: string, value: boolean) => {
       if (!userId) throw new AuthError("invalid_credentials", "Not signed in");
+      const had = saved.includes(sermonId);
+      const edit: SavedEdit = { saved: value, settled: null };
+      savedEdits.current.set(sermonId, edit);
+      const show = (on: boolean) =>
+        change((d) => {
+          const rest = d.saved.filter((id) => id !== sermonId);
+          return { ...d, saved: on ? [sermonId, ...rest] : rest };
+        });
       // Optimistic, rolled back if the service refuses.
-      const before = saved;
-      change((d) => {
-        const rest = d.saved.filter((id) => id !== sermonId);
-        return { ...d, saved: value ? [sermonId, ...rest] : rest };
-      });
+      show(value);
       try {
         await need().setSaved(userId, sermonId, value);
+        edit.settled = ++editSeq.current;
       } catch (error) {
-        change((d) => ({ ...d, saved: before }));
+        // Unless a later tap has taken its place.
+        if (savedEdits.current.get(sermonId) === edit) {
+          savedEdits.current.delete(sermonId);
+          show(had);
+        }
         throw error;
       }
     },
@@ -273,14 +452,12 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   );
 
   const reloadSaved = useCallback(async () => {
-    if (!userId || !backend) return;
-    try {
-      const list = await backend.listSaved(userId);
-      change((d) => ({ ...d, saved: list, savedError: false }));
-    } catch {
-      change((d) => ({ ...d, savedError: true }));
-    }
-  }, [change, userId]);
+    if (!userId) return;
+    const list = await fetchSaved(userId);
+    change((d) =>
+      list ? { ...d, saved: list, savedError: false } : { ...d, savedError: true },
+    );
+  }, [change, fetchSaved, userId]);
 
   const grantPass = useCallback((sermonId: string) => {
     setPasses((current) => {
@@ -291,34 +468,34 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  const updateProfile = useCallback(
-    async (changes: ProfileChanges) => {
-      if (!userId) throw new AuthError("invalid_credentials", "Not signed in");
-      // Optimistic, rolled back if the service refuses.
-      const before = profile;
-      change((d) => ({ ...d, profile: { ...d.profile, ...changes } }));
-      try {
-        await need().updateProfile(userId, changes);
-      } catch (error) {
-        if (before) change((d) => ({ ...d, profile: before }));
-        throw error;
+  const signInWithApple = useCallback(() => {
+    const attempt = (async () => {
+      const result = await need().signInWithApple();
+      if (result.status === "signedIn" && result.name) {
+        // Kept for the account that just signed in, until its profile has it.
+        const signedIn = await need().restore().catch(() => null);
+        if (signedIn) holdName({ userId: signedIn.id, name: result.name });
       }
-    },
-    [change, profile, userId],
-  );
+      return result;
+    })();
+    appleSignIn.current = attempt.catch(() => {});
+    return attempt;
+  }, [holdName]);
 
   const value = useMemo<Account>(() => {
-    const interests =
-      profile && profile.interests.length
-        ? profile.interests
-        : (onboarding?.interests ?? []);
+    // Signed in, the account's topics once its profile has loaded; until
+    // then, and for guests, this device's.
+    const interests = profile ? profile.interests : (onboarding?.interests ?? []);
     return {
       ready: restored && !!onboarding,
       mode: authMode,
       methods: enabledMethods,
       user,
       profile,
+      profileError,
+      reloadProfile,
       displayName: profile?.displayName ?? null,
+      loaded: !!mine,
       welcomed: !!onboarding?.welcomed || !!profile?.onboardedAt,
       interests,
       setInterests,
@@ -340,14 +517,19 @@ export function AccountProvider({ children }: { children: ReactNode }) {
       verifyCode: (email, code, purpose) =>
         need().verifyCode(email.trim(), code.trim(), purpose),
       resendCode: (email, purpose) => need().resendCode(email.trim(), purpose),
-      signInWithApple: () => need().signInWithApple(),
+      signInWithApple,
       signInWithGoogle: () => need().signInWithGoogle(),
       exchangeCode: (code) => need().exchangeCode(code),
       sendPasswordReset: (email) => need().sendPasswordReset(email.trim()),
       updatePassword: (password) => need().updatePassword(password),
-      signOut: () => need().signOut(),
+      signOut: async () => {
+        await need().signOut();
+        // Nothing of the account stays on the device.
+        holdName(null);
+      },
       deleteAccount: async () => {
         await need().deleteAccount();
+        holdName(null);
         // Topics chosen on this device were part of the account; forget them.
         persistOnboarding({ welcomed: true, interests: [] });
       },
@@ -357,6 +539,9 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     onboarding,
     user,
     profile,
+    profileError,
+    reloadProfile,
+    mine,
     saved,
     savedError,
     reloadSaved,
@@ -367,6 +552,8 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     setSaved,
     grantPass,
     updateProfile,
+    signInWithApple,
+    holdName,
     persistOnboarding,
   ]);
 

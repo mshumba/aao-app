@@ -1,4 +1,4 @@
-import { router, useLocalSearchParams } from "expo-router";
+import { Stack, router, useIsFocused, useLocalSearchParams } from "expo-router";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   Platform,
@@ -30,7 +30,7 @@ import {
 import { eventLine, headline } from "../data/display";
 import { Sermon, sermons } from "../data/sermons";
 import { useReducedMotion } from "../motion";
-import { firstParam, useGo } from "../navigation";
+import { firstParam, useGo, usePageTitle } from "../navigation";
 import { motion } from "../onboarding/parts";
 import { easeOut, font, radius, space, type } from "../theme";
 import {
@@ -38,11 +38,10 @@ import {
   IconButton,
   SermonTitle,
   T,
-  TextButton,
   Thumbnail,
   c,
-  moveFocus,
   noWebOutline,
+  returnFocus,
   s,
   web,
 } from "../ui";
@@ -67,11 +66,14 @@ function leadFor(mode: Mode, reason: Reason, guestsWatch: boolean) {
   if (reason === "save") return "Your saved sermons and topics stay with you on any device.";
   return guestsWatch
     ? "Save sermons and keep your topics on any device."
-    : "Watch every message, save sermons and keep your topics on any device.";
+    : "Watch every sermon in full, save sermons and keep your topics on any device.";
 }
 
 // Close button row above the scrolling part.
 const TOP_ROW = 48;
+// Above the Close row: as much as the sides on the web; on iOS a little
+// more, clear of the sheet's grabber.
+const SHEET_TOP = Platform.OS === "web" ? space.lg : space.xl;
 // Page left visible above the sheet: the native sheet's own gap below the
 // status bar, or on the web a strip of the page, so it reads as a sheet.
 const SHEET_GAP = Platform.OS === "web" ? 56 : 40;
@@ -94,6 +96,8 @@ export default function Join() {
     mode?: string;
     sermon?: string;
     next?: string;
+    /** The pending intent this sheet was opened for (see auth/intent). */
+    intent?: string;
   }>();
   const account = useAccount();
   const go = useGo();
@@ -107,39 +111,49 @@ export default function Join() {
   const next = afterAuthParam(params.next);
   const busy = task.busy !== null;
   const sermonParam = firstParam(params.sermon);
+  const intentId = firstParam(params.intent);
   // Read once, so the sermon stays put while the sheet closes after its
   // intent has been carried out.
   const [sermon, setSermon] = useState<Sermon | null>(() =>
-    findSermon(sermonParam ?? peekPendingIntent()?.sermonId),
+    findSermon(sermonParam ?? peekPendingIntent(intentId)?.sermonId),
   );
-  // After a web reload the intent is only in storage.
   useEffect(() => {
+    // Opened for something else (Account, Saved): an intent left behind by
+    // an abandoned attempt isn't this sign-in's to carry out.
+    if (!intentId) {
+      setPendingIntent(null);
+      return;
+    }
+    // After a web reload the intent is only in storage.
     if (sermonParam) return;
     let active = true;
-    readPendingIntent().then((intent) => {
+    readPendingIntent(intentId).then((intent) => {
       if (active && intent) setSermon((current) => current ?? findSermon(intent.sermonId));
     });
     return () => {
       active = false;
     };
-  }, [sermonParam]);
+  }, [intentId, sermonParam]);
 
-  // Closing without an account (Not now, Close, a swipe down) drops what was
-  // tapped, so it can't run after some later, unrelated sign-in.
+  // Closing without an account (Close, the scrim, a swipe down) drops what was
+  // tapped, so it can't run after some later, unrelated sign-in. Closed while
+  // a sign-in is finishing, it's kept: that sign-in carries it out.
   const signedIn = useRef(!!account.user);
+  const working = useRef(busy);
   useEffect(() => {
     signedIn.current = !!account.user;
-  }, [account.user]);
+    working.current = busy;
+  }, [account.user, busy]);
   useEffect(() => {
     const state = { open: true };
     return () => {
       state.open = false;
       // Deferred, so a development remount isn't mistaken for a close.
       setTimeout(() => {
-        if (!state.open && !signedIn.current) setPendingIntent(null);
+        if (!state.open && !signedIn.current && !working.current) setPendingIntent(null);
       }, 0);
     };
-  }, [signedIn]);
+  }, [signedIn, working]);
 
   function close() {
     // A sign-in in flight finishes or fails first.
@@ -154,6 +168,9 @@ export default function Join() {
   }
 
   const unavailable = account.mode === "unavailable";
+  usePageTitle(
+    unavailable ? UNAVAILABLE_TITLE : mode === "sign-in" ? "Sign in" : headlines[reason],
+  );
   const bottom = Math.max(insets.bottom, space.lg);
   // The Close row grows with the sermon's title at large text sizes.
   const [topRow, setTopRow] = useState(TOP_ROW);
@@ -161,7 +178,7 @@ export default function Join() {
   // top padding, the Close row and the bottom inset are taken.
   const room = Math.max(
     TOP_ROW * 3,
-    height - insets.top - SHEET_GAP - space.sm - topRow - bottom,
+    height - insets.top - SHEET_GAP - SHEET_TOP - topRow - bottom,
   );
 
   const body = unavailable ? (
@@ -207,7 +224,6 @@ export default function Join() {
             onPress={() => switchMode("sign-up")}
           />
         )}
-        <TextButton label="Not now" testID="join-not-now" disabled={busy} onPress={close} />
       </View>
 
       <View style={styles.notice}>
@@ -218,6 +234,8 @@ export default function Join() {
 
   const sheet = (
     <View style={[styles.sheet, { paddingBottom: bottom }]}>
+      {/* No swiping the sheet away while Apple or Google is finishing. */}
+      <Stack.Screen options={{ gestureEnabled: !busy }} />
       <View
         style={styles.column}
         onLayout={(event) => setTopRow(Math.ceil(event.nativeEvent.layout.height))}
@@ -288,8 +306,10 @@ function Context({ sermon }: { sermon: Sermon }) {
 
 /**
  * The web's stand-in for the native sheet: a scrim that closes it, the
- * sheet rising from the bottom edge (a centred dialog on wide windows), a
- * modal dialog to assistive tech, focus moved into it, and Escape to close.
+ * sheet rising from the bottom edge (a centred dialog on wide windows), and
+ * a modal dialog to the keyboard and assistive tech. While it's in front,
+ * the page behind is inert, Tab cycles through the sheet's own controls and
+ * Escape closes it; once closed, focus goes back to what opened it.
  */
 function WebSheet({
   children,
@@ -302,23 +322,51 @@ function WebSheet({
 }) {
   const live = useReducedMotion();
   const [reduced] = useState(live);
+  const backdrop = useRef<View>(null);
   const panel = useRef<View>(null);
   const dismiss = useRef(onDismiss);
   useEffect(() => {
     dismiss.current = onDismiss;
   });
+  // Watch, Save or Sign in, still focused as the sheet first renders.
+  const [opener] = useState(() => document.activeElement);
+  // The control used last inside the sheet, for coming back to it from a
+  // step it opened (the email form, Terms).
+  const last = useRef<HTMLElement | null>(null);
+  // Another screen pushed from the sheet comes to the front over it; only
+  // the screen in front holds focus.
+  const focused = useIsFocused();
 
   useEffect(() => {
-    moveFocus(panel.current);
+    const root = backdrop.current as unknown as HTMLElement | null;
+    const box = panel.current as unknown as HTMLElement | null;
+    if (!focused || !root || !box) return;
+    const silenced = silenceOutside(root);
+    const resume = last.current;
+    // First time, the dialog itself, so its name is read out.
+    (resume?.isConnected && box.contains(resume) ? resume : box).focus();
+    const onFocus = (event: FocusEvent) => {
+      const target = event.target;
+      if (target instanceof HTMLElement && target !== box && box.contains(target))
+        last.current = target;
+    };
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") dismiss.current();
+      else if (event.key === "Tab") keepFocusIn(box, event);
     };
+    document.addEventListener("focusin", onFocus);
     document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, []);
+    return () => {
+      document.removeEventListener("focusin", onFocus);
+      document.removeEventListener("keydown", onKey);
+      for (const node of silenced) node.inert = false;
+    };
+  }, [focused]);
+
+  useEffect(() => () => returnFocus(opener), [opener]);
 
   return (
-    <View style={[styles.backdrop, dialog && styles.backdropDialog]}>
+    <View ref={backdrop} style={[styles.backdrop, dialog && styles.backdropDialog]}>
       <Animated.View
         style={[
           StyleSheet.absoluteFill,
@@ -366,13 +414,56 @@ function WebSheet({
   );
 }
 
+/**
+ * Makes everything on the page outside `root` inert (the screen underneath,
+ * the tab bar, the docked player): it can't be focused, clicked or read out
+ * while the sheet is open. Returns what it changed, to undo exactly that.
+ */
+function silenceOutside(root: HTMLElement) {
+  const silenced: HTMLElement[] = [];
+  let node = root;
+  while (node !== document.body && node.parentElement) {
+    for (const sibling of Array.from(node.parentElement.children)) {
+      if (sibling === node || !(sibling instanceof HTMLElement) || sibling.inert) continue;
+      if (sibling.tagName === "SCRIPT" || sibling.tagName === "STYLE") continue;
+      sibling.inert = true;
+      silenced.push(sibling);
+    }
+    node = node.parentElement;
+  }
+  return silenced;
+}
+
+const TAB_STOPS = "a[href], button, input, select, textarea, [tabindex]";
+
+/** Tab from the last control returns to the first, Shift+Tab the other way. */
+function keepFocusIn(box: HTMLElement, event: KeyboardEvent) {
+  const stops = Array.from(box.querySelectorAll<HTMLElement>(TAB_STOPS)).filter(
+    (node) =>
+      node.tabIndex >= 0 &&
+      !node.hasAttribute("disabled") &&
+      node.getClientRects().length > 0,
+  );
+  const active = document.activeElement;
+  const inside = active instanceof HTMLElement && active !== box && box.contains(active);
+  const first = stops[0];
+  const end = stops[stops.length - 1];
+  if (!first) {
+    event.preventDefault();
+    box.focus();
+  } else if (event.shiftKey ? !inside || active === first : !inside || active === end) {
+    event.preventDefault();
+    (event.shiftKey ? end : first).focus();
+  }
+}
+
 const styles = StyleSheet.create({
-  sheet: { backgroundColor: c.raised, paddingTop: space.sm },
+  sheet: { backgroundColor: c.raised, paddingTop: SHEET_TOP },
   column: {
     width: "100%",
     maxWidth: 560,
     alignSelf: "center",
-    paddingHorizontal: space.xl,
+    paddingHorizontal: space.gutter,
   },
   // Sized to its content up to the room given, then it scrolls.
   scroll: { flexGrow: 0, flexShrink: 1 },

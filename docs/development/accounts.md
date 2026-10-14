@@ -52,11 +52,11 @@ On the ivory app, Sign in with Apple uses Apple's black style: the native `Apple
 
 | Method | How it works | Needs |
 | --- | --- | --- |
-| Sign in with Apple (iOS) | Apple's native sheet (`expo-apple-authentication`), then `signInWithIdToken` with a SHA-256 nonce. Apple gives the name only on the first authorization; it's saved to the profile then. | Paid Apple Developer Program. The Apple provider enabled in Supabase with the bundle ID `com.mshumba.aao` in **Client IDs** (no secret key is needed for native sign-in). The entitlement, which `app.config.ts` adds unless `AAO_PERSONAL_TEAM=1`. |
+| Sign in with Apple (iOS) | Apple's native sheet (`expo-apple-authentication`), then `signInWithIdToken` with a SHA-256 nonce. Apple gives the name only on the first authorization: the sign-in returns it, and `AccountProvider` saves it to the profile once that has loaded, keeping it on the device (`aao.pendingName.v1`) until the write succeeds. Hidden in Expo Go, which signs in as `host.exp.Exponent`. | Paid Apple Developer Program. The Apple provider enabled in Supabase with the bundle ID `com.mshumba.aao` in **Client IDs** (no secret key is needed for native sign-in). The entitlement, which `app.config.ts` adds unless `AAO_PERSONAL_TEAM=1`. |
 | Apple on the web and Android | Supabase's web OAuth flow. Off unless `apple-web` is in `EXPO_PUBLIC_AUTH_METHODS`. | A Services ID and a client secret that Apple makes you regenerate every 6 months |
 | Google | Supabase OAuth with PKCE: an in-app browser sheet (`expo-web-browser`) on iPhone and Android, a redirect on the web. The code comes back to `/auth/callback`. | A Google OAuth web client entered in Supabase, and the redirect URLs in [`supabase/README.md`](../../supabase/README.md) |
 | Email code | `signInWithOtp` (creates the account if needed), then a 6-digit code checked with `verifyOtp` | The Magic Link email template showing `{{ .Token }}` |
-| Email and password | `signUp`, then a code confirms the address. `signInWithPassword` signs in. A reset emails a code, then `/auth/new-password` sets the new password. | The Confirm signup and Reset password templates showing `{{ .Token }}`. "Confirm email" on. |
+| Email and password | `signUp`, then a code confirms the address. `signInWithPassword` signs in; an account whose code was never entered gets **Send a new code**, which emails a fresh confirmation code. A reset emails a code, then `/auth/new-password` sets the new password. | The Confirm signup and Reset password templates showing `{{ .Token }}`. "Confirm email" on. |
 
 Codes, rather than links, mean an email can be opened on any device and no deep link has to survive the mail app. Supabase's built-in email sender is limited to a few messages an hour; set up custom SMTP before inviting testers.
 
@@ -86,7 +86,9 @@ The app reads it at launch and keeps the last value (`aao.guestWatch.v1`) for of
 
 An intent is `{ kind: "watch" | "save", sermonId }`. It's held in memory and in AsyncStorage (`aao.pendingIntent.v1`), because a web sign-in with Apple or Google leaves the page and comes back to `/auth/callback`. It expires after 30 minutes and is cleared before it runs, so it runs at most once.
 
-When an account is ready, `useFinishFlow()` closes every onboarding and sign-in screen on top of the app, then `IntentRunner` carries the intent out: it opens the sermon and starts the player, or saves the sermon and announces it. "Not now" or Close leaves the guest where they were with nothing playing.
+Each intent has an id, passed to the sheet as `/join?intent=<id>`. A sheet opened without it (from Account or Saved) clears any intent left behind, and so does a launch anywhere but `/join` or `/auth/*` (the app or tab was closed part-way), so an abandoned attempt never replays after an unrelated sign-in. A reload part-way, or an email link, keeps it.
+
+When an account is ready, `useFinishFlow()` closes every onboarding and sign-in screen on top of the app, then `IntentRunner` carries the intent out: it opens the sermon and starts the player, or (once the account's saved list has loaded) saves the sermon and announces it. Close leaves the guest where they were with nothing playing. If the sheet is closed while Apple or Google is still finishing (iOS blocks the swipe meanwhile; the web's Back can't be blocked), the screens underneath stay put and the sign-in still carries the intent out.
 
 ## Shared links
 
@@ -98,7 +100,9 @@ On iPhone the link opens the web app. Opening it in the installed app needs univ
 
 A first launch onto a tab, with no account, opens `/welcome` (`FirstRun` in `src/app/_layout.tsx`). Links to a sermon skip it. The flow runs `/welcome` → `/onboarding/topics` → `/onboarding/account` → `/onboarding/name` → `/onboarding/done`. The account step uses the same sign-in screens as the gate, with `next=onboarding`. The name step is skipped when Apple or Google supplied a name. A guest can leave at the welcome or the account step and browse.
 
-Onboarding state lives on the device in `aao.onboarding.v1` as `{ welcomed, interests }`. On first sign-in, topics picked as a guest fill an empty profile, the profile's `onboarded_at` is set, and the device is marked as welcomed, so signing out later doesn't bring the welcome back.
+Onboarding state lives on the device in `aao.onboarding.v1` as `{ welcomed, interests }`. `interests` holds only a guest's topics: while signed in, topic changes go to the profile alone. When an account's profile loads, the guest's topics move into it if it has none (or give way to its own) and leave the device, the profile's `onboarded_at` is set, and the device is marked as welcomed, so signing out later doesn't bring the welcome back and one account's topics never reach the next.
+
+A profile read that fails is kept apart from an empty profile (`profileError`): nothing is seeded or written from it, the name step waits (offering Skip) rather than asking, and the read is retried shortly, on returning to the app and when the connection comes back.
 
 ## Where data is kept
 
@@ -111,7 +115,7 @@ Onboarding state lives on the device in `aao.onboarding.v1` as `{ welcomed, inte
 | Stand-in accounts | `aao.local.session.v1` and `aao.local.data.v1.<userId>`, on the device only |
 | Profile and saved sermons | Supabase `profiles` (display name, topics, onboarding time) and `saved_sermons`, each limited to its owner by row level security |
 
-Sign-out is local (`scope: "local"`), so it works offline. It removes the session; topics picked as a guest and shared-link passes stay on the device. Passwords and codes must never be logged or stored by the app (see [contributing](contributing.md)).
+Sign-out is local (`scope: "local"`), so it works offline. It removes the session and any unsaved Apple name; shared-link passes stay on the device. The account's topics were never on it. Passwords and codes must never be logged or stored by the app (see [contributing](contributing.md)).
 
 ## Local test values
 
@@ -124,8 +128,10 @@ With the stand-in (`mode === "local"`), nothing leaves the device, and the sign-
 | Any other code | "That code isn't right" |
 | Sign up as `taken@example.com` | "An account already uses this email" |
 | Password `wrong-password`, or any password under 8 characters, at sign-in | "That email and password don't match" |
+| Password sign-in as `unconfirmed@example.com` | "Confirm your email first", with **Send a new code** |
 | Password under 8 characters at sign-up | Asks for a stronger password |
 | Apple or Google | Signs in at once as `apple.viewer@example.com` or `google.viewer@example.com` |
+| Profile and saved list | Come back about 250 ms after they're asked for (as they were when asked), like a network reply, and fail while `navigator.onLine` is false |
 
 ## Account deletion
 

@@ -1,3 +1,4 @@
+import Constants, { ExecutionEnvironment } from "expo-constants";
 import { Platform } from "react-native";
 
 /**
@@ -35,11 +36,16 @@ const methodList: string =
   process.env.EXPO_PUBLIC_AUTH_METHODS ?? "apple,google,email";
 const methods = methodList.split(",").map((x: string) => x.trim().toLowerCase());
 
+// Expo Go signs in with Apple as its own app (host.exp.Exponent), which the
+// Supabase Apple provider doesn't list, so Apple would only fail there.
+// Development, TestFlight and App Store builds are com.mshumba.aao.
+const inExpoGo = Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
+
 /**
  * Sign-in methods shown. Each needs its provider enabled in Supabase; leave
- * one out until it is. "apple" is native Sign in with Apple on iOS; Apple on
- * the web and Android goes through Supabase's web flow, which needs a
- * Services ID, so it is opt-in with "apple-web".
+ * one out until it is. "apple" is native Sign in with Apple on iOS (not in
+ * Expo Go); Apple on the web and Android goes through Supabase's web flow,
+ * which needs a Services ID, so it is opt-in with "apple-web".
  */
 export const enabledMethods =
   authMode === "local"
@@ -48,7 +54,7 @@ export const enabledMethods =
     : {
         apple:
           Platform.OS === "ios"
-            ? methods.includes("apple")
+            ? methods.includes("apple") && !inExpoGo
             : methods.includes("apple-web"),
         google: methods.includes("google"),
         email: methods.includes("email"),

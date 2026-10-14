@@ -9,7 +9,11 @@ export type Intent =
   | { kind: "watch"; sermonId: string }
   | { kind: "save"; sermonId: string };
 
-type Stored = { intent: Intent; at: number };
+/**
+ * `id` names this attempt: the sign-up sheet opened for it carries the same
+ * id, so a sheet opened for something else never picks it up.
+ */
+type Stored = { intent: Intent; at: number; id: string };
 
 // An intent older than this is from an abandoned attempt, not this one.
 const MAX_AGE = 30 * 60 * 1000;
@@ -19,10 +23,18 @@ let pending: Stored | null = null;
 const fresh = (stored: Stored | null) =>
   !!stored && Date.now() - stored.at <= MAX_AGE;
 
-export function setPendingIntent(intent: Intent | null) {
-  pending = intent ? { intent, at: Date.now() } : null;
+/** Keeps (or with null, clears) the pending intent; returns its id. */
+export function setPendingIntent(intent: Intent | null): string | null {
+  pending = intent
+    ? {
+        intent,
+        at: Date.now(),
+        id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`,
+      }
+    : null;
   if (pending) writeJSON(keys.pendingIntent, pending);
   else removeKey(keys.pendingIntent);
+  return pending?.id ?? null;
 }
 
 /** Returns and clears the pending intent, if one is still fresh. */
@@ -32,22 +44,31 @@ export async function takePendingIntent(): Promise<Intent | null> {
   return fresh(stored) ? stored!.intent : null;
 }
 
-/** The pending intent held in memory, without clearing it. */
-export function peekPendingIntent(): Intent | null {
-  return fresh(pending) ? pending!.intent : null;
+/** The pending intent held in memory, if it's the one with this id. */
+export function peekPendingIntent(id: string | undefined): Intent | null {
+  return id && fresh(pending) && pending!.id === id ? pending!.intent : null;
 }
 
 /**
- * The pending intent without clearing it, from storage when memory is empty
- * (after a web reload), so the sign-up sheet can still name the sermon.
+ * The pending intent with this id, without clearing it, from storage when
+ * memory is empty (after a web reload), so the sign-up sheet can still name
+ * the sermon.
  */
-export async function readPendingIntent(): Promise<Intent | null> {
-  if (pending) return peekPendingIntent();
+export async function readPendingIntent(id: string | undefined): Promise<Intent | null> {
+  if (pending) return peekPendingIntent(id);
   const stored = await readJSON<Stored | null>(keys.pendingIntent, null);
-  if (!fresh(stored)) return null;
+  if (!id || !fresh(stored) || stored!.id !== id) return null;
   // Back in memory, so the sync peek agrees from here on.
   pending = pending ?? stored;
   return stored!.intent;
+}
+
+/**
+ * Forgets an intent left in storage by an earlier launch: the app or tab
+ * was closed part-way through signing up, so nothing is waiting on it.
+ */
+export function forgetEarlierIntent() {
+  if (!pending) removeKey(keys.pendingIntent);
 }
 
 let runner: ((intent: Intent) => void) | null = null;

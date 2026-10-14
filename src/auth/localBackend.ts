@@ -18,16 +18,29 @@ import {
  * - The emailed code is always 123456; 000000 behaves as an expired code.
  * - Signing up as taken@example.com reports the address is already used.
  * - The password "wrong-password" is rejected at sign-in.
+ * - Password sign-in as unconfirmed@example.com says the email isn't
+ *   confirmed yet, like an account whose sign-up code was never entered.
+ *
+ * Like the real service, the profile and saved list come back a moment
+ * after they're asked for (as they were when asked), and fail while the
+ * browser is offline.
  */
 export const LOCAL_CODE = "123456";
 const EXPIRED_CODE = "000000";
 const TAKEN = "taken@example.com";
+const UNCONFIRMED = "unconfirmed@example.com";
 const WRONG = "wrong-password";
 
 type Stored = { profile: Profile; saved: string[] };
 const emptyProfile: Profile = { displayName: null, interests: [], onboardedAt: null };
 
 const wait = (ms = 450) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** The account's tables are a service away: unreachable offline. */
+function reachable() {
+  if (typeof navigator !== "undefined" && navigator.onLine === false)
+    throw new AuthError("network");
+}
 
 export function createLocalBackend(): AuthBackend {
   const listeners = new Set<(user: AuthUser | null) => void>();
@@ -89,6 +102,8 @@ export function createLocalBackend(): AuthBackend {
       await wait();
       if (password === WRONG || password.length < 8)
         throw new AuthError("invalid_credentials");
+      if (email.trim().toLowerCase() === UNCONFIRMED)
+        throw new AuthError("email_not_confirmed");
       return signIn(email, "email");
     },
     async sendEmailCode(email) {
@@ -110,7 +125,9 @@ export function createLocalBackend(): AuthBackend {
     },
     async signInWithApple() {
       await wait();
-      return signIn("apple.viewer@example.com", "apple", "Apple Viewer");
+      // Like Apple: the name comes with the sign-in, for the app to save.
+      await signIn("apple.viewer@example.com", "apple");
+      return { status: "signedIn", name: "Apple Viewer" };
     },
     async signInWithGoogle() {
       await wait();
@@ -145,16 +162,24 @@ export function createLocalBackend(): AuthBackend {
       return value === "all" || value === "none" || value === "shared" ? value : null;
     },
     async getProfile(userId) {
-      return (await load(userId)).profile;
+      reachable();
+      const { profile } = await load(userId);
+      await wait(250);
+      return profile;
     },
     async updateProfile(userId, changes) {
+      reachable();
       const data = await load(userId);
       await save(userId, { ...data, profile: { ...data.profile, ...changes } });
     },
     async listSaved(userId) {
-      return (await load(userId)).saved;
+      reachable();
+      const { saved } = await load(userId);
+      await wait(250);
+      return saved;
     },
     async setSaved(userId, sermonId, saved) {
+      reachable();
       const data = await load(userId);
       const rest = data.saved.filter((id) => id !== sermonId);
       await save(userId, { ...data, saved: saved ? [sermonId, ...rest] : rest });

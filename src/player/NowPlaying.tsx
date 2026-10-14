@@ -1,3 +1,4 @@
+import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useIsFocused } from "expo-router";
 import {
   useEffect,
@@ -116,10 +117,14 @@ function Skip({ seconds, disabled }: { seconds: number; disabled: boolean }) {
       disabled={disabled}
       style={styles.skip}
     >
-      <View style={back && styles.mirror}>
-        <Icon name="refresh" size={30} color={c.text} />
-      </View>
-      <T style={styles.skipText}>{Math.abs(seconds)}</T>
+      {/* Drawn with the number in the arc (Ionicons has no such glyph). */}
+      <MaterialCommunityIcons
+        name={back ? "rewind-15" : "fast-forward-30"}
+        size={30}
+        color={c.text}
+        accessible={false}
+        {...web({ "aria-hidden": true })}
+      />
     </Tap>
   );
 }
@@ -229,21 +234,25 @@ function Scrubber({
 }
 
 const styles = StyleSheet.create({
-  panel: { marginTop: space.md, gap: space.xs },
-  hit: { height: 32, justifyContent: "center" },
+  // The scrubber's touch band reaches 6pt further above its track than it
+  // used to; the margin gives that back, so the track stays where it was.
+  panel: { marginTop: space.md - 6, gap: space.xs },
+  // A 44pt band to grab, around a 4pt track.
+  hit: { height: 44, justifyContent: "center" },
   // A neutral track (a wash of the text colour) under the navy progress, so
-  // it reads on the ivory page and on the sermon's artwork wash alike.
+  // it reads on the ivory page and on the sermon's artwork wash alike. Dark
+  // enough (3:1 on ivory and sand) that the length still to play is seen.
   rail: {
     height: 4,
     borderRadius: 2,
-    backgroundColor: "rgba(27, 30, 36, 0.14)",
+    backgroundColor: "rgba(27, 30, 36, 0.5)",
     overflow: "hidden",
   },
   fill: { height: 4, backgroundColor: c.accent },
   // Navy with a white edge, so it stands out from the fill it sits on.
   thumb: {
     position: "absolute",
-    top: 9,
+    top: 15,
     width: 14,
     height: 14,
     marginLeft: -7,
@@ -291,15 +300,6 @@ const styles = StyleSheet.create({
     height: 56,
     alignItems: "center",
     justifyContent: "center",
-  },
-  mirror: { transform: [{ scaleX: -1 }] },
-  skipText: {
-    position: "absolute",
-    fontFamily: font.bold,
-    fontSize: 10,
-    lineHeight: 12,
-    top: 22,
-    color: c.text,
   },
   play: {
     width: 60,

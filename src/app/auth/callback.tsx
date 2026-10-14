@@ -10,9 +10,9 @@ import {
   takeAuthReturn,
   takePendingIntent,
 } from "../../auth/intent";
-import { authMessage } from "../../auth/messages";
+import { authMessage, errorCode } from "../../auth/messages";
 import { UNAVAILABLE_TITLE } from "../../auth/screens/shared";
-import { exitTo, firstParam, useGo } from "../../navigation";
+import { exitTo, firstParam, useGo, usePageTitle } from "../../navigation";
 import { space, type } from "../../theme";
 import { useToast } from "../../toast";
 import { Heading, StatePanel, c, s } from "../../ui";
@@ -31,6 +31,7 @@ export default function AuthCallback() {
   const params = useLocalSearchParams<{
     code?: string;
     error?: string;
+    error_code?: string;
     error_description?: string;
   }>();
   const account = useAccount();
@@ -41,11 +42,18 @@ export default function AuthCallback() {
   const go = useGo();
   const code = firstParam(params.code);
   const [failure, setFailure] = useState(() =>
-    providerFailure(firstParam(params.error), firstParam(params.error_description)),
+    providerFailure({
+      error: firstParam(params.error),
+      code: firstParam(params.error_code),
+      description: firstParam(params.error_description),
+      ...hashError(),
+    }),
   );
   const done = useRef(false);
   const exchanged = useRef(false);
   const unavailable = account.mode === "unavailable";
+  // Its panels name the page when it stops; meanwhile it's waiting.
+  usePageTitle(unavailable || failure ? null : "Signing you in");
   // What the link was, once its code is exchanged: a password reset goes on
   // to choosing a new password. Without a code there's nothing to learn.
   const [link, setLink] = useState<"pending" | "sign-in" | "recovery">(
@@ -62,7 +70,9 @@ export default function AuthCallback() {
       (result) =>
         setLink(result.status === "signedIn" && result.recovery ? "recovery" : "sign-in"),
       (error) => {
-        if (!done.current) setFailure(authMessage(error));
+        if (done.current) return;
+        // A link, not a typed code: say so, and how to get a new one.
+        setFailure(errorCode(error) === "expired_code" ? EXPIRED_LINK : authMessage(error));
       },
     );
   }, [account, code, failure, unavailable]);
@@ -115,10 +125,13 @@ export default function AuthCallback() {
   function retry() {
     go.run(async () => {
       const intent = await takePendingIntent();
-      if (intent) setPendingIntent(intent);
+      const id = intent ? setPendingIntent(intent) : null;
       router.replace(
-        intent
-          ? { pathname: "/join", params: { reason: intent.kind, sermon: intent.sermonId } }
+        intent && id
+          ? {
+              pathname: "/join",
+              params: { reason: intent.kind, sermon: intent.sermonId, intent: id },
+            }
           : "/join",
       );
     });
@@ -175,12 +188,43 @@ function Frame({ children }: { children: ReactNode }) {
   );
 }
 
+const EXPIRED_LINK =
+  "This link has expired or was already used. Try again to get a new one, or enter the 6-digit code from the email instead.";
+
+/**
+ * On the web, Supabase can put an error in the address's #fragment rather
+ * than its query, where route params don't look.
+ */
+function hashError(): { error?: string; code?: string; description?: string } {
+  if (Platform.OS !== "web" || typeof window === "undefined") return {};
+  const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+  const pick = (key: string) => hash.get(key) ?? undefined;
+  if (!pick("error") && !pick("error_code") && !pick("error_description")) return {};
+  return {
+    error: pick("error"),
+    code: pick("error_code"),
+    description: pick("error_description"),
+  };
+}
+
 /**
  * The provider's own error, in a sentence that says what to do. Its
  * description comes from the link, so only a short, plain version is shown.
  */
-function providerFailure(error?: string, description?: string) {
-  if (!error && !description) return null;
+function providerFailure({
+  error,
+  code,
+  description,
+}: {
+  error?: string;
+  code?: string;
+  description?: string;
+}) {
+  if (!error && !code && !description) return null;
+  // An email link that has expired or was already used comes back as a
+  // refusal (access_denied), but it's not a cancel.
+  if (code === "otp_expired" || code === "flow_state_expired" || code === "flow_state_not_found")
+    return EXPIRED_LINK;
   const what =
     error === "access_denied"
       ? "Sign-in was cancelled before it finished."

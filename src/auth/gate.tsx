@@ -8,6 +8,7 @@ import { useToast } from "../toast";
 import { useAccount } from "./AccountProvider";
 import {
   Intent,
+  forgetEarlierIntent,
   registerIntentRunner,
   setPendingIntent,
   takePendingIntent,
@@ -95,8 +96,8 @@ export function useGate() {
     if (intent.kind === "watch" && canWatch(intent.sermonId)) return true;
     if (account.user) return true;
     if (account.mode === "unavailable") return false;
-    setPendingIntent(intent);
-    go.push({ pathname: "/join", params: { reason: intent.kind } });
+    const id = setPendingIntent(intent) ?? undefined;
+    go.push({ pathname: "/join", params: { reason: intent.kind, intent: id } });
     return false;
   };
 
@@ -112,8 +113,13 @@ export function useFinishFlow() {
   return useCallback(async () => {
     const count = trailing((navigation.getState()?.routes ?? []) as RouteList, isFlowRoute);
     if (count) router.dismiss(count);
-    else if (router.canGoBack()) router.back();
-    else router.replace("/");
+    // With none left to close, the viewer already closed them while the
+    // sign-in finished (a swipe down, Back): going back now would close the
+    // screen they returned to. Only a screen still on top steps back.
+    else if (navigation.isFocused()) {
+      if (router.canGoBack()) router.back();
+      else router.replace("/");
+    }
     const intent = await takePendingIntent();
     // After the sheets have closed, so the player and toast land on the page.
     if (intent) setTimeout(() => runIntent(intent), Platform.OS === "web" ? 60 : 450);
@@ -142,9 +148,14 @@ export function IntentRunner() {
       if (!sermon) return;
       const allowed = (now: Viewer) =>
         !!now.user || (intent.kind === "watch" && guestMayWatch(now, sermon.id));
+      const pause = () => new Promise((resolve) => setTimeout(resolve, 100));
       // The account can take a moment to arrive after the sheet closes.
-      for (let i = 0; i < 20 && !allowed(latest.current.account); i++)
-        await new Promise((resolve) => setTimeout(resolve, 100));
+      for (let i = 0; i < 20 && !allowed(latest.current.account); i++) await pause();
+      // A save waits for the account's saved list too (within reason), so
+      // "already saved" is judged on the real list, and the save isn't
+      // undone on screen by a list read before it.
+      if (intent.kind === "save")
+        for (let i = 0; i < 80 && !latest.current.account.loaded; i++) await pause();
       const { account: now, session: player, pathname: path, toast: show } = latest.current;
       if (!allowed(now)) return;
       if (intent.kind === "watch") {
@@ -166,6 +177,16 @@ export function IntentRunner() {
       }
     });
     return () => registerIntentRunner(null);
+  }, []);
+
+  // An intent left from an earlier launch (the app or tab closed part-way
+  // through signing up) mustn't replay after some later, unrelated sign-in.
+  // Launching into the sign-up sheet or a sign-in step (a web reload, an
+  // email link) is that same attempt carrying on, so it keeps it.
+  const launchPath = useRef(pathname);
+  useEffect(() => {
+    const path = launchPath.current;
+    if (path !== "/join" && !path.startsWith("/auth/")) forgetEarlierIntent();
   }, []);
 
   // Signing out stops a sermon the viewer could only watch with an account.

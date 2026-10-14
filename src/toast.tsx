@@ -89,7 +89,7 @@ function ToastLayer({ toast }: { toast: Toast | null }) {
             style={styles.toast}
             testID="toast"
           >
-            <Icon name={toast.icon} size={20} color={c.accent} />
+            <Icon name={toast.icon} size={20} color={c.white} />
             <T style={styles.text}>{toast.message}</T>
           </Animated.View>
         )}
@@ -114,12 +114,11 @@ const styles = StyleSheet.create({
     paddingVertical: space.md,
     paddingHorizontal: space.lg,
     borderRadius: radius.lg,
-    backgroundColor: c.raised,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: c.border,
-    // White on the ivory page: the hairline draws the edge, the soft shadow
-    // lifts it over whatever scrolls beneath.
-    boxShadow: "0 8px 24px rgba(27,30,36,0.10)",
+    // Inverted (ink with white text): nearly everything near the bottom of
+    // the screen is a white surface with a hairline, so a white toast would
+    // read as one more pill rather than a passing message.
+    backgroundColor: c.text,
+    boxShadow: "0 8px 24px rgba(27,30,36,0.18)",
   },
-  text: { ...type.label, color: c.text, flexShrink: 1 },
+  text: { ...type.label, color: c.white, flexShrink: 1 },
 });
