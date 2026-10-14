@@ -1,41 +1,44 @@
-import { Header, Page, SectionHeading, T, s } from "../ui";
+import { sermons } from "../data/sermons";
+import { space } from "../theme";
+import { sermonCount } from "../topics";
+import { Header, Page, PageTitle, SectionHeading, T, s } from "../ui";
+
 export default function About() {
   return (
     <Page>
-      <Header title="About" back />
-      <T style={s.title}>The Viewing Room.</T>
-      <T style={[s.body, { marginTop: 20 }]}>
-        A place to browse, find and watch public messages by Apostle Arome
-        Osayi.
-      </T>
-      <SectionHeading>About this prototype</SectionHeading>
+      <Header back />
+      <PageTitle
+        title="About this preview"
+        lead="A place to find and watch public sermons by Apostle Arome Osayi, organised by how they build you up."
+      />
+      <SectionHeading>What’s here</SectionHeading>
       <T style={s.body}>
-        This internal design and playback prototype follows the selected dark
-        direction. The four messages use titles and thumbnails verified against
-        public ministry links and YouTube on 30 September 2026. The catalogue is
-        provisional and isn’t a complete ministry archive.
+        {sermonCount(sermons.length)} from public sources. Their titles, dates
+        and artwork were checked against public ministry links and YouTube on
+        30 September 2026. It’s a small sample, not the full archive.
       </T>
-      <SectionHeading>Topics for exploration</SectionHeading>
+      <SectionHeading>Topics</SectionHeading>
       <T style={s.body}>
-        Topic labels and tags are demo assignments, not a review of message
-        content. They show how a future library could organize messages for
-        spiritual growth.
+        Spiritual Growth, Prayer, Faith and Christian Living show how sermons
+        could be organised by how they edify. The topics each sermon appears
+        under are sample assignments; nobody has checked them against the
+        sermons yet.
       </T>
-      <SectionHeading>Guest, always</SectionHeading>
+      <SectionHeading>Watching as a guest</SectionHeading>
       <T style={s.body}>
-        Watching never requires an account. Account screens only demonstrate the
-        flow: they create no account and send no reset email. Demo state
-        disappears on reload.
+        You never need an account to browse, search or watch. Accounts aren’t
+        live yet: the account screens are a demo that creates no account and
+        sends no email, and a demo sign-in ends when you reload.
       </T>
-      <SectionHeading>Playback & content</SectionHeading>
+      <SectionHeading>Playback and content</SectionHeading>
       <T style={s.body}>
-        YouTube is the provisional player. Its controls, branding, advertising
-        and availability belong to the provider. Content belongs to its
-        respective owners; no ministry endorsement is implied.
+        Videos play through YouTube for now. YouTube controls the player, its
+        branding, any advertising and whether a video is available. Sermons
+        belong to their respective owners, and this preview isn’t endorsed by
+        the ministry.
       </T>
-      <T style={[s.small, { marginTop: 32 }]}>
-        Version 0.1.0 · Expo SDK 57{"\n"}No downloads, background audio or
-        account sync.
+      <T style={[s.meta, { marginTop: space.xxl }]}>
+        Version 0.1.0 · Preview{"\n"}No downloads or background audio.
       </T>
     </Page>
   );

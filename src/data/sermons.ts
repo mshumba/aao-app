@@ -1,5 +1,12 @@
-import { CategoryId, EdificationAssignment, getCategory } from "./categories";
+import { CategoryId, getCategory } from "./categories";
+import { eventLine, headline } from "./display";
+import { assignments } from "./edification";
 
+/**
+ * Verified source metadata only. Titles, channel, dates, durations and
+ * thumbnails were checked against public ministry links and YouTube on
+ * 30 September 2026. Topic assignments live separately in edification.ts.
+ */
 export type Sermon = {
   id: string;
   title: string;
@@ -10,7 +17,6 @@ export type Sermon = {
   thumbnail: string;
   source: string;
   sourcePage: string;
-  edification: EdificationAssignment;
 };
 const sourcePage = "https://www.rcnnorthamerica.com/";
 export const sermons: Sermon[] = [
@@ -25,12 +31,6 @@ export const sermons: Sermon[] = [
     thumbnail: "https://i.ytimg.com/vi/nUW8NT2Pe88/maxresdefault.jpg",
     source: "https://www.youtube.com/watch?v=nUW8NT2Pe88",
     sourcePage: sourcePage,
-    edification: {
-      primaryCategoryId: "prayer",
-      additionalCategoryIds: ["spiritual-growth"],
-      tags: ["devotion", "consistency"],
-      reviewStatus: "demo",
-    },
   },
   {
     id: "H9sRbSUt0YE",
@@ -43,12 +43,6 @@ export const sermons: Sermon[] = [
     thumbnail: "https://i.ytimg.com/vi/H9sRbSUt0YE/maxresdefault.jpg",
     source: "https://www.youtube.com/watch?v=H9sRbSUt0YE",
     sourcePage: sourcePage,
-    edification: {
-      primaryCategoryId: "spiritual-growth",
-      additionalCategoryIds: ["faith"],
-      tags: ["discipleship", "maturity"],
-      reviewStatus: "demo",
-    },
   },
   {
     id: "yUDzMcZsVk8",
@@ -61,12 +55,6 @@ export const sermons: Sermon[] = [
     thumbnail: "https://i.ytimg.com/vi/yUDzMcZsVk8/maxresdefault.jpg",
     source: "https://www.youtube.com/watch?v=yUDzMcZsVk8",
     sourcePage: sourcePage,
-    edification: {
-      primaryCategoryId: "faith",
-      additionalCategoryIds: [],
-      tags: ["trust", "confidence"],
-      reviewStatus: "demo",
-    },
   },
   {
     id: "WYiA7rjenVI",
@@ -79,20 +67,19 @@ export const sermons: Sermon[] = [
     thumbnail: "https://i.ytimg.com/vi/WYiA7rjenVI/maxresdefault.jpg",
     source: "https://www.youtube.com/watch?v=WYiA7rjenVI",
     sourcePage: sourcePage,
-    edification: {
-      primaryCategoryId: "spiritual-growth",
-      additionalCategoryIds: ["prayer"],
-      tags: ["walking with God", "devotion"],
-      reviewStatus: "demo",
-    },
   },
 ];
-/** A message is stored once, even when it belongs to several topics. */
+/**
+ * Demo topics for a sermon, primary first. A sermon is stored once, even
+ * when it belongs to several topics; unassigned sermons have none.
+ */
 export function sermonCategoryIds(sermon: Sermon): CategoryId[] {
+  const assignment = assignments[sermon.id];
+  if (!assignment) return [];
   return [
     ...new Set([
-      sermon.edification.primaryCategoryId,
-      ...sermon.edification.additionalCategoryIds,
+      assignment.primaryCategoryId,
+      ...assignment.additionalCategoryIds,
     ]),
   ];
 }
@@ -110,11 +97,13 @@ export function searchSermons(
   return candidates.filter((sermon) => {
     const text = [
       sermon.title,
+      headline(sermon),
+      eventLine(sermon),
       sermon.channel,
       sermon.collection,
       sermon.date,
       ...sermonCategoryIds(sermon).map((id) => getCategory(id)?.label || ""),
-      ...sermon.edification.tags,
+      ...(assignments[sermon.id]?.tags ?? []),
     ]
       .join(" ")
       .toLocaleLowerCase();

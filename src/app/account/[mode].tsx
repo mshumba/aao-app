@@ -1,48 +1,122 @@
-import { Ionicons } from "@expo/vector-icons";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useCallback, useRef, useState, type RefObject } from "react";
 import {
   AccessibilityInfo,
-  ActivityIndicator,
   Keyboard,
-  Pressable,
+  Platform,
   StyleSheet,
   TextInput,
   View,
 } from "react-native";
+import Animated, {
+  Easing,
+  FadeIn,
+  FadeInDown,
+} from "react-native-reanimated";
+import { DemoPanel } from "../../demoAccount";
+import { useReducedMotion } from "../../motion";
+import { exitTo, firstParam } from "../../navigation";
 import { useDemo } from "../../state/demo";
-import { Button, c, Header, Page, T } from "../../ui";
+import { font, radius, space, type } from "../../theme";
+import {
+  Button,
+  Header,
+  Icon,
+  IconButton,
+  Page,
+  PageTitle,
+  T,
+  Tap,
+  TextButton,
+  c,
+  noWebOutline,
+  s,
+  web,
+} from "../../ui";
 
 type Mode = "sign-in" | "sign-up" | "reset";
 type FieldKey = "email" | "password" | "confirm";
 type Errors = Partial<Record<FieldKey, string>>;
 type Outcome = "success" | "rejected";
 
-const titles: Record<Mode, string> = {
-  "sign-in": "Sign in (demo)",
-  "sign-up": "Create account (demo)",
-  reset: "Reset password (demo)",
+const copy: Record<
+  Mode,
+  {
+    heading: string;
+    intro: string;
+    demo?: string;
+    submit: string;
+    successTitle: string;
+    successBody: string;
+  }
+> = {
+  "sign-in": {
+    heading: "Welcome back",
+    intro: "Try signing in with sample details.",
+    submit: "Sign in",
+    successTitle: "You’re signed in",
+    successBody:
+      "This demo sign-in ends when you sign out or reload the app. Nothing was checked or saved.",
+  },
+  "sign-up": {
+    heading: "Create an account",
+    intro: "Try creating an account with sample details.",
+    submit: "Create account",
+    successTitle: "You’re signed in",
+    successBody:
+      "No account was created and nothing was saved. This demo sign-in ends when you sign out or reload the app.",
+  },
+  reset: {
+    heading: "Reset your password",
+    intro: "Try the reset flow with a sample email.",
+    demo: "Accounts aren’t live yet, so no email is sent. What you type isn’t saved.",
+    submit: "Send reset link",
+    successTitle: "No email was sent",
+    successBody:
+      "In the live app, a reset link would be emailed to you. This demo doesn’t send email.",
+  },
 };
 
+// The one rare moment in the app gets a short staggered entrance; under
+// Reduce Motion it is a plain fade. Taps and announcements are never delayed.
+const easeOutCurve = Easing.bezier(0.23, 1, 0.32, 1);
+const rise = [0, 1, 2].map((i) =>
+  FadeInDown.duration(250).easing(easeOutCurve).delay(i * 50),
+);
+const fade = FadeIn.duration(200);
+
+function rejection(mode: Mode) {
+  return mode === "sign-up"
+    ? "An account already uses this email."
+    : "Incorrect email or password.";
+}
+
+// Close returns to wherever the form was opened from (the Account tab).
 function closeAccount() {
   Keyboard.dismiss();
   if (router.canGoBack()) router.back();
-  else router.replace("/");
+  else router.replace("/account");
+}
+
+// "Back to sermons" and "Continue as guest" go to Home.
+function toSermons() {
+  Keyboard.dismiss();
+  exitTo("/");
 }
 
 export default function AccountModeScreen() {
-  const params = useLocalSearchParams<{ mode?: string }>();
+  const params = useLocalSearchParams<{ mode?: string | string[] }>();
+  const requested = firstParam(params.mode);
   const mode: Mode =
-    params.mode === "sign-up" || params.mode === "reset"
-      ? params.mode
-      : "sign-in";
+    requested === "sign-up" || requested === "reset" ? requested : "sign-in";
   // Expo Router can retain a dynamic-route component when only params change.
   // A key gives each mode fresh form state and cancels the previous demo timer.
   return <AccountForm key={mode} mode={mode} />;
 }
 
 function AccountForm({ mode }: { mode: Mode }) {
-  const { setSignedIn } = useDemo();
+  const { signedIn, setSignedIn } = useDemo();
+  const reduced = useReducedMotion();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -57,6 +131,7 @@ function AccountForm({ mode }: { mode: Mode }) {
   const busyRef = useRef(false);
   const isReset = mode === "reset";
   const isSignUp = mode === "sign-up";
+  const text = copy[mode];
 
   useFocusEffect(
     useCallback(
@@ -77,25 +152,38 @@ function AccountForm({ mode }: { mode: Mode }) {
     ),
   );
 
-  function useDemoValues() {
+  function fillSample() {
     setEmail("viewer@example.com");
     setPassword(isReset ? "" : "demo-password");
     setConfirm(isSignUp ? "demo-password" : "");
     setErrors({});
     setResult(null);
-    AccessibilityInfo.announceForAccessibility("Demo values filled.");
+    AccessibilityInfo.announceForAccessibility("Sample details filled in.");
+  }
+
+  // Drop a field's error as soon as it is edited, instead of on next submit.
+  function edit(key: FieldKey, set: (value: string) => void) {
+    return (value: string) => {
+      set(value);
+      setErrors((current) => {
+        if (!current[key]) return current;
+        const next = { ...current };
+        delete next[key];
+        return next;
+      });
+    };
   }
 
   function submit() {
     if (busyRef.current) return;
     const next: Errors = {};
-    if (!email.trim()) next.email = "Enter an email address.";
+    if (!email.trim()) next.email = "Enter your email address.";
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()))
-      next.email = "Check the email format.";
+      next.email = "Enter an email address like name@example.com.";
     if (!isReset && password.length < 8)
-      next.password = "Use at least 8 characters for this demo.";
+      next.password = "Use at least 8 characters.";
     if (isSignUp && password !== confirm)
-      next.confirm = "Passwords don’t match.";
+      next.confirm = "Enter the same password in both fields.";
     setErrors(next);
     setResult(null);
 
@@ -124,7 +212,7 @@ function AccountForm({ mode }: { mode: Mode }) {
       if (!isReset && outcome === "rejected") {
         setResult("rejected");
         AccessibilityInfo.announceForAccessibility(
-          isSignUp ? "Demo: email already in use." : "Demo: sign-in rejected.",
+          `${rejection(mode)} This is a simulated error.`,
         );
         return;
       }
@@ -134,11 +222,7 @@ function AccountForm({ mode }: { mode: Mode }) {
       if (!isReset) setSignedIn(true);
       setResult("success");
       AccessibilityInfo.announceForAccessibility(
-        isReset
-          ? "No email was sent. This is a demo."
-          : isSignUp
-            ? "Demo account shown. Nothing was created or saved."
-            : "Signed in for this demo only.",
+        `${text.successTitle}. ${text.successBody}`,
       );
     }, 800);
   }
@@ -148,221 +232,193 @@ function AccountForm({ mode }: { mode: Mode }) {
     router.replace(`/account/${next}`);
   }
 
-  const submitLabel = busy
-    ? isReset
-      ? "Simulating reset…"
-      : isSignUp
-        ? "Creating demo…"
-        : "Signing in…"
-    : isReset
-      ? "Send reset link (demo)"
-      : isSignUp
-        ? "Create demo account"
-        : "Sign in (demo)";
+  if (result === "success")
+    return (
+      <Page>
+        <Header close />
+        <View style={styles.success}>
+          <Animated.View
+            entering={reduced ? fade : rise[0]}
+            style={styles.successIcon}
+          >
+            <Icon
+              name={isReset ? "mail-outline" : "checkmark"}
+              size={30}
+              color={c.mint}
+            />
+          </Animated.View>
+          <Animated.View entering={reduced ? fade : rise[1]}>
+            <PageTitle title={text.successTitle} lead={text.successBody} />
+          </Animated.View>
+          <Animated.View
+            entering={reduced ? fade : rise[2]}
+            style={{ gap: space.md }}
+          >
+            <Button
+              label={isReset ? "Back to sign in" : "Back to sermons"}
+              onPress={isReset ? () => switchMode("sign-in") : toSermons}
+            />
+            {isReset && (
+              <TextButton label="Continue as guest" onPress={toSermons} />
+            )}
+          </Animated.View>
+        </View>
+      </Page>
+    );
 
   return (
     <Page keyboard>
-      <Header title={titles[mode]} close />
+      <Header close />
+      <PageTitle title={text.heading} lead={text.intro} />
       <View style={styles.content}>
-        <View style={styles.badge}>
-          <T style={styles.badgeText}>DEMO — no account service</T>
-        </View>
-
-        {result === "success" ? (
-          <View style={styles.success}>
-            <Ionicons
-              name={isReset ? "mail-outline" : "checkmark-circle-outline"}
-              size={44}
-              color={c.mint}
-            />
-            <T accessibilityRole="header" style={styles.heading}>
-              {isReset
-                ? "Reset preview complete."
-                : "You’re in. For this demo."}
-            </T>
-            <T style={styles.description} accessibilityLiveRegion="polite">
-              {isReset
-                ? "No email was sent — this is a demo."
-                : isSignUp
-                  ? "Demo account shown — nothing was created or saved."
-                  : "This simulated sign-in lasts until you sign out or reload. Your form values have been cleared."}
-            </T>
-            <Button
-              label={isReset ? "Back to sign in" : "Return to sermons"}
-              onPress={isReset ? () => switchMode("sign-in") : closeAccount}
-              icon="arrow-forward"
-            />
-            {isReset && (
-              <Button
-                label="Continue as guest"
-                onPress={closeAccount}
-                secondary
-              />
-            )}
-          </View>
-        ) : (
-          <>
-            <View style={styles.intro}>
-              <T accessibilityRole="header" style={styles.heading}>
-                {isReset
-                  ? "Try a password reset."
-                  : isSignUp
-                    ? "Make yourself at home."
-                    : "Welcome back."}
-              </T>
-              <T style={styles.description}>
-                {isReset
-                  ? "Preview the reset flow. No email will be sent."
-                  : "Try the flow with sample details. Don’t enter a real password."}
-              </T>
-              <T style={styles.helper}>
-                Values stay in this screen’s memory. Nothing is sent or saved.
-              </T>
-            </View>
-
-            <Button
-              label="Use demo values"
-              onPress={useDemoValues}
-              secondary
-              disabled={busy}
-              icon="sparkles-outline"
-            />
-
-            <View style={styles.fields}>
-              <Field
-                label="Email address"
-                value={email}
-                onChangeText={setEmail}
-                inputRef={emailRef}
-                error={errors.email}
-                email
-                editable={!busy}
-                next={!isReset}
-                onSubmit={isReset ? submit : () => passwordRef.current?.focus()}
-              />
-              {!isReset && (
-                <Field
-                  label="Password"
-                  value={password}
-                  onChangeText={setPassword}
-                  inputRef={passwordRef}
-                  error={errors.password}
-                  password
-                  editable={!busy}
-                  hint="8 characters minimum, for demonstration only."
-                  next={isSignUp}
-                  onSubmit={
-                    isSignUp ? () => confirmRef.current?.focus() : submit
-                  }
-                />
-              )}
-              {isSignUp && (
-                <Field
-                  label="Confirm password"
-                  value={confirm}
-                  onChangeText={setConfirm}
-                  inputRef={confirmRef}
-                  error={errors.confirm}
-                  password
-                  editable={!busy}
-                  onSubmit={submit}
-                />
-              )}
-            </View>
-
-            {!isReset && (
-              <View style={styles.outcome}>
-                <T style={styles.label}>Demo outcome</T>
-                <View style={styles.segments} accessibilityRole="radiogroup">
-                  {(["success", "rejected"] as const).map((choice) => (
-                    <Pressable
+        <DemoPanel text={text.demo}>
+          <Button
+            label="Fill in sample details"
+            onPress={fillSample}
+            variant="secondary"
+            disabled={busy}
+            icon="sparkles-outline"
+          />
+          {!isReset && (
+            <View style={{ gap: space.sm }}>
+              <T style={styles.segmentsLabel}>Simulated result</T>
+              <View
+                style={styles.segments}
+                accessibilityRole="radiogroup"
+                accessibilityLabel="Simulated result"
+              >
+                {(["success", "rejected"] as const).map((choice) => {
+                  const selected = outcome === choice;
+                  const label = choice === "success" ? "Success" : "Error";
+                  return (
+                    <Tap
                       key={choice}
                       accessibilityRole="radio"
-                      accessibilityLabel={
-                        choice === "success" ? "Success" : "Rejected"
-                      }
-                      accessibilityState={{
-                        checked: outcome === choice,
-                        disabled: busy,
-                      }}
+                      accessibilityLabel={label}
+                      aria-checked={selected}
+                      aria-disabled={busy}
                       disabled={busy}
                       onPress={() => {
                         setOutcome(choice);
                         setResult(null);
                       }}
-                      style={({ pressed }) => [
-                        styles.segment,
-                        outcome === choice && styles.segmentSelected,
-                        pressed && styles.pressed,
-                        busy && styles.disabled,
-                      ]}
+                      style={[styles.segment, selected && styles.segmentOn]}
                     >
+                      {selected && (
+                        <Icon name="checkmark" size={16} color={c.text} />
+                      )}
                       <T
                         style={[
                           styles.segmentText,
-                          outcome === choice && styles.segmentTextSelected,
+                          selected && styles.segmentTextOn,
                         ]}
                       >
-                        {choice === "success" ? "Success" : "Rejected"}
+                        {label}
                       </T>
-                    </Pressable>
-                  ))}
-                </View>
-                <T style={styles.helper}>
-                  Choose a result to preview. No service checks these details.
-                </T>
+                    </Tap>
+                  );
+                })}
               </View>
-            )}
+            </View>
+          )}
+        </DemoPanel>
 
-            {result === "rejected" && (
-              <View style={styles.errorBox} accessibilityRole="alert">
-                <T style={styles.error} accessibilityLiveRegion="assertive">
-                  {isSignUp
-                    ? "Demo: email already in use."
-                    : "Demo: sign-in rejected."}
-                </T>
-                <T style={styles.helper}>
-                  Choose Success above to try the next step.
-                </T>
-              </View>
-            )}
+        <View style={styles.fields}>
+          <Field
+            id={`${mode}-email`}
+            label="Email address"
+            value={email}
+            onChangeText={edit("email", setEmail)}
+            inputRef={emailRef}
+            error={errors.email}
+            email
+            editable={!busy}
+            next={!isReset}
+            onSubmit={isReset ? submit : () => passwordRef.current?.focus()}
+          />
+          {!isReset && (
+            <Field
+              id={`${mode}-password`}
+              label="Password"
+              value={password}
+              onChangeText={edit("password", setPassword)}
+              inputRef={passwordRef}
+              error={errors.password}
+              password
+              editable={!busy}
+              hint={isSignUp ? "Use at least 8 characters." : undefined}
+              next={isSignUp}
+              onSubmit={isSignUp ? () => confirmRef.current?.focus() : submit}
+            />
+          )}
+          {mode === "sign-in" && (
+            <View style={{ marginTop: -space.md }}>
+              <TextButton
+                label="Forgot password?"
+                onPress={() => switchMode("reset")}
+                disabled={busy}
+                align="end"
+              />
+            </View>
+          )}
+          {isSignUp && (
+            <Field
+              id={`${mode}-confirm`}
+              label="Confirm password"
+              value={confirm}
+              onChangeText={edit("confirm", setConfirm)}
+              inputRef={confirmRef}
+              error={errors.confirm}
+              password
+              editable={!busy}
+              onSubmit={submit}
+            />
+          )}
+        </View>
 
-            <View style={styles.actions}>
-              {busy && (
-                <ActivityIndicator
-                  color={c.mint}
-                  accessibilityLabel="Running local demo"
-                />
-              )}
-              <Button label={submitLabel} onPress={submit} disabled={busy} />
-              {mode === "sign-in" && (
-                <TextAction
-                  label="Forgot password?"
-                  onPress={() => switchMode("reset")}
-                  disabled={busy}
-                />
-              )}
-              <TextAction
-                label={
-                  mode === "sign-in"
-                    ? "Create account (demo)"
-                    : "Back to sign in"
-                }
-                onPress={() =>
-                  switchMode(mode === "sign-in" ? "sign-up" : "sign-in")
-                }
+        {result === "rejected" && (
+          <View style={styles.errorBox} accessibilityRole="alert">
+            <Icon name="alert-circle-outline" color={c.error} size={20} />
+            <View style={{ flex: 1, gap: 4 }}>
+              <T style={styles.errorTitle}>{rejection(mode)}</T>
+              <T style={s.meta}>
+                This is the simulated error. Set Simulated result to Success to
+                continue.
+              </T>
+            </View>
+          </View>
+        )}
+
+        <View style={{ gap: space.xs }}>
+          {/* Keeps its label while busy: nothing is really being sent. */}
+          <Button label={text.submit} onPress={submit} busy={busy} />
+          <View style={styles.links}>
+            {mode === "sign-in" ? (
+              <TextButton
+                label="Create an account"
+                onPress={() => switchMode("sign-up")}
                 disabled={busy}
               />
-              <TextAction label="Continue as guest" onPress={closeAccount} />
-            </View>
-          </>
-        )}
+            ) : (
+              <TextButton
+                label="Back to sign in"
+                onPress={() => switchMode("sign-in")}
+                disabled={busy}
+              />
+            )}
+            <TextButton
+              label={signedIn ? "Close" : "Continue as guest"}
+              onPress={signedIn ? closeAccount : toSermons}
+            />
+          </View>
+        </View>
       </View>
     </Page>
   );
 }
 
 type FieldProps = {
+  id: string;
   label: string;
   value: string;
   onChangeText: (value: string) => void;
@@ -377,6 +433,7 @@ type FieldProps = {
 };
 
 function Field({
+  id,
   label,
   value,
   onChangeText,
@@ -391,14 +448,16 @@ function Field({
 }: FieldProps) {
   const [visible, setVisible] = useState(false);
   const [focused, setFocused] = useState(false);
+  const messageId = `${id}-message`;
   return (
     <View style={styles.field}>
       <T style={styles.label}>{label}</T>
       <View
         style={[
           styles.inputRow,
-          focused && styles.inputFocused,
           error && styles.inputError,
+          focused && styles.inputFocused,
+          focused && error && { borderColor: c.error },
         ]}
       >
         <TextInput
@@ -407,6 +466,12 @@ function Field({
           onChangeText={onChangeText}
           accessibilityLabel={label}
           accessibilityHint={error || hint}
+          {...web({
+            "aria-describedby": error || hint ? messageId : undefined,
+            "aria-invalid": !!error,
+          })}
+          // Deliberately off: the OS must not offer to save or fill real
+          // credentials into a demo form.
           autoComplete="off"
           textContentType="none"
           importantForAutofill="noExcludeDescendants"
@@ -422,168 +487,121 @@ function Field({
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
           selectionColor={c.mint}
-          placeholder={email ? "viewer@example.com" : undefined}
+          placeholder={email ? "name@example.com" : undefined}
           placeholderTextColor={c.muted}
           style={styles.input}
         />
         {password && (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={`${visible ? "Hide" : "Show"} ${label.toLowerCase()}`}
-            accessibilityState={{ disabled: !editable }}
-            disabled={!editable}
-            onPress={() => setVisible(!visible)}
-            style={({ pressed }) => [
-              styles.visibility,
-              pressed && styles.pressed,
-            ]}
-          >
-            <Ionicons
-              name={visible ? "eye-off-outline" : "eye-outline"}
-              size={22}
-              color={c.mint}
-            />
-          </Pressable>
+          <IconButton
+            name={visible ? "eye-off-outline" : "eye-outline"}
+            label={`${visible ? "Hide" : "Show"} ${label.toLowerCase()}`}
+            color={c.mint}
+            size={22}
+            onPress={() => editable && setVisible(!visible)}
+          />
         )}
       </View>
       {error ? (
-        <T style={styles.error} accessibilityLiveRegion="polite">
-          {error}
-        </T>
+        // On native, submit() announces the first error. Web has no announce,
+        // and a live region inserted already filled is often not read, so the
+        // message is an alert there.
+        <View style={styles.errorRow}>
+          <Icon name="alert-circle" size={16} color={c.error} />
+          <T
+            nativeID={messageId}
+            style={styles.error}
+            accessibilityRole={Platform.OS === "web" ? "alert" : undefined}
+          >
+            {error}
+          </T>
+        </View>
       ) : hint ? (
-        <T style={styles.helper}>{hint}</T>
+        <T nativeID={messageId} style={s.meta}>
+          {hint}
+        </T>
       ) : null}
     </View>
   );
 }
 
-function TextAction({
-  label,
-  onPress,
-  disabled = false,
-}: {
-  label: string;
-  onPress: () => void;
-  disabled?: boolean;
-}) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityState={{ disabled }}
-      onPress={onPress}
-      disabled={disabled}
-      style={({ pressed }) => [
-        styles.textAction,
-        pressed && styles.pressed,
-        disabled && styles.disabled,
-      ]}
-    >
-      <T style={styles.textActionLabel}>{label}</T>
-    </Pressable>
-  );
-}
-
 const styles = StyleSheet.create({
-  content: { paddingBottom: 40, gap: 24 },
-  badge: {
-    alignSelf: "flex-start",
-    borderWidth: 1,
-    borderColor: c.border,
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-  },
-  badgeText: { color: c.mint, fontSize: 12, fontFamily: "Manrope_700Bold" },
-  intro: { gap: 12 },
-  heading: {
-    fontFamily: "Manrope_800ExtraBold",
-    fontSize: 30,
-    lineHeight: 38,
-    letterSpacing: -0.8,
-  },
-  description: { fontSize: 16, lineHeight: 25, color: c.muted },
-  helper: { fontSize: 12, lineHeight: 19, color: c.muted },
-  fields: { gap: 20 },
-  field: { gap: 8 },
-  label: { fontSize: 14, lineHeight: 21, fontFamily: "Manrope_600SemiBold" },
+  content: { marginTop: space.lg, gap: space.xxl },
+  fields: { gap: space.lg },
+  field: { gap: space.sm },
+  label: { ...type.label, fontSize: 14, lineHeight: 20 },
   inputRow: {
     borderWidth: 1,
     borderColor: c.border,
-    borderRadius: 12,
+    borderRadius: radius.md,
     backgroundColor: c.surface,
     flexDirection: "row",
     alignItems: "center",
+    paddingStart: 14,
   },
-  inputFocused: { borderColor: c.mint },
+  // Focus thickens the border rather than only recolouring it; padding
+  // compensates so the text doesn't shift.
+  inputFocused: { borderColor: c.mint, borderWidth: 2, paddingStart: 13 },
   inputError: { borderColor: c.error },
   input: {
     flex: 1,
     minWidth: 0,
-    minHeight: 54,
-    paddingHorizontal: 14,
-    paddingVertical: 15,
+    minHeight: 50,
+    paddingVertical: 13,
+    paddingEnd: 14,
     color: c.text,
     fontSize: 16,
-    fontFamily: "Manrope_400Regular",
+    fontFamily: font.regular,
+    ...noWebOutline,
   },
-  visibility: {
-    width: 48,
-    minHeight: 52,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  outcome: { gap: 10 },
+  segmentsLabel: { ...type.label, fontSize: 13, lineHeight: 19 },
   segments: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 6,
-    padding: 5,
+    gap: 4,
+    padding: 4,
     backgroundColor: c.surface,
-    borderRadius: 12,
+    borderRadius: radius.md,
   },
   segment: {
     flex: 1,
     flexBasis: 110,
     minHeight: 48,
-    padding: 12,
-    borderRadius: 8,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
+    paddingHorizontal: space.md,
+    borderRadius: radius.sm,
+    borderWidth: 2,
     borderColor: "transparent",
-  },
-  segmentSelected: { borderColor: c.border, backgroundColor: c.feature },
-  segmentText: {
-    fontFamily: "Manrope_600SemiBold",
-    fontSize: 14,
-    textAlign: "center",
-    color: c.muted,
-  },
-  segmentTextSelected: { color: c.text },
-  actions: { gap: 4 },
-  textAction: {
-    minHeight: 48,
-    paddingVertical: 12,
-    paddingHorizontal: 8,
-    justifyContent: "center",
+    flexDirection: "row",
     alignItems: "center",
-  },
-  textActionLabel: {
-    fontFamily: "Manrope_600SemiBold",
-    fontSize: 14,
-    lineHeight: 22,
-    textAlign: "center",
-    color: c.mint,
-  },
-  error: { color: c.error, fontSize: 13, lineHeight: 21 },
-  errorBox: {
-    borderWidth: 1,
-    borderColor: c.error,
-    borderRadius: 12,
-    padding: 14,
+    justifyContent: "center",
     gap: 6,
   },
-  success: { gap: 24, paddingTop: 16 },
-  pressed: { opacity: 0.7 },
-  disabled: { opacity: 0.5 },
+  segmentOn: { backgroundColor: c.feature, borderColor: c.mint },
+  segmentText: { ...type.label, fontSize: 14, color: c.muted },
+  segmentTextOn: { color: c.text },
+  links: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "center",
+    columnGap: space.xl,
+  },
+  errorRow: { flexDirection: "row", gap: 6, alignItems: "flex-start" },
+  error: { flex: 1, color: c.error, fontSize: 13, lineHeight: 19 },
+  errorBox: {
+    flexDirection: "row",
+    gap: space.sm,
+    borderWidth: 1,
+    borderColor: c.error,
+    borderRadius: radius.md,
+    padding: 14,
+  },
+  errorTitle: { ...type.label, color: c.text },
+  success: { gap: space.xl, paddingTop: space.sm },
+  successIcon: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: c.feature,
+    alignItems: "center",
+    justifyContent: "center",
+  },
 });

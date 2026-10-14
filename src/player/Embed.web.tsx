@@ -1,9 +1,14 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useImperativeHandle, useRef } from "react";
 import { PlayerProps } from "./types";
 type YouTubePlayer = {
   destroy: () => void;
   getCurrentTime: () => number;
+  getDuration: () => number;
   getPlayerState: () => number;
+  playVideo: () => void;
+  pauseVideo: () => void;
+  seekTo: (seconds: number, allowSeekAhead: boolean) => void;
+  setPlaybackRate: (rate: number) => void;
 };
 type YouTubeApi = {
   Player: new (
@@ -18,17 +23,33 @@ declare global {
   }
 }
 let apiPromise: Promise<YouTubeApi> | undefined;
+// Under the app's own 15s limit, so a stalled script fails as a load error.
+const API_TIMEOUT = 12000;
+/**
+ * Loads YouTube's IFrame API once. If it fails or stalls, everything it
+ * added is removed, so Try again starts the loader from scratch.
+ */
 function loadApi() {
   if (window.YT?.Player) return Promise.resolve(window.YT);
   if (!apiPromise)
     apiPromise = new Promise((resolve, reject) => {
       const script = document.createElement("script");
-      script.src = "https://www.youtube.com/iframe_api";
-      script.onerror = () => {
+      const fail = () => {
+        clearTimeout(timer);
         apiPromise = undefined;
+        document
+          .querySelectorAll('script[src*="youtube.com/iframe_api"], #www-widgetapi-script')
+          .forEach((node) => node.remove());
+        if (!window.YT?.Player) window.YT = undefined;
         reject(new Error("Player script unavailable"));
       };
-      window.onYouTubeIframeAPIReady = () => resolve(window.YT!);
+      const timer = setTimeout(fail, API_TIMEOUT);
+      script.src = "https://www.youtube.com/iframe_api";
+      script.onerror = fail;
+      window.onYouTubeIframeAPIReady = () => {
+        clearTimeout(timer);
+        resolve(window.YT!);
+      };
       document.head.appendChild(script);
     });
   return apiPromise;
@@ -38,22 +59,43 @@ export default function Embed({
   height,
   startSeconds = 0,
   onEvent,
+  ref,
 }: PlayerProps) {
   const holder = useRef<HTMLDivElement>(null);
+  const player = useRef<YouTubePlayer | undefined>(undefined);
+  const ready = useRef(false);
   const callback = useRef(onEvent);
   useEffect(() => {
     callback.current = onEvent;
   }, [onEvent]);
+  // App controls reach the provider's own player through its official API.
+  useImperativeHandle(ref, () => ({
+    command: (command) => {
+      const p = player.current;
+      if (!p || !ready.current) return;
+      if (command.type === "play") p.playVideo();
+      else if (command.type === "pause") p.pauseVideo();
+      else if (command.type === "seek") p.seekTo(command.seconds, true);
+      else if (command.type === "rate") p.setPlaybackRate(command.rate);
+    },
+    focus: () => holder.current?.querySelector("iframe")?.focus(),
+  }));
   useEffect(() => {
     let disposed = false;
-    let player: YouTubePlayer | undefined;
     let timer: ReturnType<typeof setInterval> | undefined;
+    const duration = () => {
+      try {
+        return player.current?.getDuration() ?? 0;
+      } catch {
+        return 0;
+      }
+    };
     loadApi()
       .then((api) => {
         if (disposed || !holder.current) return;
         const target = document.createElement("div");
         holder.current.appendChild(target);
-        player = new api.Player(target, {
+        player.current = new api.Player(target, {
           videoId,
           width: "100%",
           height: "100%",
@@ -66,23 +108,33 @@ export default function Embed({
             origin: window.location.origin,
           },
           events: {
-            onReady: () => callback.current({ type: "ready" }),
+            onReady: () => {
+              ready.current = true;
+              callback.current({ type: "ready", duration: duration() });
+            },
             onError: (e: { data: number }) =>
               callback.current({ type: "error", code: e.data }),
             onStateChange: (e: { data: number }) =>
               callback.current({
                 type: "state",
                 state: e.data,
-                seconds: player?.getCurrentTime(),
+                seconds: player.current?.getCurrentTime(),
+                duration: duration(),
               }),
+            onPlaybackRateChange: (e: { data: number }) =>
+              callback.current({ type: "rate", rate: e.data }),
           },
         });
         timer = setInterval(() => {
-          if (player?.getPlayerState() === 1)
+          // The provider only adds its methods once the player is ready.
+          const p = player.current;
+          if (!p || !ready.current) return;
+          if (p.getPlayerState() === 1)
             callback.current({
               type: "state",
               state: 1,
-              seconds: player.getCurrentTime(),
+              seconds: p.getCurrentTime(),
+              duration: duration(),
             });
         }, 1000);
       })
@@ -91,8 +143,10 @@ export default function Embed({
       });
     return () => {
       disposed = true;
+      ready.current = false;
       if (timer) clearInterval(timer);
-      player?.destroy();
+      player.current?.destroy();
+      player.current = undefined;
     };
   }, [videoId, startSeconds]);
   return (

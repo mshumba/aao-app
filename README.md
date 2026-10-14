@@ -1,4 +1,4 @@
-# AAO · The Viewing Room
+# AAO App
 
 A local React Native / Expo prototype for finding and watching public sermons. Direction B uses dark teal surfaces, mint actions and Manrope. Browse as a guest, explore demo edification topics, search within a topic, watch a message, or try the simulated account flows.
 
@@ -25,11 +25,12 @@ Open the local URL printed by Expo, normally `http://localhost:8081`.
 
 ## What is here
 
-- Browse → topic library → category → scoped search → sermon/detail/watch, with back and menu paths.
-- Stable local category IDs, one primary topic plus optional secondary topics and tags per sermon. Assignments are explicitly **demo / unreviewed**; source titles, channel, duration and thumbnails are separate.
+- A floating tab bar (Home, Topics, Search, Account). Topic pages and sermons open over the tabs with Back.
+- One app-wide player: **Watch sermon** starts the YouTube player on a Now Playing screen tinted from the sermon's artwork, with play/pause, back 15s, forward 30s, a scrubber and speed. Going back docks the video above the tabs and it keeps playing while you browse; close it from the dock.
+- Stable local category IDs, one primary topic plus optional secondary topics and tags per sermon. Assignments are explicitly **demo / unreviewed** and live in their own module (`src/data/edification.ts`), apart from the verified source titles, channel, duration and thumbnails in `src/data/sermons.ts`.
 - Four public-source messages with consistent real titles and source thumbnails. YouTube is provisional; final catalog and rights remain open.
-- Official provider playback loaded after Play, provider controls, minimum 200×200 viewport, retry and external fallback. Leaving or backgrounding stops the media; there is no download or background audio.
-- Welcome/sign-in/sign-up/reset **simulations only**. Use `viewer@example.com` / `demo-password` through **Use demo values**. No GPT auth, account backend, email, credential logging or persistence. Watching stays open to guests.
+- Official provider playback with YouTube's own controls visible, minimum 200×200 viewport full or docked, retry where it can help and a Watch on YouTube fallback. Leaving the app pauses the sermon; there is no download or background audio.
+- Welcome/sign-in/sign-up/reset **simulations only**. Use `viewer@example.com` / `demo-password` through **Fill in sample details**, and choose a simulated Success or Error. No GPT auth, account backend, email, credential logging or persistence. Watching stays open to guests.
 
 ## Verify
 

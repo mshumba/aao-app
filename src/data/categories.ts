@@ -1,9 +1,9 @@
-/** Stable editorial keys. Demo assignments are not a content review. */
+/** Stable editorial keys for edification topics. See edification.ts. */
 export const categories = [
   {
     id: "spiritual-growth",
     label: "Spiritual Growth",
-    description: "Deepening your walk with God, one message at a time.",
+    description: "Deepening your walk with God, one step at a time.",
     icon: "leaf-outline",
   },
   {
@@ -30,11 +30,5 @@ export type CategoryId = Category["id"];
 export function getCategory(id?: string): Category | undefined {
   return categories.find((category) => category.id === id);
 }
-export type EdificationAssignment = {
-  primaryCategoryId: CategoryId;
-  additionalCategoryIds: CategoryId[];
-  tags: string[];
-  reviewStatus: "demo";
-};
 export const topicDisclaimer =
-  "Demo topics and tags · message content has not been reviewed.";
+  "Topics are sample labels, not yet checked against each sermon.";

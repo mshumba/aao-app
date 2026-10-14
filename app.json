@@ -1,15 +1,45 @@
 {
   "expo": {
-    "name": "AAO · The Viewing Room",
-    "slug": "aao-viewing-room",
+    "name": "AAO",
+    "slug": "aao-app",
     "version": "0.1.0",
     "scheme": "aao",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
-    "ios": { "bundleIdentifier": "com.aao.prototype", "supportsTablet": true },
-    "android": { "package": "com.aao.prototype" },
-    "web": { "output": "single", "name": "AAO · The Viewing Room" },
-    "plugins": ["expo-router", "expo-font"],
-    "experiments": { "typedRoutes": true }
+    "backgroundColor": "#0e1515",
+    "ios": {
+      "bundleIdentifier": "com.aao.prototype",
+      "supportsTablet": true
+    },
+    "android": {
+      "package": "com.aao.prototype"
+    },
+    "web": {
+      "output": "single",
+      "name": "AAO"
+    },
+    "plugins": [
+      "./plugins/with-ios-scene-lifecycle",
+      "expo-router",
+      "expo-font",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#0e1515",
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 200
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "22f97c2b-42d9-4e87-8237-d953a169e5e1"
+      }
+    },
+    "owner": "mshumba"
   }
 }

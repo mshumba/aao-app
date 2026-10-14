@@ -1,7 +1,15 @@
-import { expect, test } from "./fixtures";
+import { expect, shown, tab, test } from "./fixtures";
 import type { Page } from "@playwright/test";
 
-const demoBadge = "DEMO — no account service";
+const demoPanel = "This is a demo";
+const guestHeading = "Sign in or create an account";
+const signedInLine = "Signed in to the demo";
+
+async function expectGuest(page: Page) {
+  await expect(
+    page.getByRole("heading", { name: guestHeading, exact: true }),
+  ).toBeVisible();
+}
 
 async function settle(page: Page) {
   await page.waitForLoadState("networkidle");
@@ -9,24 +17,20 @@ async function settle(page: Page) {
 }
 
 async function openAccount(page: Page) {
-  await page.getByRole("button", { name: "Menu", exact: true }).click();
-  await page
-    .getByRole("button", { name: "Account (demo)", exact: true })
-    .click();
-  await expect(page.getByText(demoBadge, { exact: true })).toBeVisible();
+  await tab(page, "Account").click();
+  await expectGuest(page);
+  await expect(shown(page.getByText(demoPanel, { exact: true }))).toBeVisible();
 }
 
 async function openSignIn(page: Page) {
   await openAccount(page);
-  await page
-    .getByRole("button", { name: "Sign in (demo)", exact: true })
-    .click();
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await expect(page.getByLabel("Email address", { exact: true })).toBeVisible();
 }
 
-async function fillDemoValues(page: Page) {
+async function fillSample(page: Page) {
   await page
-    .getByRole("button", { name: "Use demo values", exact: true })
+    .getByRole("button", { name: "Fill in sample details", exact: true })
     .click();
   await expect(page.getByLabel("Email address", { exact: true })).toHaveValue(
     "viewer@example.com",
@@ -35,22 +39,20 @@ async function fillDemoValues(page: Page) {
 
 async function successfulSignIn(page: Page) {
   await openSignIn(page);
-  await fillDemoValues(page);
-  await page
-    .getByRole("button", { name: "Sign in (demo)", exact: true })
-    .click();
+  await fillSample(page);
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await expect(
-    page.getByRole("heading", { name: "You’re in. For this demo." }),
+    page.getByRole("heading", { name: "You’re signed in" }),
   ).toBeVisible();
   await page
-    .getByRole("button", { name: "Return to sermons", exact: true })
+    .getByRole("button", { name: "Back to sermons", exact: true })
     .click();
 }
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
   await expect(
-    page.getByRole("button", { name: "Menu", exact: true }),
+    tab(page, "Home"),
   ).toBeVisible();
   await settle(page);
 });
@@ -60,27 +62,30 @@ test("guest search survives account mode replacements and closing", async ({
 }) => {
   await page.getByRole("button", { name: /Search sermons/ }).click();
   await page
-    .getByRole("textbox", { name: "Search sermons", exact: true })
+    .getByRole("searchbox", { name: "Search sermons", exact: true })
     .fill("pray");
-  await expect(page.getByText("Search results", { exact: true })).toBeVisible();
+  await expect(shown(page.getByTestId("result-count"))).toHaveText("2 sermons");
   await openSignIn(page);
   await page
-    .getByRole("button", { name: "Create account (demo)", exact: true })
+    .getByRole("button", { name: "Create an account", exact: true })
     .click();
   await expect(
     page.getByLabel("Confirm password", { exact: true }),
   ).toBeVisible();
-  await expect(page.getByText(demoBadge, { exact: true })).toBeVisible();
+  await expect(shown(page.getByText(demoPanel, { exact: true }))).toBeVisible();
   await page
     .getByRole("button", { name: "Back to sign in", exact: true })
     .click();
   await page
     .getByRole("button", { name: "Forgot password?", exact: true })
     .click();
-  await expect(page.getByText(demoBadge, { exact: true })).toBeVisible();
+  await expect(shown(page.getByText(demoPanel, { exact: true }))).toBeVisible();
   await page.getByRole("button", { name: "Close", exact: true }).click();
+  // Close returns to the Account tab; the Search tab kept its query.
+  await expect(tab(page, "Account")).toHaveAttribute("aria-selected", "true");
+  await tab(page, "Search").click();
   await expect(
-    page.getByRole("textbox", { name: "Search sermons", exact: true }),
+    page.getByRole("searchbox", { name: "Search sermons", exact: true }),
   ).toHaveValue("pray");
   await expect(page).toHaveURL(/\/search$/);
 });
@@ -89,34 +94,41 @@ test("empty and malformed fields explain the error and focus the first invalid f
   page,
 }) => {
   await openSignIn(page);
-  await page
-    .getByRole("button", { name: "Sign in (demo)", exact: true })
-    .click();
+  const email = page.getByLabel("Email address", { exact: true });
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await expect(
-    page.getByText("Enter an email address.", { exact: true }),
+    page.getByText("Enter your email address.", { exact: true }),
   ).toBeVisible();
-  await expect(page.getByLabel("Email address", { exact: true })).toBeFocused();
-
-  await page
-    .getByLabel("Email address", { exact: true })
-    .fill("invalid-address");
-  await page
-    .getByRole("button", { name: "Sign in (demo)", exact: true })
-    .click();
+  // Web has no announceForAccessibility, so the inserted error is an alert and
+  // describes its field. This checks the semantics, not speech.
   await expect(
-    page.getByText("Check the email format.", { exact: true }),
-  ).toBeVisible();
-  await expect(page.getByLabel("Email address", { exact: true })).toBeFocused();
+    page.getByText("Enter your email address.", { exact: true }),
+  ).toHaveAttribute("role", "alert");
+  await expect(email).toHaveAttribute("aria-invalid", "true");
+  await expect(email).toHaveAccessibleDescription("Enter your email address.");
+  await expect(email).toBeFocused();
 
-  await page
-    .getByLabel("Email address", { exact: true })
-    .fill("viewer@example.com");
+  await email.fill("invalid-address");
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await expect(
+    page.getByText("Enter an email address like name@example.com.", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(email).toBeFocused();
+
+  await email.fill("viewer@example.com");
+  // Editing a field clears its stale error before the next submit.
+  await expect(
+    page.getByText("Enter an email address like name@example.com.", {
+      exact: true,
+    }),
+  ).toHaveCount(0);
+  await expect(email).toHaveAttribute("aria-invalid", "false");
   await page.getByLabel("Password", { exact: true }).fill("short");
-  await page
-    .getByRole("button", { name: "Sign in (demo)", exact: true })
-    .click();
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await expect(
-    page.getByText("Use at least 8 characters for this demo.", { exact: true }),
+    page.getByText("Use at least 8 characters.", { exact: true }),
   ).toBeVisible();
   await expect(page.getByLabel("Password", { exact: true })).toBeFocused();
 });
@@ -124,72 +136,74 @@ test("empty and malformed fields explain the error and focus the first invalid f
 test("sign-in is temporary and both sign-out and reload restore guest state", async ({
   page,
 }) => {
+  // The account card describes the account, not playback.
+  await tab(page, "Account").click();
+  await expectGuest(page);
+  await expect(page.getByText(/watching stays open/)).toHaveCount(0);
+
   await successfulSignIn(page);
-  await page.getByRole("button", { name: "Menu", exact: true }).click();
+  // "Back to sermons" lands on Home.
+  await expect(tab(page, "Home")).toHaveAttribute("aria-selected", "true");
+  await tab(page, "Account").click();
   await expect(
-    page.getByText("Demo Viewer · signed in (demo)", { exact: true }),
+    page.getByRole("heading", { name: "Demo Viewer", exact: true }),
   ).toBeVisible();
+  await expect(shown(page.getByText(signedInLine, { exact: true }))).toBeVisible();
   await page
     .getByRole("button", { name: "Sign out of demo", exact: true })
     .click();
-  await expect(
-    page.getByText("Browse freely. No account needed.", { exact: true }),
-  ).toBeVisible();
-  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await expectGuest(page);
 
   await successfulSignIn(page);
   await page.reload();
-  await page.getByRole("button", { name: "Menu", exact: true }).click();
-  await expect(
-    page.getByText("Browse freely. No account needed.", { exact: true }),
-  ).toBeVisible();
-  await page
-    .getByRole("button", { name: "Account (demo)", exact: true })
-    .click();
-  await page
-    .getByRole("button", { name: "Sign in (demo)", exact: true })
-    .click();
+  await tab(page, "Account").click();
+  await expectGuest(page);
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await expect(page.getByLabel("Email address", { exact: true })).toBeEmpty();
   await expect(page.getByLabel("Password", { exact: true })).toBeEmpty();
 });
 
-test("signup mismatch and chosen rejection are reproducible, followed by demo success", async ({
+test("signup mismatch and chosen error are reproducible, followed by demo success", async ({
   page,
 }) => {
   await openAccount(page);
   await page
-    .getByRole("button", { name: "Create account (demo)", exact: true })
+    .getByRole("button", { name: "Create account", exact: true })
     .click();
-  await fillDemoValues(page);
+  await fillSample(page);
   await page
     .getByLabel("Confirm password", { exact: true })
     .fill("different-demo-value");
   await page
-    .getByRole("button", { name: "Create demo account", exact: true })
+    .getByRole("button", { name: "Create account", exact: true })
     .click();
   await expect(
-    page.getByText("Passwords don’t match.", { exact: true }),
+    page.getByText("Enter the same password in both fields.", { exact: true }),
   ).toBeVisible();
   await expect(
     page.getByLabel("Confirm password", { exact: true }),
   ).toBeFocused();
 
-  await fillDemoValues(page);
-  await page.getByRole("radio", { name: "Rejected", exact: true }).click();
+  await fillSample(page);
+  await page.getByRole("radio", { name: "Error", exact: true }).click();
+  await expect(
+    page.getByRole("radio", { name: "Error", exact: true }),
+  ).toBeChecked();
   await page
-    .getByRole("button", { name: "Create demo account", exact: true })
+    .getByRole("button", { name: "Create account", exact: true })
     .click();
   await expect(
-    page.getByText("Demo: email already in use.", { exact: true }),
+    page.getByText("An account already uses this email.", { exact: true }),
   ).toBeVisible();
   await page.getByRole("radio", { name: "Success", exact: true }).click();
   await page
-    .getByRole("button", { name: "Create demo account", exact: true })
+    .getByRole("button", { name: "Create account", exact: true })
     .click();
   await expect(
-    page.getByText("Demo account shown — nothing was created or saved.", {
-      exact: true,
-    }),
+    page.getByText(
+      "No account was created and nothing was saved. This demo sign-in ends when you sign out or reload the app.",
+      { exact: true },
+    ),
   ).toBeVisible();
 });
 
@@ -197,17 +211,17 @@ test("reset confirms that no email was sent and returns to an empty sign-in form
   page,
 }) => {
   await openSignIn(page);
-  await fillDemoValues(page);
+  await fillSample(page);
   await page
     .getByRole("button", { name: "Forgot password?", exact: true })
     .click();
   await expect(page.getByLabel("Email address", { exact: true })).toBeEmpty();
-  await fillDemoValues(page);
+  await fillSample(page);
   await page
-    .getByRole("button", { name: "Send reset link (demo)", exact: true })
+    .getByRole("button", { name: "Send reset link", exact: true })
     .click();
   await expect(
-    page.getByText("No email was sent — this is a demo.", { exact: true }),
+    page.getByRole("heading", { name: "No email was sent" }),
   ).toBeVisible();
   await page
     .getByRole("button", { name: "Back to sign in", exact: true })
@@ -220,26 +234,18 @@ test("closing a busy demo cancels sign-in and clears the form", async ({
   page,
 }) => {
   await openSignIn(page);
-  await fillDemoValues(page);
-  await page
-    .getByRole("button", { name: "Sign in (demo)", exact: true })
-    .click();
-  await expect(
-    page.getByRole("button", { name: "Signing in…", exact: true }),
-  ).toBeDisabled();
+  await fillSample(page);
+  const submit = page.getByRole("button", { name: "Sign in", exact: true });
+  await submit.click();
+  // Busy keeps its label (nothing is really being sent), reports aria-busy,
+  // ignores further presses and keeps keyboard focus rather than dropping it.
+  await expect(submit).toHaveAttribute("aria-busy", "true");
+  await expect(submit).toBeFocused();
   await page.getByRole("button", { name: "Close", exact: true }).click();
-  await page.getByRole("button", { name: "Menu", exact: true }).click();
   // The local operation lasts 800ms. Observe beyond it to catch late sign-in.
   await page.waitForTimeout(1_000);
-  await expect(
-    page.getByText("Browse freely. No account needed.", { exact: true }),
-  ).toBeVisible();
-  await page
-    .getByRole("button", { name: "Account (demo)", exact: true })
-    .click();
-  await page
-    .getByRole("button", { name: "Sign in (demo)", exact: true })
-    .click();
+  await expectGuest(page);
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await expect(page.getByLabel("Email address", { exact: true })).toBeEmpty();
   await expect(page.getByLabel("Password", { exact: true })).toBeEmpty();
 });
@@ -248,7 +254,7 @@ test("password visibility and small-screen scrolling leave all actions reachable
   page,
 }, testInfo) => {
   await openSignIn(page);
-  await fillDemoValues(page);
+  await fillSample(page);
   await expect(page.getByLabel("Password", { exact: true })).toHaveAttribute(
     "type",
     "password",
@@ -293,7 +299,7 @@ test("password visibility and small-screen scrolling leave all actions reachable
   expect(bounds?.height).toBeGreaterThanOrEqual(48);
   await guestAction.click();
   await expect(
-    page.getByRole("button", { name: "Watch sermon", exact: true }),
+    page.getByRole("button", { name: /^Watch sermon/ }),
   ).toBeVisible();
 });
 
@@ -361,65 +367,54 @@ test("account submissions make no requests or persistent-storage calls", async (
     }
   });
 
-  await fillDemoValues(page);
-  await page.getByRole("radio", { name: "Rejected", exact: true }).click();
-  await page
-    .getByRole("button", { name: "Sign in (demo)", exact: true })
-    .click();
+  await fillSample(page);
+  await page.getByRole("radio", { name: "Error", exact: true }).click();
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await expect(
-    page.getByText("Demo: sign-in rejected.", { exact: true }),
+    page.getByText("Incorrect email or password.", { exact: true }),
   ).toBeVisible();
   await page.getByRole("radio", { name: "Success", exact: true }).click();
-  await page
-    .getByRole("button", { name: "Sign in (demo)", exact: true })
-    .click();
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await expect(
-    page.getByRole("heading", { name: "You’re in. For this demo." }),
+    page.getByRole("heading", { name: "You’re signed in" }),
   ).toBeVisible();
   await page
-    .getByRole("button", { name: "Return to sermons", exact: true })
+    .getByRole("button", { name: "Back to sermons", exact: true })
     .click();
-  await page.getByRole("button", { name: "Menu", exact: true }).click();
+  await tab(page, "Account").click();
   await page
     .getByRole("button", { name: "Sign out of demo", exact: true })
     .click();
   await page
-    .getByRole("button", { name: "Account (demo)", exact: true })
+    .getByRole("button", { name: "Create account", exact: true })
     .click();
+  await fillSample(page);
   await page
-    .getByRole("button", { name: "Create account (demo)", exact: true })
-    .click();
-  await fillDemoValues(page);
-  await page
-    .getByRole("button", { name: "Create demo account", exact: true })
+    .getByRole("button", { name: "Create account", exact: true })
     .click();
   await expect(
-    page.getByText("Demo account shown — nothing was created or saved.", {
-      exact: true,
-    }),
+    page.getByText(
+      "No account was created and nothing was saved. This demo sign-in ends when you sign out or reload the app.",
+      { exact: true },
+    ),
   ).toBeVisible();
   await page
-    .getByRole("button", { name: "Return to sermons", exact: true })
+    .getByRole("button", { name: "Back to sermons", exact: true })
     .click();
-  await page.getByRole("button", { name: "Menu", exact: true }).click();
+  await tab(page, "Account").click();
   await page
     .getByRole("button", { name: "Sign out of demo", exact: true })
     .click();
-  await page
-    .getByRole("button", { name: "Account (demo)", exact: true })
-    .click();
-  await page
-    .getByRole("button", { name: "Sign in (demo)", exact: true })
-    .click();
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await page
     .getByRole("button", { name: "Forgot password?", exact: true })
     .click();
-  await fillDemoValues(page);
+  await fillSample(page);
   await page
-    .getByRole("button", { name: "Send reset link (demo)", exact: true })
+    .getByRole("button", { name: "Send reset link", exact: true })
     .click();
   await expect(
-    page.getByText("No email was sent — this is a demo.", { exact: true }),
+    page.getByRole("heading", { name: "No email was sent" }),
   ).toBeVisible();
 
   const calls = await page.evaluate(

@@ -1,4 +1,4 @@
-import { test as base, expect } from "@playwright/test";
+import { test as base, expect, type Locator, type Page } from "@playwright/test";
 // Navigation/privacy tests must not depend on remote thumbnail availability.
 // Player failure behavior is explicitly exercised in core.spec.ts.
 export const test = base.extend({
@@ -11,3 +11,114 @@ export const test = base.extend({
   },
 });
 export { expect };
+
+/**
+ * Screens behind the current one (inactive tabs, pushed-over screens) stay in
+ * the DOM on web but are aria-hidden. Keep only what's actually on screen.
+ */
+export function shown(locator: Locator) {
+  return locator.locator(
+    'xpath=self::*[not(ancestor-or-self::*[@aria-hidden="true"])]',
+  ).filter({ visible: true });
+}
+
+export function rows(page: Page) {
+  return shown(page.getByTestId("sermon-row"));
+}
+
+export function tab(page: Page, name: "Home" | "Topics" | "Search" | "Account") {
+  return page.getByRole("tab", { name, exact: true });
+}
+
+/**
+ * Replace YouTube's IFrame API with a deterministic stand-in: a 10-minute
+ * video whose clock ticks while playing. Commands the app sends through the
+ * official API are recorded on window.__yt for assertions. Like the real API,
+ * player methods only exist once it's ready.
+ * - error: fail with this YouTube error code instead of becoming ready.
+ * - readyAfter: milliseconds before ready (or the error).
+ * - stallFirst: the first script load never defines a player, as when
+ *   YouTube's follow-up script is blocked.
+ * - blockAutoplay: the first play request is refused, as Safari does when
+ *   the tap that asked for playback came before the player existed:
+ *   "silent" (no state change), "paused" (buffers, then pauses) or "stall"
+ *   (buffers forever). `true` means "silent".
+ */
+export async function fakeYouTube(
+  page: Page,
+  options:
+    | number
+    | {
+        error?: number;
+        readyAfter?: number;
+        stallFirst?: boolean;
+        blockAutoplay?: boolean | "silent" | "paused" | "stall";
+      } = {},
+) {
+  const { error, readyAfter = 50, stallFirst = false, blockAutoplay = false } =
+    typeof options === "number" ? { error: options } : options;
+  let loads = 0;
+  await page.route("https://www.youtube.com/iframe_api", (route) => {
+    loads += 1;
+    if (stallFirst && loads === 1)
+      return route.fulfill({
+        contentType: "text/javascript",
+        body: "window.YT = { loading: 1, loaded: 0 };",
+      });
+    return route.fulfill({
+      contentType: "text/javascript",
+      body: `window.__yt = window.__yt || { created: 0, destroyed: 0, commands: [] };
+      window.YT = { Player: function (el, o) {
+        var yt = window.__yt, self = this, state = -1, t = (o.playerVars && o.playerVars.start) || 0, timer, pend = [], refuse = ${JSON.stringify(blockAutoplay === true ? "silent" : blockAutoplay || "")};
+        yt.created++;
+        el.setAttribute("data-testid", "fake-yt");
+        el.style.width = "100%"; el.style.height = "100%";
+        el.innerHTML = '<iframe title="Fake YouTube player" style="width:100%;height:100%;border:0;background:#000"></iframe>';
+        function emit(s) { state = s; o.events.onStateChange({ data: s }); }
+        this.destroy = function () { clearInterval(timer); yt.destroyed++; };
+        function attach() {
+          self.getCurrentTime = function () { return t; };
+          self.getDuration = function () { return 600; };
+          self.getPlayerState = function () { return state; };
+          self.playVideo = function () {
+            if (refuse) {
+              var how = refuse; refuse = "";
+              yt.commands.push("play-refused");
+              if (how === "paused") { setTimeout(function () { emit(3); }, 30); setTimeout(function () { emit(2); }, 120); }
+              if (how === "stall") setTimeout(function () { emit(3); }, 30);
+              return;
+            }
+            yt.commands.push("play"); clearInterval(timer);
+            // Like YouTube: a moment of buffering, then playing.
+            pend.push(setTimeout(function () { emit(3); }, 20));
+            pend.push(setTimeout(function () { timer = setInterval(function () { t += 1; }, 200); emit(1); }, 80));
+          };
+          self.pauseVideo = function () { yt.commands.push("pause"); pend.forEach(clearTimeout); pend = []; clearInterval(timer); emit(2); };
+          self.seekTo = function (s) { yt.commands.push("seek:" + Math.round(s)); t = s; };
+          self.setPlaybackRate = function (r) { yt.commands.push("rate:" + r); o.events.onPlaybackRateChange({ data: r }); };
+        }
+        setTimeout(function () { ${error ? `o.events.onError({ data: ${error} })` : "attach(); o.events.onReady()"}; }, ${readyAfter});
+      } };
+      window.onYouTubeIframeAPIReady && window.onYouTubeIframeAPIReady();`,
+    });
+  });
+}
+
+/** Pretend the viewer switched away from the app (the tab is hidden). */
+export async function sendToBackground(page: Page) {
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => "hidden",
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+}
+
+export async function ytLog(page: Page) {
+  return page.evaluate(
+    () =>
+      (window as unknown as { __yt?: { created: number; destroyed: number; commands: string[] } })
+        .__yt ?? { created: 0, destroyed: 0, commands: [] },
+  );
+}

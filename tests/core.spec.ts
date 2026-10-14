@@ -1,4 +1,16 @@
-import { expect, test } from "./fixtures";
+import {
+  expect,
+  fakeYouTube,
+  rows,
+  sendToBackground,
+  shown,
+  tab,
+  test,
+  ytLog,
+} from "./fixtures";
+
+const lioness =
+  "LIONESS CONFERENCE || PRAY WITHOUT CEASING || GRAND FINALE || 27TH SEPTEMBER 2026";
 
 test("guest browse, exact sermon identity, search and back navigation", async ({
   page,
@@ -8,35 +20,61 @@ test("guest browse, exact sermon identity, search and back navigation", async ({
   await page
     .getByRole("button", { name: "Search sermons", exact: true })
     .click();
-  await page.getByRole("textbox", { name: "Search sermons" }).fill("pray");
-  await page.getByRole("button", { name: /Open LIONESS CONFERENCE/ }).click();
+  const input = page.getByRole("searchbox", { name: "Search sermons" });
+  // Home's search field opens the Search tab ready to type.
+  await expect(input).toBeFocused();
+  await expect(tab(page, "Search")).toHaveAttribute("aria-selected", "true");
+  await input.fill("pray");
   await expect(
-    page.getByRole("heading", {
-      name: "LIONESS CONFERENCE || PRAY WITHOUT CEASING || GRAND FINALE || 27TH SEPTEMBER 2026",
-      exact: true,
-    }),
+    shown(page.getByTestId("result-count")),
+  ).toHaveText("2 sermons");
+  await page.getByRole("button", { name: /^Pray Without Ceasing\./ }).click();
+  // A short headline leads; the verified title is kept exactly, with its
+  // source, in the details.
+  await expect(
+    page.getByRole("heading", { level: 1, name: "Pray Without Ceasing", exact: true }),
   ).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "Play sermon", exact: true }),
+    shown(page.getByText("Lioness Conference · Grand Finale · 27 Sep 2026", { exact: true })),
+  ).toBeVisible();
+  await expect(shown(page.getByText(lioness, { exact: true }))).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Open in YouTube", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Watch sermon", exact: true }),
   ).toBeVisible();
   await expect(page.locator("iframe")).toHaveCount(0);
   await page.getByRole("button", { name: "Back", exact: true }).click();
+  await expect(input).toHaveValue("pray");
+  await input.fill("no-such-sermon");
   await expect(
-    page.getByRole("textbox", { name: "Search sermons" }),
-  ).toHaveValue("pray");
-  await page
-    .getByRole("textbox", { name: "Search sermons" })
-    .fill("no-such-sermon");
-  await expect(
-    page.getByRole("heading", { name: "No messages found" }),
+    page.getByRole("heading", { name: "No sermons match “no-such-sermon”" }),
   ).toBeVisible();
   await page
     .getByRole("button", { name: "Clear search", exact: true })
     .last()
     .click();
+  await expect(input).toHaveValue("");
+  await expect(rows(page)).toHaveCount(4);
+});
+
+test("each screen has one visible page heading", async ({ page }) => {
+  for (const path of [
+    "/",
+    "/sermon/nUW8NT2Pe88",
+    "/topics",
+    "/search",
+    "/account",
+  ]) {
+    await page.goto(path);
+    await expect(page.getByRole("button").first()).toBeVisible();
+    await expect(shown(page.locator("h1"))).toHaveCount(1);
+  }
+  await page.goto("/sermon/nUW8NT2Pe88");
   await expect(
-    page.getByRole("textbox", { name: "Search sermons" }),
-  ).toHaveValue("");
+    page.getByRole("heading", { level: 2, name: "More sermons" }),
+  ).toBeVisible();
 });
 
 test("unavailable sermon gives a route back to browse", async ({ page }) => {
@@ -52,7 +90,7 @@ test("unavailable sermon gives a route back to browse", async ({ page }) => {
   ).toBeVisible();
 });
 
-test("failed provider script offers retry and external fallback, only after Play", async ({
+test("failed provider script offers retry and YouTube, only after Watch", async ({
   page,
 }) => {
   let requests = 0;
@@ -62,46 +100,296 @@ test("failed provider script offers retry and external fallback, only after Play
   });
   await page.goto("/sermon/nUW8NT2Pe88");
   await expect(
-    page.getByRole("button", { name: "Play sermon", exact: true }),
+    page.getByRole("button", { name: "Watch sermon", exact: true }),
   ).toBeVisible();
   expect(requests).toBe(0);
-  await page.getByRole("button", { name: "Play sermon", exact: true }).click();
+  await page.getByRole("button", { name: "Watch sermon", exact: true }).click();
   await expect(
     page.getByText(
-      "The player could not load. Check your connection and try again.",
+      "The player didn’t load. Check your connection and try again.",
       { exact: true },
     ),
   ).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "Open on YouTube", exact: true }),
+    page.getByRole("button", { name: "Watch on YouTube", exact: true }),
   ).toBeVisible();
-  await page
-    .getByRole("button", { name: "Try player again", exact: true })
-    .click();
+  // Web has no announce API, so the message is exposed as an alert.
+  await expect(page.getByRole("alert")).toHaveText(
+    "The player didn’t load. Check your connection and try again.",
+  );
+  await page.getByRole("button", { name: "Try again", exact: true }).click();
   await expect.poll(() => requests).toBe(2);
 });
 
-test("auxiliary state previews are labelled and actionable", async ({
+test("a double tap on Watch loads the player once", async ({ page }) => {
+  await fakeYouTube(page);
+  await page.goto("/sermon/nUW8NT2Pe88");
+  await page
+    .getByRole("button", { name: "Watch sermon", exact: true })
+    .dblclick();
+  await expect(page.getByTestId("playback-status")).toHaveText("Playing");
+  expect((await ytLog(page)).created).toBe(1);
+});
+
+test("embedding-disabled errors don't offer a retry that can't work", async ({
   page,
 }) => {
+  await fakeYouTube(page, 150);
+  await page.goto("/sermon/nUW8NT2Pe88");
+  await page.getByRole("button", { name: "Watch sermon", exact: true }).click();
+  await expect(
+    page.getByText("This sermon can only be watched on YouTube.", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Watch on YouTube", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Try again", exact: true }),
+  ).toHaveCount(0);
+});
+
+test("Watch starts playback and nothing stays over the provider player", async ({
+  page,
+}) => {
+  await fakeYouTube(page);
+  await page.goto("/sermon/nUW8NT2Pe88");
+  await page.getByRole("button", { name: "Watch sermon", exact: true }).click();
+  // The viewer's tap starts the sermon; no second press is needed.
+  await expect(page.getByTestId("playback-status")).toHaveText("Playing");
+  expect((await ytLog(page)).commands).toContain("play");
+  await expect(page.getByTestId("player-cover")).toHaveCount(0);
+  await expect(page.getByTestId("player-full")).toBeVisible();
+  // The provider's player is the topmost thing at its centre and corners.
+  const box = (await page.getByTestId("player-full").boundingBox())!;
+  const unobscured = await page.evaluate(
+    ({ x, y, width, height }) =>
+      [
+        [0.5, 0.5],
+        [0.05, 0.95],
+        [0.95, 0.95],
+      ].every(([fx, fy]) =>
+        document
+          .elementFromPoint(x + width * fx, y + height * fy)
+          ?.closest('[data-testid="fake-yt"]'),
+      ),
+    box,
+  );
+  expect(unobscured).toBe(true);
+  expect(box.height).toBeGreaterThanOrEqual(200);
+});
+
+test("Now Playing controls drive the provider player", async ({ page }) => {
+  await fakeYouTube(page);
+  await page.goto("/sermon/nUW8NT2Pe88");
+  await page.getByRole("button", { name: "Watch sermon", exact: true }).click();
+  await expect(page.getByTestId("playback-status")).toHaveText("Playing");
+  await page.getByRole("button", { name: "Pause", exact: true }).click();
+  await expect(page.getByTestId("playback-status")).toHaveText("Paused");
+  await page
+    .getByRole("button", { name: "Forward 30 seconds", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Playback speed 1 times", exact: true })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "Playback speed 1.25 times", exact: true }),
+  ).toBeVisible();
+  // Tap the middle of the scrubber: a 10-minute video seeks to about 5:00.
+  const bar = (await page.getByTestId("scrubber").boundingBox())!;
+  await page.mouse.click(bar.x + bar.width / 2, bar.y + bar.height / 2);
+  await expect(page.getByTestId("elapsed")).toHaveText(/^(4:5\d|5:0\d)$/);
+  const { commands } = await ytLog(page);
+  expect(commands).toContain("pause");
+  // Forward 30 from wherever playback had reached (a few seconds in).
+  expect(commands.some((c) => /^seek:(3\d|4\d)$/.test(c))).toBe(true);
+  expect(commands).toContain("rate:1.25");
+  // Middle of a 10-minute bar, give or take a pixel.
+  expect(commands.some((c) => /^seek:(29\d|30\d)$/.test(c))).toBe(true);
+  await page.getByRole("button", { name: "Play", exact: true }).click();
+  await expect(page.getByTestId("playback-status")).toHaveText("Playing");
+});
+
+test("leaving a playing sermon docks it; it keeps playing across tabs", async ({
+  page,
+}) => {
+  await fakeYouTube(page);
+  await page.goto("/");
+  await rows(page).first().click();
+  await page.getByRole("button", { name: "Watch sermon", exact: true }).click();
+  await expect(page.getByTestId("playback-status")).toHaveText("Playing");
+  await page.getByRole("button", { name: "Back", exact: true }).click();
+  const dock = page.getByTestId("player-dock");
+  await expect(dock).toBeVisible();
+  await expect(page.getByTestId("dock-status")).toHaveText("Playing");
+  for (const name of ["Topics", "Search", "Account", "Home"] as const) {
+    await tab(page, name).click();
+    await expect(dock).toBeVisible();
+  }
+  // Same player instance throughout: nothing reloaded or restarted.
+  expect((await ytLog(page)).created).toBe(1);
+  expect((await ytLog(page)).destroyed).toBe(0);
+  // Content can still scroll clear of the dock.
+  const footer = page.getByText(/This preview has 4 sermons/);
+  await footer.scrollIntoViewIfNeeded();
+  const [f, d] = [(await footer.boundingBox())!, (await dock.boundingBox())!];
+  expect(f.y + f.height).toBeLessThanOrEqual(d.y);
+  // The dock pauses, reopens Now Playing, and closes.
+  await dock.getByRole("button", { name: "Pause", exact: true }).click();
+  await expect(page.getByTestId("dock-status")).toHaveText("Paused");
+  await page.getByRole("button", { name: /^Open Now Playing/ }).click();
+  await expect(page.getByTestId("player-full")).toBeVisible();
+  await expect(page.getByTestId("playback-status")).toHaveText("Paused");
+  // A second Back within 350ms counts as a double tap; pace it like a person.
+  await page.waitForTimeout(400);
+  await page.getByRole("button", { name: "Back", exact: true }).click();
+  await page.getByRole("button", { name: "Close player", exact: true }).click();
+  await expect(page.getByTestId("player-dock")).toHaveCount(0);
+  expect((await ytLog(page)).destroyed).toBe(1);
+});
+
+test("starting another sermon replaces the docked one", async ({ page }) => {
+  await fakeYouTube(page);
+  await page.goto("/sermon/nUW8NT2Pe88");
+  await page.getByRole("button", { name: "Watch sermon", exact: true }).click();
+  await expect(page.getByTestId("playback-status")).toHaveText("Playing");
+  // Open another sermon from "More sermons": the first keeps playing, docked.
+  await rows(page).first().click();
+  await expect(page.getByTestId("player-dock")).toBeVisible();
+  await expect(page.getByTestId("dock-status")).toHaveText("Playing");
+  await page.getByRole("button", { name: "Watch sermon", exact: true }).click();
+  await expect(page.getByTestId("player-full")).toBeVisible();
+  await expect(page.getByTestId("player-dock")).toHaveCount(0);
+  const log = await ytLog(page);
+  expect(log.created).toBe(2);
+  expect(log.destroyed).toBe(1);
+});
+
+test("leaving the app pauses the sermon (no background audio)", async ({
+  page,
+}) => {
+  await fakeYouTube(page);
+  await page.goto("/sermon/nUW8NT2Pe88");
+  await page.getByRole("button", { name: "Watch sermon", exact: true }).click();
+  await expect(page.getByTestId("playback-status")).toHaveText("Playing");
+  await sendToBackground(page);
+  await expect(page.getByTestId("playback-status")).toHaveText("Paused");
+});
+
+test("a double tap on a sermon opens it once", async ({ page }) => {
+  await page.goto("/");
+  await rows(page).first().dblclick();
+  await expect(page.getByRole("heading", { level: 1 })).toContainText(
+    "Apostolic Shift",
+  );
+  await page.getByRole("button", { name: "Back", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Search sermons", exact: true }),
+  ).toBeVisible();
+});
+
+test("missing artwork falls back to the event name", async ({ page }) => {
+  // The fixture blocks every YouTube image request.
+  await page.goto("/");
+  const fallback = page.getByTestId("thumbnail-fallback").first();
+  await expect(fallback).toBeVisible();
+  await expect(fallback).toContainText("Lioness Conference");
+});
+
+test("sample screens are labelled, actionable and render without errors", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("console", (m) => m.type() === "error" && errors.push(m.text()));
+  page.on("pageerror", (e) => errors.push(String(e)));
   await page.goto("/states");
   await expect(
-    page.getByText("DEMO · PREVIEW CONTROLS", { exact: true }),
+    page.getByRole("heading", { level: 1, name: "Sample screens" }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "offline", exact: true }).click();
+  for (const name of ["Loading", "Error", "Missing artwork", "Empty"])
+    await page.getByRole("radio", { name, exact: true }).click();
+  await page.getByRole("radio", { name: "Offline", exact: true }).click();
+  await expect(
+    page.getByRole("radio", { name: "Offline", exact: true }),
+  ).toBeChecked();
   await expect(
     page.getByRole("heading", { name: "You’re offline" }),
   ).toBeVisible();
-  await page
-    .getByRole("button", { name: "Retry connection (demo)", exact: true })
-    .click();
+  await page.getByRole("button", { name: "Try again", exact: true }).click();
   await expect(
-    page.getByText("Getting the library ready…", { exact: true }),
+    page.getByText("Loading sermons…", { exact: true }),
   ).toBeVisible();
   await page
-    .getByRole("button", { name: "Finish loading demo", exact: true })
+    .getByRole("button", { name: "Finish loading", exact: true })
     .click();
   await expect(
-    page.getByRole("heading", { name: "Your next message is on its way." }),
+    page.getByRole("heading", { name: "No sermons here yet" }),
   ).toBeVisible();
+  // A stray text node between views is a hard error on native.
+  expect(errors.filter((e) => /text node|Text strings/i.test(e))).toEqual([]);
+});
+
+test("press feedback scales, or dims when the system asks for less motion", async ({
+  page,
+}) => {
+  const pressedStyle = async () => {
+    const row = rows(page).first();
+    await row.scrollIntoViewIfNeeded();
+    await row.hover();
+    await page.mouse.down();
+    await page.waitForTimeout(250);
+    const style = await row.evaluate((el) => {
+      const cs = getComputedStyle(el);
+      return { transform: cs.transform, opacity: cs.opacity };
+    });
+    await page.mouse.move(0, 0);
+    await page.mouse.up();
+    return style;
+  };
+  await page.goto("/");
+  const full = await pressedStyle();
+  expect(full.transform).toContain("matrix(0.98");
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/");
+  const reduced = await pressedStyle();
+  expect(
+    reduced.transform === "none" || reduced.transform.startsWith("matrix(1,"),
+  ).toBe(true);
+  expect(Number(reduced.opacity)).toBeLessThan(1);
+});
+
+test("a double tap on Back goes back one screen, not two", async ({ page }) => {
+  await page.goto("/");
+  await tab(page, "Topics").click();
+  await page
+    .getByRole("button", { name: "Prayer, 2 sermons", exact: true })
+    .click();
+  await rows(page).first().click();
+  await expect(
+    page.getByRole("button", { name: "Watch sermon", exact: true }),
+  ).toBeVisible();
+  const back = shown(page.getByRole("button", { name: "Back", exact: true }));
+  const box = (await back.boundingBox())!;
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  await page.waitForTimeout(150);
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  await expect(
+    page.getByRole("heading", { level: 1, name: "Prayer" }),
+  ).toBeVisible();
+  await expect(page).toHaveURL(/\/topics\/prayer$/);
+});
+
+test("repeated link parameters don't break the app", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(String(e)));
+  await page.goto("/search?q=pray&q=faith");
+  await expect(
+    page.getByRole("searchbox", { name: "Search sermons" }),
+  ).toHaveValue("pray");
+  await page.goto("/sermon/nUW8NT2Pe88?id=x");
+  await expect(
+    page.getByRole("button", { name: "Watch sermon", exact: true }),
+  ).toBeVisible();
+  expect(errors).toEqual([]);
 });

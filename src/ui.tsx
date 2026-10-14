@@ -1,26 +1,137 @@
 import { Ionicons } from "@expo/vector-icons";
-import { router, usePathname } from "expo-router";
-import React, { ComponentProps, PropsWithChildren, useState } from "react";
+import React, {
+  ComponentProps,
+  PropsWithChildren,
+  ReactNode,
+  Ref,
+  useState,
+} from "react";
 import {
+  AccessibilityInfo,
+  ActivityIndicator,
   Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
+  PressableProps,
   ScrollView,
+  StyleProp,
   StyleSheet,
   Text,
   TextProps,
+  TextStyle,
   View,
+  ViewStyle,
+  useWindowDimensions,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
-import { c } from "./theme";
-import { Sermon } from "./data/sermons";
-import { getCategory } from "./data/categories";
+import Animated from "react-native-reanimated";
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from "react-native-safe-area-context";
+import { CategoryId, getCategory } from "./data/categories";
+import { eventLine, headline } from "./data/display";
+import { Sermon, sermonCategoryIds } from "./data/sermons";
+import { useReducedMotion } from "./motion";
+import { useGo } from "./navigation";
+import { useDockInset } from "./player/useDockInset";
+import { c, easeOut, font, press, radius, space, type } from "./theme";
 export { c };
+
 type IconName = ComponentProps<typeof Ionicons>["name"];
-export function T({ style, ...props }: TextProps) {
-  return <Text {...props} style={[s.text, style]} />;
+export type { IconName };
+
+/**
+ * Web-only attributes (heading levels, field descriptions) that React Native's
+ * types don't describe. react-native-web maps them onto the DOM.
+ */
+export function web(props: Record<string, unknown>) {
+  return Platform.OS === "web" ? props : {};
 }
+
+/**
+ * Text fields here draw their own mint focus border, so the browser's default
+ * ring is removed on web. "none" is web-only, hence outside RN's style types.
+ */
+export const noWebOutline =
+  Platform.OS === "web"
+    ? ({ outlineStyle: "none" } as unknown as TextStyle)
+    : null;
+
+/** Moves keyboard focus (web) or screen reader focus (native) to a control. */
+export function moveFocus(node: View | null) {
+  if (!node) return;
+  if (Platform.OS === "web") (node as unknown as HTMLElement).focus();
+  else AccessibilityInfo.sendAccessibilityEvent(node, "focus");
+}
+
+/**
+ * Lets the browser scroll a focused control clear of the docked player,
+ * which floats over the bottom of the page.
+ */
+export function dockScrollPadding(dock: number) {
+  return Platform.OS === "web"
+    ? ({ scrollPaddingBottom: dock } as ViewStyle)
+    : undefined;
+}
+
+export function T({ style, ...props }: TextProps) {
+  // When the system text size changes while the app is open or in the
+  // background, iOS keeps the old measured box for text already on screen
+  // (rows kept their old height). A key per font scale re-measures it.
+  const { fontScale } = useWindowDimensions();
+  return <Text key={fontScale} {...props} style={[s.text, style]} />;
+}
+
+/** A heading with a real level: h1 for the page title, h2 for sections. */
+export function Heading({
+  level = 2,
+  ...props
+}: TextProps & { level?: 1 | 2 | 3 }) {
+  return (
+    <T accessibilityRole="header" {...web({ "aria-level": level })} {...props} />
+  );
+}
+
+/**
+ * A verified sermon title. The string is never changed; only the "|"
+ * separators are drawn in the system face, because Manrope's bar is the same
+ * shape as a capital I ("CONFERENCE II PRAY" would read as a numeral).
+ */
+export function SermonTitle({
+  title,
+  ...props
+}: TextProps & { title: string }) {
+  const parts = title.split(/(\|+)/);
+  return (
+    <T {...props}>
+      {parts.map((part, index) =>
+        /^\|+$/.test(part) ? (
+          <Text key={index} style={s.separator}>
+            {part}
+          </Text>
+        ) : (
+          part
+        ),
+      )}
+    </T>
+  );
+}
+
+/** "2 hr 28 min" read aloud as "2 hours 28 minutes". */
+export function spokenDuration(duration: string) {
+  return duration
+    .replace(/\b1 hr\b/, "1 hour")
+    .replace(/\bhr\b/, "hours")
+    .replace(/\b1 min\b/, "1 minute")
+    .replace(/\bmin\b/, "minutes");
+}
+
+/** Keeps "2 hr 28 min" and "23 Sep 2026" from breaking across lines. */
+export function nowrap(text: string) {
+  return text.replace(/ /g, " ");
+}
+
 export function Icon({
   name,
   size = 22,
@@ -30,77 +141,259 @@ export function Icon({
   size?: number;
   color?: string;
 }) {
-  return <Ionicons accessible={false} name={name} size={size} color={color} />;
+  return (
+    <Ionicons
+      accessible={false}
+      {...web({ "aria-hidden": true })}
+      name={name}
+      size={size}
+      color={color}
+    />
+  );
 }
+
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+
+type Feedback = "scale" | "scaleLarge" | "highlight" | "dim";
+
+/**
+ * Pressable with press-in feedback that commits on release.
+ * - scale: small controls shrink 3% over 120ms (strong ease-out).
+ * - scaleLarge: full-width surfaces shrink 2%, so edges don't wobble.
+ * - highlight: rows inside a shared surface and icon buttons tint instead.
+ * - dim: borderless text actions fade, like iOS text buttons.
+ * Under Reduce Motion, scaling becomes a dim.
+ */
+export function Tap({
+  style,
+  feedback = "scale",
+  highlightColor = c.feature,
+  disabled,
+  busy = false,
+  onPress,
+  onPressIn,
+  onPressOut,
+  ref,
+  ...rest
+}: Omit<PressableProps, "style"> & {
+  style?: StyleProp<ViewStyle>;
+  feedback?: Feedback;
+  highlightColor?: string;
+  busy?: boolean;
+  ref?: Ref<View>;
+}) {
+  const [pressed, setPressed] = useState(false);
+  const reduced = useReducedMotion();
+  const active = pressed && !disabled && !busy;
+  const scales = feedback === "scale" || feedback === "scaleLarge";
+  const scale =
+    active && scales && !reduced
+      ? feedback === "scale"
+        ? press.scale
+        : press.scaleLarge
+      : 1;
+  const dimmed =
+    active && (feedback === "dim" || (scales && reduced)) ? 0.6 : 1;
+  const role = rest.accessibilityRole;
+  return (
+    <AnimatedPressable
+      {...rest}
+      ref={ref as never}
+      // Busy controls ignore presses but stay focusable, so keyboard focus
+      // isn't thrown to the page while a demo request "runs".
+      disabled={disabled}
+      onPress={busy ? undefined : onPress}
+      // VoiceOver otherwise activates by tapping the control's centre, which
+      // can land on the docked player floating above it.
+      {...(Platform.OS === "ios"
+        ? {
+            onAccessibilityTap:
+              disabled || busy ? undefined : () => onPress?.(undefined as never),
+          }
+        : null)}
+      // On web, Space selects radios and tabs as it does native controls.
+      {...(role === "radio" || role === "tab"
+        ? web({
+            onKeyDown: (e: {
+              key: string;
+              preventDefault: () => void;
+            }) => {
+              if ((e.key === " " || e.key === "Spacebar") && !disabled && !busy) {
+                e.preventDefault();
+                onPress?.(e as never);
+              }
+            },
+          })
+        : null)}
+      onPressIn={(e) => {
+        setPressed(true);
+        onPressIn?.(e);
+      }}
+      onPressOut={(e) => {
+        setPressed(false);
+        onPressOut?.(e);
+      }}
+      style={[
+        style,
+        active &&
+          feedback === "highlight" && { backgroundColor: highlightColor },
+        {
+          opacity: disabled && !busy ? 0.45 : dimmed,
+          transform: [{ scale }],
+          transitionProperty: ["transform", "opacity"],
+          transitionDuration: press.duration,
+          transitionTimingFunction: easeOut,
+        },
+      ]}
+    />
+  );
+}
+
 export function IconButton({
   name,
   label,
   onPress,
+  color = c.text,
+  size = 24,
 }: {
   name: IconName;
   label: string;
   onPress: () => void;
+  color?: string;
+  size?: number;
 }) {
   return (
-    <Pressable
+    <Tap
       accessibilityRole="button"
       accessibilityLabel={label}
       onPress={onPress}
-      style={({ pressed }) => [s.iconButton, pressed && s.pressed]}
+      style={s.iconButton}
+      feedback="highlight"
+      highlightColor={c.surface}
     >
-      <Icon name={name} />
-    </Pressable>
+      <Icon name={name} size={size} color={color} />
+    </Tap>
   );
 }
+
 export function Button({
   label,
   onPress,
-  secondary = false,
+  variant = "primary",
   icon,
   disabled = false,
+  busy = false,
+  hint,
 }: {
   label: string;
   onPress: () => void;
-  secondary?: boolean;
+  variant?: "primary" | "secondary";
   icon?: IconName;
   disabled?: boolean;
+  busy?: boolean;
+  hint?: string;
 }) {
+  const primary = variant === "primary";
+  const fg = primary ? c.ink : c.text;
   return (
-    <Pressable
+    <Tap
       accessibilityRole="button"
       accessibilityLabel={label}
-      accessibilityState={{ disabled }}
+      accessibilityHint={hint}
+      // aria-* rather than accessibilityState: react-native-web only maps these.
+      aria-disabled={disabled || busy}
+      aria-busy={busy}
       onPress={onPress}
       disabled={disabled}
-      style={({ pressed }) => [
-        s.button,
-        secondary && s.secondary,
-        disabled && { opacity: 0.5 },
-        pressed && s.pressed,
-      ]}
+      busy={busy}
+      style={[s.button, primary ? s.primary : s.secondary]}
     >
-      {icon && (
-        <Icon name={icon} color={secondary ? c.text : c.ink} size={20} />
+      {busy ? (
+        <ActivityIndicator color={fg} size="small" />
+      ) : (
+        icon && <Icon name={icon} color={fg} size={20} />
       )}
-      <T style={[s.buttonText, { color: secondary ? c.text : c.ink }]}>
-        {label}
-      </T>
-    </Pressable>
+      <T style={[s.buttonText, { color: fg }]}>{label}</T>
+    </Tap>
   );
 }
+
+/** A borderless mint action for secondary choices ("Forgot password?"). */
+export function TextButton({
+  label,
+  onPress,
+  icon,
+  disabled = false,
+  align = "center",
+  hint,
+}: {
+  label: string;
+  onPress: () => void;
+  icon?: IconName;
+  disabled?: boolean;
+  align?: "center" | "start" | "end";
+  hint?: string;
+}) {
+  return (
+    <Tap
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityHint={hint}
+      aria-disabled={disabled}
+      disabled={disabled}
+      onPress={onPress}
+      feedback="dim"
+      style={[
+        s.textButton,
+        align === "start" && { alignSelf: "flex-start", marginStart: -space.sm },
+        align === "end" && { alignSelf: "flex-end", marginEnd: -space.sm },
+        align === "center" && { alignSelf: "center" },
+      ]}
+    >
+      <T style={s.textButtonLabel}>{label}</T>
+      {icon && <Icon name={icon} size={16} color={c.mint} />}
+    </Tap>
+  );
+}
+
+/**
+ * A scrolling screen. Content runs under the home indicator and ends clear of
+ * it, rather than stopping at a fixed band above it.
+ */
+/**
+ * A linear gradient on both platforms without a dependency: CSS on web,
+ * experimental_backgroundImage on native (React Native 0.76+, New Arch).
+ */
+export function gradient(css: string): ViewStyle {
+  return (
+    Platform.OS === "web"
+      ? { backgroundImage: css }
+      : { experimental_backgroundImage: css }
+  ) as ViewStyle;
+}
+
 export function Page({
   children,
   keyboard = false,
 }: PropsWithChildren<{ keyboard?: boolean }>) {
+  const insets = useSafeAreaInsets();
+  const dock = useDockInset();
   return (
-    <SafeAreaView style={s.safe} edges={["top", "bottom"]}>
+    <SafeAreaView style={s.safe} edges={["top", "left", "right"]}>
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={keyboard && Platform.OS === "ios" ? "padding" : undefined}
       >
         <ScrollView
           keyboardShouldPersistTaps="handled"
-          contentContainerStyle={s.page}
+          // react-native-web dismisses on any scroll, including the scroll
+          // that brings a newly focused field into view, so native only.
+          keyboardDismissMode={Platform.OS === "web" ? "none" : "on-drag"}
+          style={dockScrollPadding(dock)}
+          contentContainerStyle={[
+            s.page,
+            { paddingBottom: 48 + insets.bottom + dock },
+          ]}
         >
           {children}
         </ScrollView>
@@ -108,8 +401,15 @@ export function Page({
     </SafeAreaView>
   );
 }
+
+/**
+ * Screen chrome for Home (the wordmark) and for screens opened over the tabs:
+ * Back, or Close for the account forms you leave rather than go back through.
+ * A title here is the page's heading, so screens with their own large title
+ * leave it out.
+ */
 export function Header({
-  title = "Arome Osayi",
+  title,
   back = false,
   close = false,
 }: {
@@ -117,48 +417,95 @@ export function Header({
   back?: boolean;
   close?: boolean;
 }) {
-  const pathname = usePathname();
+  const go = useGo();
+  const home = !back && !close;
   return (
     <View style={s.header}>
-      {back || close ? (
-        <IconButton
-          name={close ? "close" : "arrow-back"}
-          label={close ? "Close" : "Back"}
-          onPress={() =>
-            router.canGoBack() ? router.back() : router.replace("/")
-          }
-        />
+      {home ? (
+        <View style={s.wordmark}>
+          <View style={s.wordmarkLine} />
+          <Heading level={1} style={s.wordmarkText}>
+            Arome Osayi
+          </Heading>
+        </View>
       ) : (
-        <View style={s.wordmarkLine} />
-      )}
-      <T accessibilityRole="header" style={s.brand}>
-        {title}
-      </T>
-      {!close && (
-        <IconButton
-          name="menu-outline"
-          label="Menu"
-          onPress={() =>
-            router.push({ pathname: "/menu", params: { origin: pathname } })
-          }
-        />
+        <>
+          <IconButton
+            name={close ? "close" : "arrow-back"}
+            label={close ? "Close" : "Back"}
+            onPress={go.back}
+          />
+          <View style={{ flex: 1 }}>
+            {title ? (
+              <Heading level={1} numberOfLines={1} style={s.headerTitle}>
+                {title}
+              </Heading>
+            ) : null}
+          </View>
+        </>
       )}
     </View>
   );
 }
+
+/** A screen's large title with an optional lead paragraph. */
+export function PageTitle({
+  title,
+  lead,
+  children,
+}: PropsWithChildren<{ title: string; lead?: ReactNode }>) {
+  return (
+    <View style={s.pageTitleBlock}>
+      {children}
+      <Heading level={1} style={s.pageTitle} maxFontSizeMultiplier={1.8}>
+        {title}
+      </Heading>
+      {lead ? <T style={s.lead}>{lead}</T> : null}
+    </View>
+  );
+}
+
 export function SectionHeading({
   children,
   aside,
-}: PropsWithChildren<{ aside?: string }>) {
+  action,
+}: PropsWithChildren<{
+  aside?: string;
+  action?: { label: string; onPress: () => void; hint?: string };
+}>) {
   return (
-    <View style={s.sectionHeading}>
-      <T accessibilityRole="header" style={s.sectionTitle}>
+    <View style={[s.sectionHeading, action && { minHeight: 48 }]}>
+      <Heading level={2} style={s.sectionTitle}>
         {children}
-      </T>
-      {aside && <T style={s.small}>{aside}</T>}
+      </Heading>
+      {action ? (
+        <TextButton
+          label={action.label}
+          hint={action.hint}
+          onPress={action.onPress}
+          icon="chevron-forward"
+          align="end"
+        />
+      ) : (
+        aside && <T style={s.meta}>{aside}</T>
+      )}
     </View>
   );
 }
+
+/** Quiet inline note, used for honest limits (sample topics, YouTube). */
+export function Notice({
+  children,
+  icon = "information-circle-outline",
+}: PropsWithChildren<{ icon?: IconName }>) {
+  return (
+    <View style={s.notice}>
+      <Icon name={icon} size={16} color={c.muted} />
+      <T style={[s.meta, { flex: 1 }]}>{children}</T>
+    </View>
+  );
+}
+
 export function Badge({ children }: PropsWithChildren) {
   return (
     <View style={s.badge}>
@@ -166,112 +513,235 @@ export function Badge({ children }: PropsWithChildren) {
     </View>
   );
 }
+
 export function StatePanel({
   icon = "albums-outline",
   title,
   body,
   action,
   label,
+  secondaryAction,
+  secondaryLabel,
+  tone = "neutral",
+  level = 2,
 }: {
   icon?: IconName;
   title: string;
-  body: string;
+  body: ReactNode;
   action?: () => void;
   label?: string;
+  secondaryAction?: () => void;
+  secondaryLabel?: string;
+  tone?: "neutral" | "error";
+  level?: 1 | 2;
 }) {
   return (
     <View style={s.state}>
       <View style={s.stateIcon}>
-        <Icon name={icon} color={c.mint} size={30} />
-      </View>
-      <T accessibilityRole="header" style={s.stateTitle}>
-        {title}
-      </T>
-      <T style={s.body}>{body}</T>
-      {action && label && <Button label={label} onPress={action} />}
-    </View>
-  );
-}
-export function Thumbnail({
-  sermon,
-  height,
-  missing = false,
-}: {
-  sermon: Sermon;
-  height?: number;
-  missing?: boolean;
-}) {
-  const [failed, setFailed] = useState(false);
-  return (
-    <View style={[s.thumbnail, height ? { height } : { aspectRatio: 16 / 9 }]}>
-      {!failed && !missing ? (
-        <Image
-          source={{ uri: sermon.thumbnail }}
-          style={StyleSheet.absoluteFill}
-          resizeMode="cover"
-          accessibilityLabel={sermon.title + " thumbnail"}
-          onError={() => setFailed(true)}
+        <Icon
+          name={icon}
+          color={tone === "error" ? c.error : c.mint}
+          size={28}
         />
-      ) : (
-        <View style={s.thumbFallback}>
-          <Icon name="play-outline" size={30} color={c.mint} />
-          <T style={s.small}>Arome Osayi · sermon</T>
+      </View>
+      <View style={{ gap: space.sm }}>
+        <Heading level={level} style={s.stateTitle}>
+          {title}
+        </Heading>
+        <T style={s.body}>{body}</T>
+      </View>
+      {(action || secondaryAction) && (
+        <View style={{ gap: space.md, marginTop: space.sm }}>
+          {action && label && <Button label={label} onPress={action} />}
+          {secondaryAction && secondaryLabel && (
+            <Button
+              label={secondaryLabel}
+              variant="secondary"
+              onPress={secondaryAction}
+            />
+          )}
         </View>
       )}
     </View>
   );
 }
-export function SermonCard({
+
+/**
+ * Source artwork, or a stand-in built from verified metadata when the image is
+ * missing or fails to load. Always decorative: the title sits beside it.
+ */
+export function Thumbnail({
   sermon,
+  height,
+  missing = false,
+  duration = false,
   compact = false,
+  style,
 }: {
   sermon: Sermon;
+  height?: number;
+  missing?: boolean;
+  duration?: boolean;
   compact?: boolean;
+  style?: StyleProp<ViewStyle>;
 }) {
+  const [failed, setFailed] = useState(false);
   return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={
-        "Open " +
-        sermon.title +
-        ". Demo topic: " +
-        getCategory(sermon.edification.primaryCategoryId)?.label
-      }
-      onPress={() =>
-        router.push({ pathname: "/sermon/[id]", params: { id: sermon.id } })
-      }
-      style={({ pressed }) => [
-        s.card,
-        compact && { width: "48%" },
-        pressed && s.pressed,
+    <View
+      style={[
+        s.thumbnail,
+        height ? { height } : { aspectRatio: 16 / 9 },
+        style,
       ]}
+      {...web({ "aria-hidden": true })}
     >
-      <Thumbnail sermon={sermon} />
-      <View style={s.cardBody}>
-        <T style={s.collection}>
-          {getCategory(sermon.edification.primaryCategoryId)?.label} · Demo
-        </T>
-        <T numberOfLines={3} style={s.cardTitle}>
-          {sermon.title}
-        </T>
-        <T style={s.small}>
-          {sermon.collection} · {sermon.duration}
-        </T>
-      </View>
-    </Pressable>
+      {!failed && !missing ? (
+        <Image
+          source={{ uri: sermon.thumbnail }}
+          style={StyleSheet.absoluteFill}
+          resizeMode="cover"
+          accessible={false}
+          onError={() => setFailed(true)}
+        />
+      ) : (
+        <View style={s.thumbFallback} testID="thumbnail-fallback">
+          <Icon
+            name="play-circle-outline"
+            size={compact ? 24 : 32}
+            color={c.mint}
+          />
+          {!compact && (
+            <T style={s.thumbFallbackText} numberOfLines={2}>
+              {sermon.collection}
+            </T>
+          )}
+        </View>
+      )}
+      <View
+        style={[
+          s.ring,
+          { pointerEvents: "none" },
+          { borderRadius: StyleSheet.flatten(style)?.borderRadius ?? 0 },
+        ]}
+      />
+      {duration && (
+        <View style={s.durationChip}>
+          <T style={s.durationText} maxFontSizeMultiplier={1.5}>
+            {nowrap(sermon.duration)}
+          </T>
+        </View>
+      )}
+    </View>
   );
 }
+
+/** Sample topic labels, with the topic being browsed first when given. */
+export function topicLabels(sermon: Sermon, lead?: CategoryId) {
+  const ids = sermonCategoryIds(sermon);
+  const ordered =
+    lead && ids.includes(lead) ? [lead, ...ids.filter((id) => id !== lead)] : ids;
+  return ordered
+    .map((id) => getCategory(id)?.label)
+    .filter(Boolean) as string[];
+}
+
+/**
+ * True when the reading column is under ~300pt at the user's text size, from
+ * a narrow screen, browser zoom or large accessibility text.
+ */
+export function useNarrow() {
+  const { width, fontScale } = useWindowDimensions();
+  return (Math.min(width, 760) - space.gutter * 2) / fontScale < 300;
+}
+
+/**
+ * Side-by-side rows need roughly 140pt of text column at the user's text
+ * size; below that the artwork moves above the text.
+ */
+function useStackedRows() {
+  const { width, fontScale } = useWindowDimensions();
+  const content = Math.min(width, 760) - space.gutter * 2;
+  const thumb = Math.min(176, Math.max(112, content * 0.4));
+  return (content - thumb - 14) / fontScale < 140;
+}
+
+export function sermonLabel(sermon: Sermon, lead?: CategoryId) {
+  const topics = topicLabels(sermon, lead);
+  return [
+    `${headline(sermon)}.`,
+    `${eventLine(sermon)}, ${sermon.date}, ${spokenDuration(sermon.duration)}.`,
+    topics.length ? `Sample topics: ${topics.join(", ")}.` : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+/**
+ * The list unit for sermons: artwork on the leading side, then sample topic
+ * labels, the short headline and the event and date.
+ */
+export function SermonRow({
+  sermon,
+  lead,
+}: {
+  sermon: Sermon;
+  lead?: CategoryId;
+}) {
+  const go = useGo();
+  const stacked = useStackedRows();
+  const topics = topicLabels(sermon, lead).slice(0, 2);
+  return (
+    <Tap
+      testID="sermon-row"
+      accessibilityRole="button"
+      accessibilityLabel={sermonLabel(sermon, lead)}
+      onPress={() =>
+        go.push({ pathname: "/sermon/[id]", params: { id: sermon.id } })
+      }
+      unstable_pressDelay={60}
+      feedback="scaleLarge"
+      style={[s.row, stacked && s.rowStacked]}
+    >
+      <Thumbnail
+        sermon={sermon}
+        duration
+        compact={!stacked}
+        style={stacked ? s.rowThumbStacked : s.rowThumb}
+      />
+      <View style={s.rowBody}>
+        {topics.length > 0 && <T style={s.kicker}>{topics.join(" · ")}</T>}
+        <SermonTitle
+          title={headline(sermon)}
+          numberOfLines={stacked ? undefined : 2}
+          style={s.rowTitle}
+        />
+        <T style={s.meta}>
+          {eventLine(sermon)} · {nowrap(sermon.date)}
+        </T>
+      </View>
+    </Tap>
+  );
+}
+
 export const s = StyleSheet.create({
   text: {
     color: c.text,
-    fontFamily: "Manrope_400Regular",
+    fontFamily: font.regular,
     fontSize: 15,
     lineHeight: 23,
   },
+  separator: {
+    fontFamily: Platform.select({
+      ios: "System",
+      android: "sans-serif",
+      default: "system-ui, sans-serif",
+    }),
+    fontWeight: "300",
+    color: c.muted,
+  },
   safe: { flex: 1, backgroundColor: c.bg },
   page: {
-    paddingHorizontal: 22,
-    paddingBottom: 40,
+    paddingHorizontal: space.gutter,
     width: "100%",
     maxWidth: 760,
     alignSelf: "center",
@@ -279,17 +749,30 @@ export const s = StyleSheet.create({
   header: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
-    minHeight: 78,
-    marginBottom: 12,
+    gap: space.xs,
+    minHeight: 56,
+    marginHorizontal: -12,
+    marginBottom: space.sm,
   },
-  brand: { fontFamily: "Manrope_700Bold", fontSize: 17, flex: 1 },
+  headerTitle: {
+    fontFamily: font.bold,
+    fontSize: 17,
+    lineHeight: 24,
+  },
+  wordmark: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingStart: 12,
+  },
   wordmarkLine: {
     width: 4,
-    height: 24,
+    height: 22,
     backgroundColor: c.mint,
     borderRadius: 2,
   },
+  wordmarkText: { fontFamily: font.bold, fontSize: 18, lineHeight: 24 },
   iconButton: {
     minWidth: 48,
     minHeight: 48,
@@ -301,103 +784,142 @@ export const s = StyleSheet.create({
     minHeight: 52,
     paddingVertical: 14,
     paddingHorizontal: 20,
-    backgroundColor: c.mint,
-    borderRadius: 16,
+    borderRadius: radius.md,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 10,
   },
+  primary: { backgroundColor: c.mint },
   secondary: {
     backgroundColor: c.surface,
     borderWidth: 1,
     borderColor: c.border,
   },
   buttonText: {
-    fontFamily: "Manrope_700Bold",
-    fontSize: 15,
+    fontFamily: font.bold,
+    fontSize: 16,
+    lineHeight: 22,
     textAlign: "center",
     flexShrink: 1,
   },
-  pressed: { opacity: 0.76 },
+  textButton: {
+    minHeight: 48,
+    minWidth: 48,
+    paddingHorizontal: space.sm,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 2,
+  },
+  textButtonLabel: {
+    ...type.label,
+    color: c.mint,
+    textAlign: "center",
+  },
+  pageTitleBlock: {
+    gap: space.md,
+    marginTop: space.lg,
+    marginBottom: space.sm,
+  },
+  pageTitle: type.display,
   sectionHeading: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "baseline",
-    gap: 10,
-    marginTop: 30,
-    marginBottom: 16,
+    alignItems: "center",
+    flexWrap: "wrap",
+    columnGap: space.md,
+    marginTop: 36,
+    marginBottom: space.md,
   },
-  sectionTitle: { fontSize: 20, fontFamily: "Manrope_700Bold", flexShrink: 1 },
-  small: { fontSize: 12, lineHeight: 19, color: c.muted },
-  body: { fontSize: 15, lineHeight: 25, color: c.muted },
-  title: {
-    fontSize: 32,
-    lineHeight: 41,
-    fontFamily: "Manrope_700Bold",
-    letterSpacing: -1,
+  sectionTitle: { ...type.heading, flexShrink: 1 },
+  lead: { ...type.lead, color: c.muted },
+  body: { ...type.body, color: c.muted },
+  meta: { ...type.caption, color: c.muted },
+  // Mint caps mean "sample topic"; verified or editorial labels use eyebrow.
+  kicker: { ...type.kicker, color: c.mint },
+  eyebrow: { ...type.kicker, color: c.muted },
+  notice: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: space.sm,
+    paddingTop: 1,
   },
   badge: {
     alignSelf: "flex-start",
-    borderRadius: 6,
-    paddingHorizontal: 9,
+    borderRadius: radius.sm,
+    paddingHorizontal: 10,
     paddingVertical: 5,
     backgroundColor: c.surface,
   },
-  badgeText: {
-    fontSize: 10,
-    lineHeight: 16,
-    color: c.mint,
-    fontFamily: "Manrope_700Bold",
-    letterSpacing: 1,
-  },
-  state: { paddingVertical: 34, gap: 17 },
+  badgeText: { ...type.kicker, color: c.mint },
+  state: { paddingVertical: space.xl, gap: space.lg },
   stateIcon: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     backgroundColor: c.surface,
     justifyContent: "center",
     alignItems: "center",
   },
-  stateTitle: { fontSize: 25, lineHeight: 33, fontFamily: "Manrope_700Bold" },
-  thumbnail: { width: "100%", backgroundColor: c.feature, overflow: "hidden" },
+  stateTitle: { fontFamily: font.bold, fontSize: 22, lineHeight: 29 },
+  thumbnail: {
+    width: "100%",
+    backgroundColor: c.feature,
+    overflow: "hidden",
+  },
+  // Drawn inside the image edge so bright artwork doesn't bleed into the page.
+  ring: {
+    ...StyleSheet.absoluteFill,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.1)",
+  },
   thumbFallback: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    gap: 8,
+    gap: space.sm,
+    padding: space.md,
   },
-  card: {
-    backgroundColor: c.surface,
-    borderRadius: 16,
-    overflow: "hidden",
-    marginBottom: 16,
+  thumbFallbackText: {
+    ...type.kicker,
+    color: c.muted,
+    textAlign: "center",
   },
-  cardBody: { padding: 14, gap: 8 },
-  cardTitle: {
-    fontSize: 14,
-    lineHeight: 21,
-    fontFamily: "Manrope_600SemiBold",
+  durationChip: {
+    position: "absolute",
+    end: 6,
+    bottom: 6,
+    backgroundColor: c.scrim,
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
   },
-  collection: {
-    fontSize: 10,
+  durationText: {
+    fontSize: 12,
     lineHeight: 16,
-    letterSpacing: 0.8,
-    color: c.mint,
-    textTransform: "uppercase",
-    fontFamily: "Manrope_600SemiBold",
-  },
-  input: {
-    minHeight: 54,
+    fontFamily: font.semibold,
     color: c.text,
-    fontFamily: "Manrope_400Regular",
-    fontSize: 16,
-    paddingHorizontal: 16,
-    borderWidth: 1,
-    borderColor: c.border,
-    borderRadius: 13,
-    backgroundColor: c.surface,
   },
-  divider: { height: 1, backgroundColor: c.border, marginVertical: 24 },
+  row: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 14,
+    paddingVertical: space.sm,
+  },
+  rowStacked: { flexDirection: "column", gap: space.md },
+  rowThumb: {
+    width: "40%",
+    maxWidth: 176,
+    minWidth: 112,
+    borderRadius: radius.md,
+  },
+  rowThumbStacked: { borderRadius: radius.md },
+  rowBody: { flex: 1, gap: 6, alignSelf: "stretch" },
+  rowTitle: {
+    fontFamily: font.semibold,
+    fontSize: 16,
+    lineHeight: 22,
+  },
+  divider: { height: 1, backgroundColor: c.divider },
 });

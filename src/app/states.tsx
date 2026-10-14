@@ -1,100 +1,165 @@
-import { router } from "expo-router";
+import { exitTo } from "../navigation";
 import { useState } from "react";
-import { ActivityIndicator, Pressable, View } from "react-native";
+import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { sermons } from "../data/sermons";
+import { font, radius, space } from "../theme";
 import {
-  Badge,
-  Button,
   Header,
   Page,
+  PageTitle,
   StatePanel,
   T,
+  Tap,
+  TextButton,
   Thumbnail,
   c,
   s,
 } from "../ui";
+
+const options = [
+  { id: "empty", label: "Empty" },
+  { id: "loading", label: "Loading" },
+  { id: "offline", label: "Offline" },
+  { id: "error", label: "Error" },
+  { id: "artwork", label: "Missing artwork" },
+] as const;
+type Sample = (typeof options)[number]["id"];
+
 export default function States() {
-  const [state, setState] = useState("empty");
+  const [state, setState] = useState<Sample>("empty");
   return (
     <Page>
-      <Header title="App states" back />
-      <Badge>DEMO · PREVIEW CONTROLS</Badge>
-      <T style={[s.body, { marginVertical: 20 }]}>
-        Preview the moments between messages. These controls simulate a state;
-        they do not change your connection.
-      </T>
-      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-        {["empty", "loading", "offline", "error", "thumbnail"].map((item) => (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityState={{ selected: state === item }}
-            key={item}
-            onPress={() => setState(item)}
-            style={{
-              padding: 13,
-              borderRadius: 12,
-              backgroundColor: state === item ? c.mint : c.surface,
-            }}
-          >
-            <T
-              style={{
-                color: state === item ? c.ink : c.text,
-                textTransform: "capitalize",
-              }}
+      <Header back />
+      <PageTitle
+        title="Sample screens"
+        lead="Examples of loading, offline and error screens. Nothing here changes your connection."
+      />
+      <View
+        style={styles.options}
+        accessibilityRole="radiogroup"
+        accessibilityLabel="Sample state"
+      >
+        {options.map((option) => {
+          const selected = state === option.id;
+          return (
+            <Tap
+              key={option.id}
+              accessibilityRole="radio"
+              accessibilityLabel={option.label}
+              aria-checked={selected}
+              onPress={() => setState(option.id)}
+              style={[styles.option, selected && styles.optionOn]}
             >
-              {item}
-            </T>
-          </Pressable>
-        ))}
+              <T style={[styles.optionText, selected && { color: c.ink }]}>
+                {option.label}
+              </T>
+            </Tap>
+          );
+        })}
       </View>
-      {state === "empty" && (
-        <StatePanel
-          title="Your next message is on its way."
-          body="There are no sermons in this view yet. You can still explore the public collection."
-          label="Browse sermons"
-          action={() => router.push("/")}
-        />
-      )}{" "}
-      {state === "loading" && (
-        <View style={{ paddingVertical: 48, gap: 24 }}>
-          <ActivityIndicator
-            color={c.mint}
-            accessibilityLabel="Loading sermons"
+      <View style={styles.sample}>
+        {state === "empty" && (
+          <StatePanel
+            title="No sermons here yet"
+            body="Sermons haven’t been added to this view. The rest of the library is still open."
+            label="Browse sermons"
+            action={() => exitTo("/")}
           />
-          <T>Getting the library ready…</T>
-          <Button
-            label="Finish loading demo"
-            onPress={() => setState("empty")}
+        )}
+        {state === "loading" && (
+          <View style={{ gap: space.lg }}>
+            <View style={styles.loadingRow}>
+              <ActivityIndicator color={c.mint} />
+              <T style={s.body}>Loading sermons…</T>
+            </View>
+            {[0, 1, 2].map((i) => (
+              <View key={i} style={styles.skeletonRow}>
+                <View style={styles.skeletonThumb} />
+                <View style={{ flex: 1, gap: space.sm }}>
+                  <View style={[styles.skeletonLine, { width: "40%" }]} />
+                  <View style={styles.skeletonLine} />
+                  <View style={[styles.skeletonLine, { width: "70%" }]} />
+                </View>
+              </View>
+            ))}
+            <TextButton
+              label="Finish loading"
+              onPress={() => setState("empty")}
+            />
+          </View>
+        )}
+        {state === "offline" && (
+          <StatePanel
+            icon="cloud-offline-outline"
+            title="You’re offline"
+            body="Sermon titles are still here. Connect to the internet to see artwork and watch."
+            label="Try again"
+            action={() => setState("loading")}
           />
-        </View>
-      )}
-      {state === "offline" && (
-        <StatePanel
-          icon="cloud-offline-outline"
-          title="You’re offline"
-          body="The catalogue is still here. Connect to the internet to load thumbnails and watch a message."
-          label="Retry connection (demo)"
-          action={() => setState("loading")}
-        />
-      )}{" "}
-      {state === "error" && (
-        <StatePanel
-          icon="alert-circle-outline"
-          title="The player couldn’t load"
-          body="Check your connection and try again. You can also open a message directly on YouTube from its sermon page."
-          label="Retry (demo)"
-          action={() => setState("loading")}
-        />
-      )}{" "}
-      {state === "thumbnail" && (
-        <View style={{ marginTop: 30, gap: 16 }}>
-          <Thumbnail sermon={sermons[0]} missing />
-          <T style={s.body}>
-            When artwork is missing, the message title and Play action still
-            work.
-          </T>
-        </View>
-      )}
+        )}
+        {state === "error" && (
+          <StatePanel
+            icon="alert-circle-outline"
+            tone="error"
+            title="The player didn’t load"
+            body="Check your connection and try again."
+            label="Try again"
+            action={() => setState("loading")}
+          />
+        )}
+        {state === "artwork" && (
+          <View style={{ gap: space.lg }}>
+            <Thumbnail
+              sermon={sermons[1]}
+              missing
+              duration
+              style={{ borderRadius: radius.lg }}
+            />
+            <T style={s.body}>
+              When artwork is missing, the sermon keeps its event name, title
+              and Watch action.
+            </T>
+          </View>
+        )}
+      </View>
     </Page>
   );
 }
+
+const styles = StyleSheet.create({
+  options: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: space.sm,
+    marginTop: space.xl,
+  },
+  option: {
+    minHeight: 48,
+    paddingHorizontal: space.lg,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: c.border,
+    justifyContent: "center",
+  },
+  optionOn: { backgroundColor: c.mint, borderColor: c.mint },
+  optionText: { fontFamily: font.semibold, fontSize: 14, lineHeight: 20 },
+  sample: { marginTop: space.lg },
+  loadingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space.md,
+    paddingTop: space.xl,
+  },
+  skeletonRow: { flexDirection: "row", gap: 14 },
+  skeletonThumb: {
+    width: "40%",
+    aspectRatio: 16 / 9,
+    borderRadius: radius.md,
+    backgroundColor: c.surface,
+  },
+  skeletonLine: {
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: c.surface,
+  },
+});
