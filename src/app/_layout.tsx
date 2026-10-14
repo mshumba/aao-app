@@ -1,3 +1,5 @@
+// First, so crashes during start-up are reported too.
+import { Sentry } from "../lib/monitoring";
 import { Stack, router, usePathname } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import {
@@ -35,7 +37,7 @@ SplashScreen.preventAutoHideAsync().catch(() => {});
 // swipe-back and the "Browse" exits all land on Home rather than leaving it.
 export const unstable_settings = { anchor: "(tabs)" };
 
-export default function RootLayout() {
+function RootLayout() {
   const [loaded, error] = useFonts({
     Manrope_400Regular,
     Manrope_500Medium,
@@ -142,3 +144,6 @@ function Screens() {
     </Stack>
   );
 }
+
+// Reports render crashes from release builds (src/lib/monitoring.ts).
+export default Sentry.wrap(RootLayout);

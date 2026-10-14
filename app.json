@@ -42,7 +42,15 @@
       ],
       "expo-web-browser",
       "expo-secure-store",
-      "expo-apple-authentication"
+      "expo-apple-authentication",
+      [
+        "@sentry/react-native/expo",
+        {
+          "url": "https://sentry.io/",
+          "organization": "mufaro",
+          "project": "aao-app"
+        }
+      ]
     ],
     "updates": {
       "url": "https://u.expo.dev/22f97c2b-42d9-4e87-8237-d953a169e5e1"

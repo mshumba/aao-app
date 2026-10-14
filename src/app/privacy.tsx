@@ -83,6 +83,16 @@ export default function Privacy() {
         />
       </Section>
 
+      <Section title="Crash reports">
+        <P>
+          When the app crashes or hits an error, it sends a report to Sentry,
+          a crash-reporting service, so the problem can be fixed. A report
+          holds the error, the device model, its operating system and the app
+          version. It never includes your name, email address, IP address,
+          topics or saved sermons.
+        </P>
+      </Section>
+
       <Section title="Sensitive information">
         <P>
           The sermons you save and the topics you choose may say something
