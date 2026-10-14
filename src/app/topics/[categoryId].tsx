@@ -45,7 +45,7 @@ export default function CategoryScreen() {
       <Header back />
       <PageTitle title={category.label} lead={category.description}>
         <View style={styles.icon}>
-          <Icon name={category.icon} color={c.mint} size={26} />
+          <Icon name={category.icon} color={c.accent} size={26} />
         </View>
       </PageTitle>
       {inTopic.length > 0 ? (

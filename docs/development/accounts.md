@@ -1,0 +1,142 @@
+# Accounts, onboarding and the guest gate
+
+Accounts are real Supabase accounts (user decision, 14 October 2026). Guests can open every screen. Watching a sermon (unless it came from a shared link) and saving one ask for a free account, then carry on with what was tapped. Setting up the Supabase project is covered in [`supabase/README.md`](../../supabase/README.md). The tables, row level security and `delete_account()` are in [`supabase/migrations/`](../../supabase/migrations/).
+
+## Layout
+
+Screens talk to `useAccount()` and `useGate()`. They never import supabase-js.
+
+| File | Role |
+| --- | --- |
+| `src/auth/types.ts` | `AuthBackend`, the interface every account service implements, plus `AuthResult` and `AuthError` codes |
+| `src/auth/config.ts` | Picks the service and the sign-in methods from `EXPO_PUBLIC_*` variables |
+| `src/auth/supabaseBackend.ts` | Supabase Auth and the `profiles`, `saved_sermons` and `app_settings` tables |
+| `src/auth/localBackend.ts` | An on-device stand-in for development and the automated tests |
+| `src/auth/AccountProvider.tsx` | `useAccount()`: session, profile, saved sermons, onboarding state, shared-link passes, `guestWatch` |
+| `src/auth/gate.tsx` | `useGate()`, `useFinishFlow()`, `useCloseAuthRoutes()` and `IntentRunner` (mounted in the root layout) |
+| `src/auth/intent.ts` | The pending intent: what a guest tapped before signing up |
+| `src/auth/ui.tsx` | Shared kit for the sign-in and onboarding screens (`FlowScreen`, `AuthField`, `CodeInput`, `ProviderButtons`, …) |
+| `src/auth/messages.ts` | One user-facing message per `AuthError` code |
+| `src/auth/sessionStorage.ts` | Keychain/Keystore storage for the native session |
+| `src/lib/storage.ts` | JSON helpers over AsyncStorage and the app's storage keys |
+
+## Which account service runs
+
+The service is chosen once, at launch (`authMode` in `src/auth/config.ts`):
+
+| Condition | Mode | Behaviour |
+| --- | --- | --- |
+| `EXPO_PUBLIC_AUTH_MODE=local` | `local` | The stand-in, in any build. The Playwright config sets this. |
+| Supabase URL and key set | `supabase` | Real accounts |
+| Neither, development build | `local` | The stand-in, so the app works without a `.env` |
+| Neither, release build | `unavailable` | Sign-up screens say accounts aren't available yet. Watching stays open to everyone and Save is hidden. |
+
+Configuration (copy `.env.example` to `.env`; for EAS builds use EAS environment variables, see [releasing](releasing.md)):
+
+| Variable | Purpose |
+| --- | --- |
+| `EXPO_PUBLIC_SUPABASE_URL` | Project URL, `https://<ref>.supabase.co` |
+| `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Publishable key (`sb_publishable_…`). The legacy `EXPO_PUBLIC_SUPABASE_ANON_KEY` is read as a fallback. |
+| `EXPO_PUBLIC_AUTH_METHODS` | Buttons to show, comma-separated: `apple`, `google`, `email`, and `apple-web` for Apple on the web and Android. Default `apple,google,email`. Leave a method out until its provider is enabled in Supabase. |
+| `EXPO_PUBLIC_WEB_URL` | Public web address used in share links. Default `https://aao-app.expo.app` |
+| `EXPO_PUBLIC_AUTH_MODE` | `local` forces the stand-in |
+| `EXPO_PUBLIC_GUEST_WATCH` | Stand-in only: `shared`, `all` or `none` in place of the remote setting |
+
+`EXPO_PUBLIC_*` values are compiled into the JavaScript bundle and are public by design. Row level security limits what the publishable key can do. Never put the `service_role` or secret key in the app, `.env` or `eas.json`. Restart Metro after changing `.env`.
+
+## Sign-in methods
+
+Apple and Google are the main ways in (user decision, 14 October 2026): two buttons of equal size and prominence, as App Store guideline 4.8 expects. Email is a quieter fallback, a **Use email instead** link (**Sign in with email instead** when signing in) that opens `/auth/email`; it signs in with a 6-digit code, and **Use a password instead** switches to email and password. There is no phone or text-message (SMS) sign-in.
+
+On the ivory app, Sign in with Apple uses Apple's black style: the native `AppleAuthenticationButton` on iOS, and a matching black button with white text elsewhere. Google is a white button with a hairline border.
+
+| Method | How it works | Needs |
+| --- | --- | --- |
+| Sign in with Apple (iOS) | Apple's native sheet (`expo-apple-authentication`), then `signInWithIdToken` with a SHA-256 nonce. Apple gives the name only on the first authorization; it's saved to the profile then. | Paid Apple Developer Program. The Apple provider enabled in Supabase with the bundle ID `com.mshumba.aao` in **Client IDs** (no secret key is needed for native sign-in). The entitlement, which `app.config.ts` adds unless `AAO_PERSONAL_TEAM=1`. |
+| Apple on the web and Android | Supabase's web OAuth flow. Off unless `apple-web` is in `EXPO_PUBLIC_AUTH_METHODS`. | A Services ID and a client secret that Apple makes you regenerate every 6 months |
+| Google | Supabase OAuth with PKCE: an in-app browser sheet (`expo-web-browser`) on iPhone and Android, a redirect on the web. The code comes back to `/auth/callback`. | A Google OAuth web client entered in Supabase, and the redirect URLs in [`supabase/README.md`](../../supabase/README.md) |
+| Email code | `signInWithOtp` (creates the account if needed), then a 6-digit code checked with `verifyOtp` | The Magic Link email template showing `{{ .Token }}` |
+| Email and password | `signUp`, then a code confirms the address. `signInWithPassword` signs in. A reset emails a code, then `/auth/new-password` sets the new password. | The Confirm signup and Reset password templates showing `{{ .Token }}`. "Confirm email" on. |
+
+Codes, rather than links, mean an email can be opened on any device and no deep link has to survive the mail app. Supabase's built-in email sender is limited to a few messages an hour; set up custom SMTP before inviting testers.
+
+## The guest gate
+
+`useGate().canWatch(id)` is true when accounts are unavailable in this build, when someone is signed in, when `guestWatch` is `all`, or when `guestWatch` is `shared` and the sermon came from a shared link. `require(intent)` returns true when the action can go ahead. Otherwise it stores the intent and opens the sign-up sheet at `/join?reason=watch` or `?reason=save`.
+
+`guestWatch` is a remote setting so the gate can change without a new build: the `guest_watch` row of `public.app_settings`.
+
+| Value | Guests can watch |
+| --- | --- |
+| `"shared"` (default) | Only sermons opened from a shared link |
+| `"all"` | Everything. Saving still needs an account. |
+| `"none"` | Nothing, not even shared links |
+
+Change it in the Supabase SQL editor:
+
+```sql
+update public.app_settings
+set value = '"all"', updated_at = now()
+where key = 'guest_watch';
+```
+
+The app reads it at launch and keeps the last value (`aao.guestWatch.v1`) for offline launches, so a change applies from the next launch. Signing out stops a sermon that needed an account.
+
+## Pending intents and resuming
+
+An intent is `{ kind: "watch" | "save", sermonId }`. It's held in memory and in AsyncStorage (`aao.pendingIntent.v1`), because a web sign-in with Apple or Google leaves the page and comes back to `/auth/callback`. It expires after 30 minutes and is cleared before it runs, so it runs at most once.
+
+When an account is ready, `useFinishFlow()` closes every onboarding and sign-in screen on top of the app, then `IntentRunner` carries the intent out: it opens the sermon and starts the player, or saves the sermon and announces it. "Not now" or Close leaves the guest where they were with nothing playing.
+
+## Shared links
+
+Share produces `${EXPO_PUBLIC_WEB_URL}/s/<id>` (`src/share.ts`). The `/s/[id]` route grants a pass for that sermon and opens `/sermon/<id>`. Passes are kept on the device (`aao.sharedPasses.v1`, the latest 50). A first launch through a shared link skips the welcome.
+
+On iPhone the link opens the web app. Opening it in the installed app needs universal links: `ios.associatedDomains` plus an `apple-app-site-association` file on the web domain, which needs the paid Apple account. Not set up yet. The app's scheme reaches the same route (`aao://s/<id>`).
+
+## Onboarding
+
+A first launch onto a tab, with no account, opens `/welcome` (`FirstRun` in `src/app/_layout.tsx`). Links to a sermon skip it. The flow runs `/welcome` → `/onboarding/topics` → `/onboarding/account` → `/onboarding/name` → `/onboarding/done`. The account step uses the same sign-in screens as the gate, with `next=onboarding`. The name step is skipped when Apple or Google supplied a name. A guest can leave at the welcome or the account step and browse.
+
+Onboarding state lives on the device in `aao.onboarding.v1` as `{ welcomed, interests }`. On first sign-in, topics picked as a guest fill an empty profile, the profile's `onboarded_at` is set, and the device is marked as welcomed, so signing out later doesn't bring the welcome back.
+
+## Where data is kept
+
+| Data | Where |
+| --- | --- |
+| Session, iPhone and Android | Keychain / Keystore through `expo-secure-store`, key `aao.session`, split into 1800-character chunks |
+| Session, web | `localStorage` (supabase-js default), key `aao.session` |
+| Install marker | `aao.install.v1` in AsyncStorage. The Keychain survives deleting the app but AsyncStorage doesn't, so a missing marker at launch clears any old session: a reinstall starts signed out. |
+| Device state | AsyncStorage (localStorage on the web): `aao.onboarding.v1`, `aao.pendingIntent.v1`, `aao.sharedPasses.v1`, `aao.guestWatch.v1` |
+| Stand-in accounts | `aao.local.session.v1` and `aao.local.data.v1.<userId>`, on the device only |
+| Profile and saved sermons | Supabase `profiles` (display name, topics, onboarding time) and `saved_sermons`, each limited to its owner by row level security |
+
+Sign-out is local (`scope: "local"`), so it works offline. It removes the session; topics picked as a guest and shared-link passes stay on the device. Passwords and codes must never be logged or stored by the app (see [contributing](contributing.md)).
+
+## Local test values
+
+With the stand-in (`mode === "local"`), nothing leaves the device, and the sign-up sheet and code screens show "Test mode: accounts stay on this device. The code is always 123456."
+
+| Input | Result |
+| --- | --- |
+| Code `123456` | Accepted |
+| Code `000000` | "That code has expired" |
+| Any other code | "That code isn't right" |
+| Sign up as `taken@example.com` | "An account already uses this email" |
+| Password `wrong-password`, or any password under 8 characters, at sign-in | "That email and password don't match" |
+| Password under 8 characters at sign-up | Asks for a stronger password |
+| Apple or Google | Signs in at once as `apple.viewer@example.com` or `google.viewer@example.com` |
+
+## Account deletion
+
+**Account → Delete account** (`/account/delete`) asks once, then calls `delete_account()`. That database function deletes the caller's own `auth.users` row, the `profiles` and `saved_sermons` rows go with it, and the app signs out. Only signed-in users can call it, and only for themselves.
+
+Known follow-up: Apple asks apps that offer Sign in with Apple to revoke the user's Apple tokens on deletion (Apple's REST revoke endpoint). That needs a server-side function holding a Sign in with Apple key, plus the authorization code captured at sign-in. Neither exists yet.
+
+## App Store notes
+
+- **4.8 Login Services:** the app offers Google, so iOS must also offer Sign in with Apple. It does, with Apple's native button.
+- **5.1.1(v) deletion:** account deletion starts in the app and removes the account and its data. Token revocation is the gap above.
+- **5.1.1(v) registration:** Apple rejects apps that require an account for features that aren't account-based. Saving is account-based. Watching free public sermons may not be, so asking guests to sign up to watch is a review risk. If review raises it, set `guest_watch` to `"all"`: no new build is needed and saving stays behind an account. Whether to submit with `"shared"` or `"all"` is the user's decision.
+- **2.1 review access:** give App Review a password account in App Review Information (reviewers can't read emailed codes), and make sure the Supabase project isn't paused during review. Free projects pause after about a week of low activity.
+- **Privacy:** App Store Connect needs a public privacy policy URL. The App Privacy answers will cover email address, name, user ID and product interaction (saved sermons), all linked to the user for app functionality. There is no tracking.

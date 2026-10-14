@@ -9,7 +9,7 @@ import {
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { font, radius, space } from "../theme";
-import { Icon, T, Tap, c, moveFocus, s, web } from "../ui";
+import { Icon, T, Tap, c, moveFocus, pressedTint, s, web } from "../ui";
 import {
   asksViewer,
   clock,
@@ -58,7 +58,7 @@ export function NowPlaying({
       onPress={p.cycleRate}
       disabled={loading}
       feedback="highlight"
-      highlightColor={c.surface}
+      highlightColor={pressedTint}
       style={styles.speed}
     >
       <T style={styles.speedText} maxFontSizeMultiplier={1.6}>
@@ -83,10 +83,10 @@ export function NowPlaying({
           testID="now-playing-toggle"
         >
           {loading ? (
-            <ActivityIndicator color={c.ink} />
+            <ActivityIndicator color={c.onAccent} />
           ) : (
             <View style={!playing && styles.playNudge}>
-              <Icon name={playing ? "pause" : "play"} color={c.ink} size={26} />
+              <Icon name={playing ? "pause" : "play"} color={c.onAccent} size={26} />
             </View>
           )}
         </Tap>
@@ -117,7 +117,7 @@ function Skip({ seconds, disabled }: { seconds: number; disabled: boolean }) {
       style={styles.skip}
     >
       <View style={back && styles.mirror}>
-        <Icon name="refresh" size={30} color={c.muted} />
+        <Icon name="refresh" size={30} color={c.text} />
       </View>
       <T style={styles.skipText}>{Math.abs(seconds)}</T>
     </Tap>
@@ -231,13 +231,16 @@ function Scrubber({
 const styles = StyleSheet.create({
   panel: { marginTop: space.md, gap: space.xs },
   hit: { height: 32, justifyContent: "center" },
+  // A neutral track (a wash of the text colour) under the navy progress, so
+  // it reads on the ivory page and on the sermon's artwork wash alike.
   rail: {
     height: 4,
     borderRadius: 2,
-    backgroundColor: "rgba(245, 243, 235, 0.18)",
+    backgroundColor: "rgba(27, 30, 36, 0.14)",
     overflow: "hidden",
   },
-  fill: { height: 4, backgroundColor: c.mint },
+  fill: { height: 4, backgroundColor: c.accent },
+  // Navy with a white edge, so it stands out from the fill it sits on.
   thumb: {
     position: "absolute",
     top: 9,
@@ -245,7 +248,10 @@ const styles = StyleSheet.create({
     height: 14,
     marginLeft: -7,
     borderRadius: 7,
-    backgroundColor: c.text,
+    backgroundColor: c.accent,
+    borderWidth: 2,
+    borderColor: c.surface,
+    boxShadow: "0 1px 3px rgba(27, 30, 36, 0.3)",
   },
   thumbActive: { transform: [{ scale: 1.3 }] },
   times: {
@@ -273,9 +279,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  // Navy, like a link: the one time readout you can change.
   speedText: {
     ...StyleSheet.flatten(s.meta),
     fontFamily: font.semibold,
+    color: c.accent,
     fontVariant: ["tabular-nums"],
   },
   skip: {
@@ -291,15 +299,16 @@ const styles = StyleSheet.create({
     fontSize: 10,
     lineHeight: 12,
     top: 22,
-    color: c.muted,
+    color: c.text,
   },
   play: {
     width: 60,
     height: 60,
     borderRadius: 30,
-    backgroundColor: c.mint,
+    backgroundColor: c.accent,
     alignItems: "center",
     justifyContent: "center",
+    boxShadow: "0 4px 12px rgba(31, 58, 95, 0.24)",
   },
   // The play triangle's visual centre sits right of its box centre.
   playNudge: { transform: [{ translateX: 2 }] },

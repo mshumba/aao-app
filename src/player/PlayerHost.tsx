@@ -1,3 +1,4 @@
+import { usePathname } from "expo-router";
 import { useEffect } from "react";
 import {
   AccessibilityInfo,
@@ -9,6 +10,7 @@ import {
 } from "react-native";
 import Animated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { isFlowRoute } from "../auth/gate";
 import { useGo } from "../navigation";
 import { easeOut, font, radius, space } from "../theme";
 import {
@@ -48,13 +50,17 @@ export function PlayerHost() {
   const chrome = useChrome();
   const { sermon, phase, cover, attempt, start, attach, onEvent, hold } =
     session;
+  const pathname = usePathname();
   const full = !!sermon && session.stage === sermon.id;
   const d = dockFrame(window, insets, aboveTabs, chrome);
   const hidden = !!sermon && !full && d.compact;
+  // Sign-in and onboarding screens cover the whole player, as the native
+  // sheet and modals do. On the web this layer would otherwise draw over them.
+  const covered = !!sermon && isFlowRoute(pathname.replace(/^\//, ""));
   // A video that can't be shown mustn't play.
   useEffect(() => {
-    if (hidden) hold();
-  }, [hidden, hold]);
+    if (hidden || covered) hold();
+  }, [hidden, covered, hold]);
   if (!sermon) return null;
   // The Now Playing screen shows its own error panel and poster.
   if (full && phase === "error") return null;
@@ -75,6 +81,7 @@ export function PlayerHost() {
             ? { left: f.left, top: f.top, width: f.width }
             : { left: d.left, bottom: d.bottom, width: d.width },
           !full && styles.dock,
+          covered && styles.gone,
         ]}
       >
         <View
@@ -128,7 +135,7 @@ export function PlayerHost() {
               />
               <View style={styles.center}>
                 <View style={styles.spinner}>
-                  <ActivityIndicator color={c.mint} />
+                  <ActivityIndicator color={c.onMedia} />
                 </View>
               </View>
             </Animated.View>
@@ -205,6 +212,7 @@ function DockBar({ compact }: { compact: boolean }) {
             <IconButton
               name={playing ? "pause" : "play"}
               label={playing ? "Pause" : "Play"}
+              color={c.accent}
               onPress={playback.toggle}
             />
           )}
@@ -234,14 +242,17 @@ function DockBar({ compact }: { compact: boolean }) {
 
 const styles = StyleSheet.create({
   shell: { position: "absolute" },
+  // A white card lifted off the page by a hairline and a soft shadow; the
+  // video inside stays dark. (The hairline width is part of the geometry
+  // layout.ts expects, so only its colour changed.)
   dock: {
-    backgroundColor: c.surface,
+    backgroundColor: c.raised,
     borderRadius: radius.lg,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(255,255,255,0.08)",
-    boxShadow: "0 12px 32px rgba(0,0,0,0.45)",
+    borderColor: c.border,
+    boxShadow: `0 8px 24px ${c.shadow}`,
   },
-  video: { overflow: "hidden", backgroundColor: "#000" },
+  video: { overflow: "hidden", backgroundColor: c.media },
   gone: { display: "none" },
   offscreen: {
     position: "absolute",

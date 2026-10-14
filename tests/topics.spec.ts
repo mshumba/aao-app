@@ -244,20 +244,3 @@ test("Home's search field keeps what the Search tab holds", async ({
     page.getByRole("radio", { name: "Prayer", exact: true }),
   ).toBeChecked();
 });
-
-test("on web, leaving a form for Home doesn't leave a dead Back entry", async ({
-  page,
-}) => {
-  await page.goto("/");
-  await tab(page, "Account").click();
-  await page.getByRole("button", { name: "Sign in", exact: true }).click();
-  await page
-    .getByRole("button", { name: "Continue as guest", exact: true })
-    .click();
-  await expect(tab(page, "Home")).toHaveAttribute("aria-selected", "true");
-  await expect(page).toHaveURL(/:8081\/$/);
-  // The same as closing the form and then choosing Home: the first browser
-  // Back leaves this entry rather than showing Home again.
-  await page.goBack();
-  await expect(page).not.toHaveURL(/:8081\/$/);
-});

@@ -25,7 +25,29 @@ const options = [
 ] as const;
 type Sample = (typeof options)[number]["id"];
 
+/**
+ * Development only: Account links here under __DEV__, and a release build
+ * treats the address as unknown.
+ */
 export default function States() {
+  if (!__DEV__)
+    return (
+      <Page>
+        <Header back />
+        <StatePanel
+          level={1}
+          icon="compass-outline"
+          title="Page not found"
+          body="The link may be broken or out of date."
+          label="Browse sermons"
+          action={() => exitTo("/")}
+        />
+      </Page>
+    );
+  return <Samples />;
+}
+
+function Samples() {
   const [state, setState] = useState<Sample>("empty");
   return (
     <Page>
@@ -50,7 +72,7 @@ export default function States() {
               onPress={() => setState(option.id)}
               style={[styles.option, selected && styles.optionOn]}
             >
-              <T style={[styles.optionText, selected && { color: c.ink }]}>
+              <T style={[styles.optionText, selected && { color: c.onAccent }]}>
                 {option.label}
               </T>
             </Tap>
@@ -69,7 +91,7 @@ export default function States() {
         {state === "loading" && (
           <View style={{ gap: space.lg }}>
             <View style={styles.loadingRow}>
-              <ActivityIndicator color={c.mint} />
+              <ActivityIndicator color={c.accent} />
               <T style={s.body}>Loading sermons…</T>
             </View>
             {[0, 1, 2].map((i) => (
@@ -139,9 +161,10 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
     borderWidth: 1,
     borderColor: c.border,
+    backgroundColor: c.surface,
     justifyContent: "center",
   },
-  optionOn: { backgroundColor: c.mint, borderColor: c.mint },
+  optionOn: { backgroundColor: c.accent, borderColor: c.accent },
   optionText: { fontFamily: font.semibold, fontSize: 14, lineHeight: 20 },
   sample: { marginTop: space.lg },
   loadingRow: {
@@ -150,16 +173,17 @@ const styles = StyleSheet.create({
     gap: space.md,
     paddingTop: space.xl,
   },
+  // Sand placeholders: visible on the ivory page, quieter than content.
   skeletonRow: { flexDirection: "row", gap: 14 },
   skeletonThumb: {
     width: "40%",
     aspectRatio: 16 / 9,
     borderRadius: radius.md,
-    backgroundColor: c.surface,
+    backgroundColor: c.feature,
   },
   skeletonLine: {
     height: 12,
     borderRadius: 6,
-    backgroundColor: c.surface,
+    backgroundColor: c.feature,
   },
 });

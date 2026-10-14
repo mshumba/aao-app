@@ -3,7 +3,7 @@ import type { ComponentProps } from "react";
 import { Platform, StyleSheet, View } from "react-native";
 import { setChrome } from "./player/layout";
 import { font, radius, space } from "./theme";
-import { Icon, IconName, T, Tap, c } from "./ui";
+import { Icon, IconName, T, Tap, c, pressedTint } from "./ui";
 
 type BottomTabBarProps = Parameters<
   NonNullable<ComponentProps<typeof Tabs>["tabBar"]>
@@ -17,7 +17,9 @@ const icons: Record<string, [IconName, IconName]> = {
 };
 
 /**
- * A floating pill of four peer destinations, in the style of media apps.
+ * A floating white pill of four peer destinations, in the style of media
+ * apps: a hairline and a soft shadow lift it off the ivory page, and the
+ * current tab sits on sand in navy (shape and colour, never colour alone).
  * Labels stop growing at 1.4× (as system tab bars don't scale); on iOS a long
  * press shows the large content viewer instead. The docked player sits on top
  * of the bar, so its real height is shared.
@@ -54,10 +56,10 @@ export function TabBar({ state, descriptors, navigation, insets }: BottomTabBarP
                   navigation.navigate(route.name, route.params);
               }}
               feedback="highlight"
-              highlightColor={c.surface}
+              highlightColor={pressedTint}
               style={[styles.tab, focused && styles.tabOn]}
             >
-              <Icon name={focused ? on : off} size={22} color={focused ? c.mint : c.muted} />
+              <Icon name={focused ? on : off} size={22} color={focused ? c.accent : c.muted} />
               <T
                 style={[styles.label, focused && styles.labelOn]}
                 numberOfLines={1}
@@ -88,9 +90,10 @@ const styles = StyleSheet.create({
     padding: space.xs,
     gap: space.xs,
     borderRadius: radius.pill,
-    backgroundColor: c.surface,
+    backgroundColor: c.raised,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(255,255,255,0.08)",
+    borderColor: c.border,
+    boxShadow: "0 8px 24px rgba(27,30,36,0.10)",
   },
   tab: {
     flex: 1,
@@ -107,5 +110,5 @@ const styles = StyleSheet.create({
     lineHeight: 15,
     color: c.muted,
   },
-  labelOn: { color: c.mint },
+  labelOn: { color: c.accent },
 });

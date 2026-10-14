@@ -49,7 +49,9 @@ export function TopicGrid() {
             unstable_pressDelay={60}
             style={[styles.tile, oneColumn && styles.tileFull]}
           >
-            <Icon name={category.icon} color={c.mint} size={22} />
+            <View style={styles.tileIcon}>
+              <Icon name={category.icon} color={c.accent} size={20} />
+            </View>
             <View style={{ gap: 2 }}>
               <T style={styles.tileLabel}>{category.label}</T>
               <T style={s.meta}>{sermonCount(count)}</T>
@@ -78,7 +80,7 @@ export function TopicRow({ category }: { category: Category }) {
       style={styles.row}
     >
       <View style={styles.rowIcon}>
-        <Icon name={category.icon} color={c.mint} size={22} />
+        <Icon name={category.icon} color={c.accent} size={22} />
       </View>
       <View style={{ flex: 1, gap: 4 }}>
         <T style={styles.rowLabel}>{category.label}</T>
@@ -109,7 +111,7 @@ export function TopicTags({ ids }: { ids: CategoryId[] }) {
             onPress={() => openTopic(go, id)}
             style={styles.tag}
           >
-            <Icon name={category.icon} size={16} color={c.mint} />
+            <Icon name={category.icon} size={16} color={c.accent} />
             <T style={styles.tagLabel}>{category.label}</T>
           </Tap>
         );
@@ -182,9 +184,9 @@ export function TopicFilter({
             <Icon
               name={selected ? "checkmark" : option.icon}
               size={16}
-              color={selected ? c.ink : c.mint}
+              color={selected ? c.onAccent : c.accent}
             />
-            <T style={[styles.filterLabel, selected && { color: c.ink }]}>
+            <T style={[styles.filterLabel, selected && { color: c.onAccent }]}>
               {option.label}
             </T>
           </Tap>
@@ -194,6 +196,8 @@ export function TopicFilter({
   );
 }
 
+// White cards on the ivory page take a hairline edge rather than a shadow:
+// they sit in the page, unlike the floating tab bar and toasts.
 const styles = StyleSheet.create({
   grid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   tile: {
@@ -203,16 +207,28 @@ const styles = StyleSheet.create({
     padding: space.lg,
     borderRadius: radius.lg,
     backgroundColor: c.surface,
+    borderWidth: 1,
+    borderColor: c.border,
     justifyContent: "space-between",
     gap: space.md,
   },
   tileFull: { flexBasis: "100%" },
+  tileIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: radius.sm,
+    backgroundColor: c.feature,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   tileLabel: { fontFamily: font.bold, fontSize: 16, lineHeight: 22 },
   // Top-aligned so the icon stays with the title when text is large.
   row: {
     padding: space.lg,
     borderRadius: radius.lg,
     backgroundColor: c.surface,
+    borderWidth: 1,
+    borderColor: c.border,
     flexDirection: "row",
     alignItems: "flex-start",
     gap: 14,
@@ -249,10 +265,11 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
     borderWidth: 1,
     borderColor: c.border,
+    backgroundColor: c.surface,
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
   },
-  filterSelected: { backgroundColor: c.mint, borderColor: c.mint },
+  filterSelected: { backgroundColor: c.accent, borderColor: c.accent },
   filterLabel: { ...type.label, fontSize: 14, color: c.text },
 });

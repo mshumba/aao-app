@@ -4,6 +4,7 @@ import {
   useLocalSearchParams,
   useNavigation,
 } from "expo-router";
+import * as Haptics from "expo-haptics";
 import { useCallback, useEffect, useRef, useState, type Ref } from "react";
 import {
   Linking,
@@ -18,7 +19,8 @@ import {
   SafeAreaView,
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
-import { artworkTint } from "../../data/artwork";
+import { useAccount } from "../../auth/AccountProvider";
+import { useGate } from "../../auth/gate";
 import { eventLine, headline } from "../../data/display";
 import { Sermon, sermonCategoryIds, sermons } from "../../data/sermons";
 import { HEADER_HEIGHT, fullFrame } from "../../player/layout";
@@ -27,9 +29,12 @@ import { usePlayerSession } from "../../player/PlayerProvider";
 import { canRetry, canWatchOnYouTube, playerError } from "../../player/types";
 import { useDockInset } from "../../player/useDockInset";
 import { exitTo, firstParam } from "../../navigation";
+import { shareSermon } from "../../share";
 import { font, radius, space, type } from "../../theme";
+import { useToast } from "../../toast";
 import { TopicNotice, TopicTags } from "../../topics";
 import {
+  Badge,
   Header,
   Icon,
   type IconName,
@@ -45,7 +50,6 @@ import {
   Thumbnail,
   c,
   dockScrollPadding,
-  gradient,
   moveFocus,
   nowrap,
   s,
@@ -127,6 +131,8 @@ function useStage(id: string) {
 
 function NowPlayingScreen({ sermon }: { sermon: Sermon }) {
   const session = usePlayerSession();
+  const account = useAccount();
+  const gate = useGate();
   const window = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const narrow = useNarrow();
@@ -141,7 +147,6 @@ function NowPlayingScreen({ sermon }: { sermon: Sermon }) {
   const pinned = current && !failed;
   // Where the scrolling column starts, to line the poster up with the video.
   const contentLeft = (window.width - Math.min(window.width, 760)) / 2 + space.gutter;
-  const tint = artworkTint[sermon.id] ?? c.feature;
   const topics = sermonCategoryIds(sermon);
   // Sermons sharing a topic come first, then the rest in catalogue order.
   const more = sermons
@@ -156,13 +161,8 @@ function NowPlayingScreen({ sermon }: { sermon: Sermon }) {
     .map(({ x }) => x);
 
   return (
-    <View
-      style={[
-        styles.screen,
-        // The screen takes its colour from the sermon's artwork.
-        gradient(`linear-gradient(180deg, ${tint} 0%, ${c.bg} 58%)`),
-      ]}
-    >
+    // Plain ivory like every other page; the artwork carries the colour.
+    <View style={styles.screen}>
       <SafeAreaView style={{ flex: 1 }} edges={["top", "left", "right"]}>
         <View style={[s.page, styles.header]}>
           <Header back />
@@ -210,7 +210,16 @@ function NowPlayingScreen({ sermon }: { sermon: Sermon }) {
                   sermon={sermon}
                   height={frame.height}
                   radius={frame.radius}
+                  // A guest is asked for a free account first; the sermon
+                  // starts once they have one.
+                  hint={
+                    gate.canWatch(sermon.id)
+                      ? undefined
+                      : "Asks you to create a free account first"
+                  }
                   onWatch={() => {
+                    if (!gate.require({ kind: "watch", sermonId: sermon.id }))
+                      return;
                     setWatched(true);
                     session.load(sermon);
                   }}
@@ -220,6 +229,14 @@ function NowPlayingScreen({ sermon }: { sermon: Sermon }) {
           )}
 
           <View style={styles.identity}>
+            {/* Why a guest can watch this one. */}
+            {!account.user &&
+              account.guestWatch === "shared" &&
+              account.hasPass(sermon.id) && (
+                <View style={styles.shared}>
+                  <Badge>Shared with you</Badge>
+                </View>
+              )}
             <SermonTitle
               title={headline(sermon)}
               accessibilityRole="header"
@@ -234,6 +251,8 @@ function NowPlayingScreen({ sermon }: { sermon: Sermon }) {
               {sermon.channel} · {nowrap(sermon.duration)}
             </T>
           </View>
+
+          <SermonActions sermon={sermon} />
 
           {current && <NowPlaying focusTransport={watched} scroll={scroll} />}
 
@@ -287,6 +306,113 @@ function NowPlayingScreen({ sermon }: { sermon: Sermon }) {
 }
 
 /**
+ * Save and Share, under the sermon's title. Saving asks a guest for a free
+ * account first, then saves once they have one (the gate carries it out).
+ * Builds without an account service leave Save out.
+ */
+function SermonActions({ sermon }: { sermon: Sermon }) {
+  const account = useAccount();
+  const gate = useGate();
+  const toast = useToast();
+  // One save request and one share sheet at a time, so a double tap can't
+  // undo itself or open a second sheet.
+  const saving = useRef(false);
+  const sharing = useRef(false);
+  const saved = account.isSaved(sermon.id);
+
+  const toggleSave = async () => {
+    if (saving.current) return;
+    if (!gate.require({ kind: "save", sermonId: sermon.id })) return;
+    saving.current = true;
+    const next = !saved;
+    // With the optimistic change, so the tap and the new state land together.
+    if (Platform.OS !== "web")
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    try {
+      await account.setSaved(sermon.id, next);
+      toast(
+        next ? "Saved to your library" : "Removed from saved",
+        next ? "bookmark" : "bookmark-outline",
+      );
+    } catch {
+      toast(
+        next
+          ? "Couldn’t save. Check your connection."
+          : "Couldn’t remove it. Check your connection.",
+        "alert-circle-outline",
+      );
+    } finally {
+      saving.current = false;
+    }
+  };
+
+  const share = async () => {
+    if (sharing.current) return;
+    sharing.current = true;
+    await shareSermon(sermon, toast);
+    sharing.current = false;
+  };
+
+  return (
+    <View style={styles.actions}>
+      {account.mode !== "unavailable" && (
+        <ActionPill
+          testID="save-sermon"
+          label={saved ? "Saved" : "Save"}
+          icon={saved ? "bookmark" : "bookmark-outline"}
+          selected={saved}
+          hint={account.user ? undefined : "Asks you to create a free account first"}
+          onPress={toggleSave}
+        />
+      )}
+      <ActionPill
+        testID="share-sermon"
+        label="Share"
+        // Each platform's own share glyph.
+        icon={Platform.OS === "android" ? "share-social-outline" : "share-outline"}
+        onPress={share}
+      />
+    </View>
+  );
+}
+
+/** A compact action under the title. `selected` makes it a toggle. */
+function ActionPill({
+  label,
+  icon,
+  selected,
+  hint,
+  testID,
+  onPress,
+}: {
+  label: string;
+  icon: IconName;
+  selected?: boolean;
+  hint?: string;
+  testID?: string;
+  onPress: () => void;
+}) {
+  const toggle = selected !== undefined;
+  return (
+    <Tap
+      testID={testID}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityHint={hint}
+      accessibilityState={toggle ? { selected } : undefined}
+      {...(toggle ? web({ "aria-pressed": selected }) : null)}
+      onPress={onPress}
+      style={[styles.action, selected && styles.actionSelected]}
+    >
+      <Icon name={icon} size={20} color={selected ? c.accent : c.text} />
+      <T style={[styles.actionLabel, selected && { color: c.accent }]}>
+        {label}
+      </T>
+    </Tap>
+  );
+}
+
+/**
  * The video player comes last in keyboard order, since it floats above every
  * screen. This link, shown when focused, jumps straight to it.
  */
@@ -308,10 +434,6 @@ function SkipToPlayer() {
   );
 }
 
-/**
- * A failed player, shown where the video was: what happened and what can
- * still be done. Only actions that can work are offered.
- */
 /**
  * A failed player, shown where the video was: what happened and what can
  * still be done. Only actions that can work are offered. It grows with the
@@ -407,8 +529,8 @@ function SlotButton({
       onPress={onPress}
       style={[styles.slotButton, primary && styles.slotButtonPrimary]}
     >
-      <Icon name={icon} size={16} color={primary ? c.ink : c.text} />
-      <T style={[styles.slotButtonText, primary && { color: c.ink }]}>
+      <Icon name={icon} size={16} color={primary ? c.onAccent : c.text} />
+      <T style={[styles.slotButtonText, primary && { color: c.onAccent }]}>
         {label}
       </T>
     </Tap>
@@ -419,18 +541,20 @@ function Poster({
   sermon,
   height,
   radius: corner,
+  hint = "Starts the sermon in the YouTube player",
   onWatch,
 }: {
   sermon: Sermon;
   height: number;
   radius: number;
+  hint?: string;
   onWatch: () => void;
 }) {
   return (
     <Tap
       accessibilityRole="button"
       accessibilityLabel="Watch sermon"
-      accessibilityHint="Starts the sermon in the YouTube player"
+      accessibilityHint={hint}
       onPress={onWatch}
       feedback="scaleLarge"
       style={{ height }}
@@ -443,7 +567,7 @@ function Poster({
       />
       <View style={[styles.center, { pointerEvents: "none" }]}>
         <View style={styles.watch}>
-          <Icon name="play" color={c.ink} size={20} />
+          <Icon name="play" color={c.onAccent} size={20} />
           <T style={styles.watchLabel}>Watch sermon</T>
         </View>
       </View>
@@ -455,21 +579,45 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: c.bg },
   // Fixed height so the player slot sits exactly where the player expects.
   header: { height: HEADER_HEIGHT, overflow: "visible" },
-  slot: { flex: 1, backgroundColor: "#000" },
+  slot: { flex: 1, backgroundColor: c.media },
   identity: { marginTop: space.lg, gap: 6 },
+  shared: { marginBottom: space.xs },
+  actions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: space.sm,
+    marginTop: space.lg,
+  },
+  // White with a hairline, like the secondary button: clear on the wash and
+  // the ivory page without competing with Watch.
+  action: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space.sm,
+    minHeight: 48,
+    paddingHorizontal: space.lg,
+    borderRadius: radius.pill,
+    backgroundColor: c.surface,
+    borderWidth: 1,
+    borderColor: c.border,
+  },
+  // Saved also changes its label and icon, so colour isn't the only signal.
+  actionSelected: { borderColor: c.accent },
+  actionLabel: type.label,
   title: type.sermonTitle,
   titleNarrow: { fontSize: 22, lineHeight: 28 },
   event: { ...type.label, color: c.text },
-  meta: { ...type.caption, color: c.mutedOnFeature },
+  meta: { ...type.caption, color: c.muted },
   source: {
     marginTop: space.xl,
     gap: space.sm,
     paddingTop: space.lg,
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: c.divider,
+    borderTopColor: c.border,
   },
   sourceLabel: { ...type.kicker, color: c.muted },
   sourceTitle: { ...type.caption, color: c.text },
+  // A white card in the video's place, outlined in the error colour.
   errorSlot: {
     padding: space.md,
     gap: space.md,
@@ -488,15 +636,19 @@ const styles = StyleSheet.create({
     minHeight: 48,
     paddingHorizontal: space.md,
     borderRadius: radius.pill,
-    backgroundColor: c.feature,
+    backgroundColor: c.surface,
+    borderWidth: 1,
+    borderColor: c.border,
   },
-  slotButtonPrimary: { backgroundColor: c.mint },
+  slotButtonPrimary: { backgroundColor: c.accent, borderColor: c.accent },
   slotButtonText: { fontFamily: font.semibold, fontSize: 14 },
   center: {
     ...StyleSheet.absoluteFill,
     alignItems: "center",
     justifyContent: "center",
   },
+  // Navy, like the Play control that replaces it. Navy is close to the dark
+  // artwork, so a faint light edge and a shadow keep the pill's shape.
   watch: {
     flexDirection: "row",
     alignItems: "center",
@@ -504,10 +656,12 @@ const styles = StyleSheet.create({
     minHeight: 48,
     paddingHorizontal: 20,
     borderRadius: radius.pill,
-    backgroundColor: c.mint,
-    boxShadow: "0 6px 20px rgba(0,0,0,0.35)",
+    backgroundColor: c.accent,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.28)",
+    boxShadow: "0 6px 20px rgba(0, 0, 0, 0.35)",
   },
-  watchLabel: { color: c.ink, fontFamily: font.bold, fontSize: 16 },
+  watchLabel: { color: c.onAccent, fontFamily: font.bold, fontSize: 16 },
   skipLink: {
     position: "absolute",
     top: 4,
@@ -516,14 +670,18 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingHorizontal: space.md,
     borderRadius: radius.pill,
-    backgroundColor: c.surface,
+    backgroundColor: c.raised,
+    borderWidth: 1,
+    borderColor: c.border,
+    boxShadow: `0 8px 24px ${c.shadow}`,
   },
-  skipLinkText: { fontFamily: font.semibold, fontSize: 15 },
+  skipLinkText: { fontFamily: font.semibold, fontSize: 15, color: c.accent },
   offscreen: {
     width: 1,
     height: 1,
     minHeight: 1,
     paddingHorizontal: 0,
+    borderWidth: 0,
     overflow: "hidden",
     opacity: 0,
   },

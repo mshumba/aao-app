@@ -22,6 +22,7 @@ import {
   StatePanel,
   T,
   c,
+  fieldBorder,
   noWebOutline,
   s,
 } from "../../ui";
@@ -120,7 +121,7 @@ function SearchForm({
           inputMode="search"
           autoCorrect={false}
           autoCapitalize="none"
-          selectionColor={c.mint}
+          selectionColor={c.accent}
           style={styles.input}
         />
         {!!query && (
@@ -200,12 +201,12 @@ const styles = StyleSheet.create({
     paddingStart: 15,
     borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: c.border,
+    borderColor: fieldBorder,
     backgroundColor: c.surface,
   },
   // Focus thickens the border rather than only recolouring it; padding
   // compensates so the text doesn't shift.
-  fieldFocused: { borderColor: c.mint, borderWidth: 2, paddingStart: 14 },
+  fieldFocused: { borderColor: c.accent, borderWidth: 2, paddingStart: 14 },
   input: {
     flex: 1,
     minWidth: 0,

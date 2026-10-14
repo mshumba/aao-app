@@ -1,0 +1,183 @@
+import { router, useNavigation, usePathname } from "expo-router";
+import { useCallback, useEffect, useRef } from "react";
+import { Platform } from "react-native";
+import { sermons } from "../data/sermons";
+import { useGo } from "../navigation";
+import { usePlayerSession } from "../player/PlayerProvider";
+import { useToast } from "../toast";
+import { useAccount } from "./AccountProvider";
+import {
+  Intent,
+  registerIntentRunner,
+  setPendingIntent,
+  takePendingIntent,
+  runIntent,
+} from "./intent";
+
+/**
+ * Routes that belong to onboarding and sign-in. They stack over whatever the
+ * viewer was doing and are all closed together when an account is ready.
+ */
+const FLOW_ROUTES = new Set([
+  "welcome",
+  "onboarding/topics",
+  "onboarding/account",
+  "onboarding/name",
+  "onboarding/done",
+  "join",
+  "auth/email",
+  "auth/code",
+  "auth/password",
+  "auth/reset",
+  "auth/new-password",
+  "auth/callback",
+]);
+
+export function isFlowRoute(name: string) {
+  return FLOW_ROUTES.has(name);
+}
+
+/** The sign-in sheet and its steps, but not onboarding's own screens. */
+function isAuthRoute(name: string) {
+  return name === "join" || name.startsWith("auth/");
+}
+
+type RouteList = { name: string }[];
+
+function trailing(routes: RouteList, match: (name: string) => boolean) {
+  let count = 0;
+  for (let i = routes.length - 1; i >= 0 && match(routes[i].name); i--) count += 1;
+  return count;
+}
+
+/**
+ * Closes the sign-in sheet and steps on top of onboarding, so onboarding
+ * can continue underneath. Resolves once they've had time to close.
+ */
+export function useCloseAuthRoutes() {
+  const navigation = useNavigation();
+  return useCallback(async () => {
+    const count = trailing((navigation.getState()?.routes ?? []) as RouteList, isAuthRoute);
+    if (!count) return;
+    router.dismiss(count);
+    await new Promise((resolve) => setTimeout(resolve, Platform.OS === "web" ? 30 : 400));
+  }, [navigation]);
+}
+
+type Viewer = ReturnType<typeof useAccount>;
+
+/**
+ * Whether this sermon plays without an account: everything when accounts
+ * aren't available in a build or the remote setting opens playback, and
+ * sermons opened from a shared link by default.
+ */
+function guestMayWatch(account: Viewer, sermonId: string) {
+  return (
+    account.mode === "unavailable" ||
+    account.guestWatch === "all" ||
+    (account.guestWatch === "shared" && account.hasPass(sermonId))
+  );
+}
+
+/**
+ * Guests browse freely; watching (unless the sermon came from a shared link)
+ * and saving ask for a free account first. When accounts aren't available in
+ * a build, watching stays open rather than locking everyone out.
+ */
+export function useGate() {
+  const account = useAccount();
+  const go = useGo();
+  const canWatch = (sermonId: string) =>
+    !!account.user || guestMayWatch(account, sermonId);
+
+  /** True when the action may go ahead now; otherwise opens the sign-up sheet. */
+  const require = (intent: Intent) => {
+    if (intent.kind === "watch" && canWatch(intent.sermonId)) return true;
+    if (account.user) return true;
+    if (account.mode === "unavailable") return false;
+    setPendingIntent(intent);
+    go.push({ pathname: "/join", params: { reason: intent.kind } });
+    return false;
+  };
+
+  return { canWatch, require };
+}
+
+/**
+ * Closes every onboarding/sign-in screen on top of the app, then carries on
+ * with what the viewer was doing (watch or save the sermon they tapped).
+ */
+export function useFinishFlow() {
+  const navigation = useNavigation();
+  return useCallback(async () => {
+    const count = trailing((navigation.getState()?.routes ?? []) as RouteList, isFlowRoute);
+    if (count) router.dismiss(count);
+    else if (router.canGoBack()) router.back();
+    else router.replace("/");
+    const intent = await takePendingIntent();
+    // After the sheets have closed, so the player and toast land on the page.
+    if (intent) setTimeout(() => runIntent(intent), Platform.OS === "web" ? 60 : 450);
+  }, [navigation]);
+}
+
+/**
+ * Carries out an intent: opens the sermon and starts it, or saves it. Saving
+ * needs an account; watching goes ahead for anyone allowed to watch (a guest
+ * too, when playback is open to them). Also stops a gated sermon when the
+ * viewer signs out.
+ */
+export function IntentRunner() {
+  const account = useAccount();
+  const session = usePlayerSession();
+  const pathname = usePathname();
+  const toast = useToast();
+  const latest = useRef({ account, session, pathname, toast });
+  useEffect(() => {
+    latest.current = { account, session, pathname, toast };
+  }, [account, session, pathname, toast]);
+
+  useEffect(() => {
+    registerIntentRunner(async (intent) => {
+      const sermon = sermons.find((item) => item.id === intent.sermonId);
+      if (!sermon) return;
+      const allowed = (now: Viewer) =>
+        !!now.user || (intent.kind === "watch" && guestMayWatch(now, sermon.id));
+      // The account can take a moment to arrive after the sheet closes.
+      for (let i = 0; i < 20 && !allowed(latest.current.account); i++)
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      const { account: now, session: player, pathname: path, toast: show } = latest.current;
+      if (!allowed(now)) return;
+      if (intent.kind === "watch") {
+        if (path !== `/sermon/${sermon.id}`)
+          router.navigate({ pathname: "/sermon/[id]", params: { id: sermon.id } });
+        player.load(sermon);
+        return;
+      }
+      if (now.isSaved(sermon.id)) {
+        show("Already in your library", "bookmark");
+        return;
+      }
+      try {
+        await now.setSaved(sermon.id, true);
+        // Seen and announced, like a save made with the Save button.
+        show("Saved to your library", "bookmark");
+      } catch {
+        show("Couldn’t save. Check your connection.", "alert-circle-outline");
+      }
+    });
+    return () => registerIntentRunner(null);
+  }, []);
+
+  // Signing out stops a sermon the viewer could only watch with an account.
+  const signedIn = !!account.user;
+  const wasSignedIn = useRef(signedIn);
+  useEffect(() => {
+    if (wasSignedIn.current && !signedIn) {
+      const current = session.sermon;
+      if (current && !guestMayWatch(account, current.id)) session.close();
+    }
+    wasSignedIn.current = signedIn;
+  }, [signedIn, session, account]);
+
+  return null;
+}

@@ -1,5 +1,7 @@
 # UI audit — 30 September 2026
 
+These audits were made on the earlier dark teal / mint "direction B" palette. On 14 October 2026 the user chose the ivory-and-navy palette; it hasn't been through this audit yet, so the colour and contrast rows below describe the old palette. Contrast ratios computed from the new `src/theme.ts` tokens (WCAG formula, not a rendered measurement): text on ivory 15.21:1, on white 16.70:1, on sand 13.82:1; muted on ivory 5.69:1, on white 6.24:1, on sand 5.17:1; white on navy 11.48:1; navy on ivory 10.46:1; error on ivory 5.95:1; gold on ivory 4.82:1 and on white 5.29:1, but gold on sand is 4.38:1, under 4.5:1, so small gold text belongs on ivory or white only.
+
 Scope: the topic/library/menu extension of direction B, plus shared controls and navigation. Guidance applied from [Animate Expo](https://www.ui-skills.com/skills/emilkowalski/animate-expo) and [Better Layout](https://www.ui-skills.com/skills/jakubkrehel/better-layout). Reading those resources is not a compliance result. The observations below distinguish measured browser evidence, source inspection and remaining native checks.
 
 | Check | Result | Evidence / limitation |

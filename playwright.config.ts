@@ -15,6 +15,9 @@ export default defineConfig({
     ? undefined
     : {
         command: "npx expo start --web --localhost --port 8081",
+        // The deterministic on-device account service, even if a developer's
+        // .env points at a real Supabase project.
+        env: { EXPO_PUBLIC_AUTH_MODE: "local" },
         url: baseURL,
         reuseExistingServer: !process.env.CI,
         timeout: 120_000,

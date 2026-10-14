@@ -1,16 +1,53 @@
 import { test as base, expect, type Locator, type Page } from "@playwright/test";
-// Navigation/privacy tests must not depend on remote thumbnail availability.
-// Player failure behavior is explicitly exercised in core.spec.ts.
-export const test = base.extend({
-  page: async ({ page }, use) => {
+
+/**
+ * Who the test starts as. The web server runs the on-device stand-in account
+ * service (EXPO_PUBLIC_AUTH_MODE=local), so nothing leaves the browser.
+ * - member: signed in as viewer@example.com, onboarding done (the default,
+ *   so playback tests can press Watch without the sign-up sheet);
+ * - guest: onboarding done, no account;
+ * - new: a first launch (the welcome shows).
+ */
+export type Viewer = "member" | "guest" | "new";
+
+export const MEMBER = {
+  id: "local:viewer@example.com",
+  email: "viewer@example.com",
+  provider: "email",
+};
+
+export const test = base.extend<{ viewer: Viewer }>({
+  viewer: ["member", { option: true }],
+  page: async ({ page, viewer }, use) => {
+    // Navigation/privacy tests must not depend on remote thumbnail
+    // availability. Player failure behavior is exercised in core.spec.ts.
     await page.route(
       /^https:\/\/(i\.ytimg\.com|img\.youtube\.com)\//,
       (route) => route.abort(),
+    );
+    // Seed storage once per tab, before the app's first load; later reloads
+    // in the same test keep whatever the app stored since.
+    await page.addInitScript(
+      ({ viewer, member }) => {
+        if (sessionStorage.getItem("__aao_seeded")) return;
+        sessionStorage.setItem("__aao_seeded", "1");
+        if (viewer === "new") return;
+        localStorage.setItem(
+          "aao.onboarding.v1",
+          JSON.stringify({ welcomed: true, interests: [] }),
+        );
+        if (viewer === "member")
+          localStorage.setItem("aao.local.session.v1", JSON.stringify(member));
+      },
+      { viewer, member: MEMBER },
     );
     await use(page);
   },
 });
 export { expect };
+
+/** The code the local account service always accepts. */
+export const CODE = "123456";
 
 /**
  * Screens behind the current one (inactive tabs, pushed-over screens) stay in

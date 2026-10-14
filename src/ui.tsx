@@ -50,13 +50,26 @@ export function web(props: Record<string, unknown>) {
 }
 
 /**
- * Text fields here draw their own mint focus border, so the browser's default
+ * Text fields here draw their own navy focus border, so the browser's default
  * ring is removed on web. "none" is web-only, hence outside RN's style types.
  */
 export const noWebOutline =
   Platform.OS === "web"
     ? ({ outlineStyle: "none" } as unknown as TextStyle)
     : null;
+
+/**
+ * Press tint for icon buttons and rows: a wash of the text colour, so it
+ * shows on the ivory page, white sheets and sand cards alike.
+ */
+export const pressedTint = "rgba(27, 30, 36, 0.06)";
+
+/**
+ * Edge of text fields (and Home's search field, which stands in for one).
+ * The hairline c.border is decorative only; a field's edge needs 3:1 against
+ * white (3.8:1) and the ivory page (3.5:1).
+ */
+export const fieldBorder = "#878279";
 
 /** Moves keyboard focus (web) or screen reader focus (native) to a control. */
 export function moveFocus(node: View | null) {
@@ -255,21 +268,24 @@ export function IconButton({
   onPress,
   color = c.text,
   size = 24,
+  testID,
 }: {
   name: IconName;
   label: string;
   onPress: () => void;
   color?: string;
   size?: number;
+  testID?: string;
 }) {
   return (
     <Tap
+      testID={testID}
       accessibilityRole="button"
       accessibilityLabel={label}
       onPress={onPress}
       style={s.iconButton}
       feedback="highlight"
-      highlightColor={c.surface}
+      highlightColor={pressedTint}
     >
       <Icon name={name} size={size} color={color} />
     </Tap>
@@ -284,19 +300,22 @@ export function Button({
   disabled = false,
   busy = false,
   hint,
+  testID,
 }: {
   label: string;
   onPress: () => void;
-  variant?: "primary" | "secondary";
+  /** danger: destructive and final (Delete account); never navy. */
+  variant?: "primary" | "secondary" | "danger";
   icon?: IconName;
   disabled?: boolean;
   busy?: boolean;
   hint?: string;
+  testID?: string;
 }) {
-  const primary = variant === "primary";
-  const fg = primary ? c.ink : c.text;
+  const fg = variant === "secondary" ? c.text : c.onAccent;
   return (
     <Tap
+      testID={testID}
       accessibilityRole="button"
       accessibilityLabel={label}
       accessibilityHint={hint}
@@ -306,7 +325,7 @@ export function Button({
       onPress={onPress}
       disabled={disabled}
       busy={busy}
-      style={[s.button, primary ? s.primary : s.secondary]}
+      style={[s.button, s[variant]]}
     >
       {busy ? (
         <ActivityIndicator color={fg} size="small" />
@@ -318,7 +337,7 @@ export function Button({
   );
 }
 
-/** A borderless mint action for secondary choices ("Forgot password?"). */
+/** A borderless navy action for secondary choices ("Forgot password?"). */
 export function TextButton({
   label,
   onPress,
@@ -326,6 +345,7 @@ export function TextButton({
   disabled = false,
   align = "center",
   hint,
+  testID,
 }: {
   label: string;
   onPress: () => void;
@@ -333,9 +353,11 @@ export function TextButton({
   disabled?: boolean;
   align?: "center" | "start" | "end";
   hint?: string;
+  testID?: string;
 }) {
   return (
     <Tap
+      testID={testID}
       accessibilityRole="button"
       accessibilityLabel={label}
       accessibilityHint={hint}
@@ -351,7 +373,7 @@ export function TextButton({
       ]}
     >
       <T style={s.textButtonLabel}>{label}</T>
-      {icon && <Icon name={icon} size={16} color={c.mint} />}
+      {icon && <Icon name={icon} size={16} color={c.accent} />}
     </Tap>
   );
 }
@@ -540,7 +562,7 @@ export function StatePanel({
       <View style={s.stateIcon}>
         <Icon
           name={icon}
-          color={tone === "error" ? c.error : c.mint}
+          color={tone === "error" ? c.error : c.accent}
           size={28}
         />
       </View>
@@ -608,7 +630,7 @@ export function Thumbnail({
           <Icon
             name="play-circle-outline"
             size={compact ? 24 : 32}
-            color={c.mint}
+            color={c.accent}
           />
           {!compact && (
             <T style={s.thumbFallbackText} numberOfLines={2}>
@@ -769,7 +791,7 @@ export const s = StyleSheet.create({
   wordmarkLine: {
     width: 4,
     height: 22,
-    backgroundColor: c.mint,
+    backgroundColor: c.accent,
     borderRadius: 2,
   },
   wordmarkText: { fontFamily: font.bold, fontSize: 18, lineHeight: 24 },
@@ -790,12 +812,15 @@ export const s = StyleSheet.create({
     justifyContent: "center",
     gap: 10,
   },
-  primary: { backgroundColor: c.mint },
+  primary: { backgroundColor: c.accent },
+  // White with a hairline: quieter than the navy fill, still a clear button
+  // on the ivory page and on white sheets.
   secondary: {
     backgroundColor: c.surface,
     borderWidth: 1,
     borderColor: c.border,
   },
+  danger: { backgroundColor: c.error },
   buttonText: {
     fontFamily: font.bold,
     fontSize: 16,
@@ -814,7 +839,7 @@ export const s = StyleSheet.create({
   },
   textButtonLabel: {
     ...type.label,
-    color: c.mint,
+    color: c.accent,
     textAlign: "center",
   },
   pageTitleBlock: {
@@ -836,8 +861,8 @@ export const s = StyleSheet.create({
   lead: { ...type.lead, color: c.muted },
   body: { ...type.body, color: c.muted },
   meta: { ...type.caption, color: c.muted },
-  // Mint caps mean "sample topic"; verified or editorial labels use eyebrow.
-  kicker: { ...type.kicker, color: c.mint },
+  // Navy caps mean "sample topic"; verified or editorial labels use eyebrow.
+  kicker: { ...type.kicker, color: c.accent },
   eyebrow: { ...type.kicker, color: c.muted },
   notice: {
     flexDirection: "row",
@@ -845,20 +870,21 @@ export const s = StyleSheet.create({
     gap: space.sm,
     paddingTop: 1,
   },
+  // Sand, so it reads as a label (not a button) on ivory and white alike.
   badge: {
     alignSelf: "flex-start",
     borderRadius: radius.sm,
     paddingHorizontal: 10,
     paddingVertical: 5,
-    backgroundColor: c.surface,
+    backgroundColor: c.feature,
   },
-  badgeText: { ...type.kicker, color: c.mint },
+  badgeText: { ...type.kicker, color: c.accent },
   state: { paddingVertical: space.xl, gap: space.lg },
   stateIcon: {
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: c.surface,
+    backgroundColor: c.feature,
     justifyContent: "center",
     alignItems: "center",
   },
@@ -868,11 +894,12 @@ export const s = StyleSheet.create({
     backgroundColor: c.feature,
     overflow: "hidden",
   },
-  // Drawn inside the image edge so bright artwork doesn't bleed into the page.
+  // Drawn inside the image edge so pale artwork keeps its shape on the
+  // ivory page.
   ring: {
     ...StyleSheet.absoluteFill,
     borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.1)",
+    borderColor: "rgba(0, 0, 0, 0.06)",
   },
   thumbFallback: {
     flex: 1,
@@ -883,7 +910,7 @@ export const s = StyleSheet.create({
   },
   thumbFallbackText: {
     ...type.kicker,
-    color: c.muted,
+    color: c.mutedOnFeature,
     textAlign: "center",
   },
   durationChip: {
@@ -895,11 +922,12 @@ export const s = StyleSheet.create({
     paddingHorizontal: 6,
     paddingVertical: 2,
   },
+  // On the dark scrim over artwork, whatever the page colour.
   durationText: {
     fontSize: 12,
     lineHeight: 16,
     fontFamily: font.semibold,
-    color: c.text,
+    color: c.onMedia,
   },
   row: {
     flexDirection: "row",
