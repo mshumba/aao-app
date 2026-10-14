@@ -15,9 +15,10 @@ import { useAccount } from "../../auth/AccountProvider";
 import { useFinishFlow, useGate } from "../../auth/gate";
 import { setPendingIntent } from "../../auth/intent";
 import { FlowButton, FlowScreen } from "../../auth/ui";
+import { useCatalogue } from "../../catalogue/CatalogueProvider";
 import { CategoryId, getCategory } from "../../data/categories";
 import { eventLine, headline } from "../../data/display";
-import { Sermon, sermonCategoryIds, sermons } from "../../data/sermons";
+import { Sermon, sampleSermons, sermonCategoryIds } from "../../data/sermons";
 import { useReducedMotion } from "../../motion";
 import { useGo, usePageTitle } from "../../navigation";
 import { font, radius, space, type } from "../../theme";
@@ -38,7 +39,11 @@ import {
 } from "../../ui";
 
 /** The first sermon in one of their topics, or the latest one. */
-function recommend(interests: CategoryId[]): { sermon: Sermon; lead?: CategoryId } {
+function recommend(
+  list: Sermon[],
+  interests: CategoryId[],
+): { sermon: Sermon; lead?: CategoryId } {
+  const sermons = list.length ? list : sampleSermons;
   for (const sermon of sermons) {
     const match = sermonCategoryIds(sermon).find((id) => interests.includes(id));
     if (match) return { sermon, lead: match };
@@ -61,7 +66,8 @@ export default function OnboardingDone() {
   const first = account.displayName?.trim().split(/\s+/)[0];
   const title = first ? `You’re all set, ${first}` : "You’re all set";
   usePageTitle(title);
-  const { sermon, lead } = recommend(account.interests);
+  const { sermons } = useCatalogue();
+  const { sermon, lead } = recommend(sermons, account.interests);
   const kicker = topicLabels(sermon, lead).slice(0, 2).join(" · ");
   // Signed in, or a guest when playback is open to guests.
   const playable = gate.canWatch(sermon.id);

@@ -7,6 +7,7 @@ import {
 import * as Haptics from "expo-haptics";
 import { useCallback, useEffect, useRef, useState, type Ref } from "react";
 import {
+  ActivityIndicator,
   Linking,
   Platform,
   ScrollView as NativeScrollView,
@@ -21,8 +22,14 @@ import {
 } from "react-native-safe-area-context";
 import { useAccount } from "../../auth/AccountProvider";
 import { useGate } from "../../auth/gate";
+import { useCatalogue } from "../../catalogue/CatalogueProvider";
 import { eventLine, headline } from "../../data/display";
-import { Sermon, sermonCategoryIds, sermons } from "../../data/sermons";
+import {
+  Sermon,
+  relatedSermons,
+  sermonCategoryIds,
+  seriesSermons,
+} from "../../data/sermons";
 import { HEADER_HEIGHT, fullFrame } from "../../player/layout";
 import { NowPlaying } from "../../player/NowPlaying";
 import { clock, usePlayerSession } from "../../player/PlayerProvider";
@@ -33,6 +40,7 @@ import {
   clearWatchRequest,
   exitTo,
   firstParam,
+  useGo,
   usePageTitle,
   watchRequested,
 } from "../../navigation";
@@ -68,7 +76,18 @@ import {
 export default function SermonScreen() {
   const params = useLocalSearchParams<{ id: string | string[] }>();
   const id = firstParam(params.id);
-  const sermon = sermons.find((x) => x.id === id);
+  const catalogue = useCatalogue();
+  const sermon = catalogue.find(id);
+  // A sermon newer than the device's copy of the library arrives with the sync.
+  if (!sermon && !catalogue.settled)
+    return (
+      <Page>
+        <Header back />
+        <View style={styles.loading}>
+          <ActivityIndicator color={c.accent} accessibilityLabel="Loading sermon" />
+        </View>
+      </Page>
+    );
   if (!sermon)
     return (
       <Page>
@@ -146,6 +165,8 @@ function NowPlayingScreen({ sermon }: { sermon: Sermon }) {
   const insets = useSafeAreaInsets();
   const narrow = useNarrow();
   const dock = useDockInset();
+  const catalogue = useCatalogue();
+  const go = useGo();
   const scroll = useRef<NativeScrollView>(null);
   // Watch's button is replaced by the player, so focus moves to its controls.
   const [watched, setWatched] = useState(false);
@@ -179,17 +200,12 @@ function NowPlayingScreen({ sermon }: { sermon: Sermon }) {
   // Where the scrolling column starts, to line the poster up with the video.
   const contentLeft = (window.width - Math.min(window.width, 760)) / 2 + space.gutter;
   const topics = sermonCategoryIds(sermon);
-  // Sermons sharing a topic come first, then the rest in catalogue order.
-  const more = sermons
-    .filter((x) => x.id !== sermon.id)
-    .map((x, index) => ({
-      x,
-      index,
-      shared: sermonCategoryIds(x).filter((t) => topics.includes(t)).length,
-    }))
-    .sort((a, b) => b.shared - a.shared || a.index - b.index)
-    .slice(0, 3)
-    .map(({ x }) => x);
+  // The rest of its series first, then sermons sharing a topic, then the newest.
+  const more = relatedSermons(sermon, catalogue.sermons);
+  const series = sermon.seriesKey
+    ? seriesSermons(catalogue.sermons, sermon.seriesKey)
+    : [];
+  const seriesName = catalogue.seriesName(sermon.seriesKey);
 
   return (
     // Plain ivory like every other page; the artwork carries the colour.
@@ -316,7 +332,23 @@ function NowPlayingScreen({ sermon }: { sermon: Sermon }) {
             </>
           )}
 
-          <SectionHeading>More sermons</SectionHeading>
+          <SectionHeading
+            action={
+              series.length > 1 && seriesName
+                ? {
+                    label: "Whole series",
+                    hint: `Opens every part of ${seriesName}`,
+                    onPress: () =>
+                      go.push({
+                        pathname: "/series/[key]",
+                        params: { key: sermon.seriesKey! },
+                      }),
+                  }
+                : undefined
+            }
+          >
+            More sermons
+          </SectionHeading>
           <View style={{ gap: space.sm }}>
             {more.map((item) => (
               <SermonRow key={item.id} sermon={item} />
@@ -633,6 +665,7 @@ function Poster({
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: c.bg },
+  loading: { paddingVertical: space.xxl, alignItems: "center" },
   // Fixed height so the player slot sits exactly where the player expects.
   header: { height: HEADER_HEIGHT, overflow: "visible" },
   slot: { flex: 1, backgroundColor: c.media },

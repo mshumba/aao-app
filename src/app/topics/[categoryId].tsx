@@ -1,5 +1,6 @@
 import { useLocalSearchParams } from "expo-router";
 import { StyleSheet, View } from "react-native";
+import { useCatalogue } from "../../catalogue/CatalogueProvider";
 import { getCategory } from "../../data/categories";
 import { sermonsInCategory } from "../../data/sermons";
 import { exitTo, firstParam } from "../../navigation";
@@ -25,6 +26,7 @@ function backToLibrary() {
 export default function CategoryScreen() {
   const params = useLocalSearchParams<{ categoryId: string | string[] }>();
   const category = getCategory(firstParam(params.categoryId));
+  const { sermons } = useCatalogue();
   if (!category)
     return (
       <Page>
@@ -39,7 +41,7 @@ export default function CategoryScreen() {
         />
       </Page>
     );
-  const inTopic = sermonsInCategory(category.id);
+  const inTopic = sermonsInCategory(sermons, category.id);
   return (
     <Page>
       <Header back />

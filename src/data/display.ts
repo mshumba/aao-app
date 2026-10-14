@@ -1,34 +1,46 @@
 import type { Sermon } from "./sermons";
 
 /**
- * Editorial presentation, not source metadata: a short headline and the event
- * for each sermon, shortened from its verified YouTube title (user decision,
- * 30 September 2026). The exact title stays in sermons.ts, is shown in the
- * sermon's details and is still searched.
+ * Editorial presentation, not source metadata. The short headline comes
+ * from the catalogue (read from the YouTube title, or written by hand in
+ * catalogue/editorial.ts); the exact title is kept, shown in the sermon's
+ * details and still searched.
  */
-type SermonDisplay = { headline: string; event: string };
 
-const display: Record<string, SermonDisplay> = {
-  nUW8NT2Pe88: {
-    headline: "Pray Without Ceasing",
-    event: "Lioness Conference · Grand Finale",
-  },
-  H9sRbSUt0YE: { headline: "Apostolic Shift: Grand Finale", event: "The Votage" },
-  yUDzMcZsVk8: {
-    headline: "Apostolic Shift: Day Two Morning",
-    event: "The Votage",
-  },
-  WYiA7rjenVI: { headline: "Apostolic Shift: Day One", event: "The Votage" },
+/** The short headline. */
+export function headline(sermon: Sermon) {
+  return sermon.headline || sermon.title;
+}
+
+const NUMBER_WORDS: Record<string, string> = {
+  one: "1", two: "2", three: "3", four: "4", five: "5", six: "6", seven: "7",
+  eight: "8", nine: "9", ten: "10",
 };
 
-/** The short headline, or the verified title when none has been written. */
-export function headline(sermon: Sermon) {
-  return display[sermon.id]?.headline ?? sermon.title;
+/** Lowercase words with number words as digits, for "is it already said?". */
+function words(text: string) {
+  return ` ${text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\b(one|two|three|four|five|six|seven|eight|nine|ten)\b/g, (w) => NUMBER_WORDS[w])
+    .trim()} `;
 }
 
-/** The event line under a headline, e.g. "Lioness Conference · Grand Finale". */
+const withoutYear = (name: string) => name.replace(/\s+(?:(?:19|20)\d\d|['’]\d\d)$/, "");
+
+/**
+ * The line under a headline: who preached it when it wasn't Apostle Arome
+ * Osayi alone, the event and which part of it, leaving out what the headline
+ * already says ("Lioness Conference · Grand Finale"). With nothing else to
+ * say, the venue, then the channel.
+ */
 export function eventLine(sermon: Sermon) {
-  return display[sermon.id]?.event ?? sermon.collection;
+  const said = words(sermon.headline);
+  const fresh = (text: string | null) => !!text && !said.includes(words(withoutYear(text)));
+  const parts: string[] = [];
+  if (sermon.speaker) parts.push(sermon.speaker);
+  if (fresh(sermon.event)) parts.push(sermon.event!);
+  if (fresh(sermon.session)) parts.push(sermon.session!);
+  if (!parts.length && fresh(sermon.venue)) parts.push(sermon.venue!);
+  return parts.join(" · ") || sermon.channel;
 }
-
-export const displayIds = Object.keys(display);

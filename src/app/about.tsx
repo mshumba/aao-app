@@ -1,6 +1,6 @@
 import Constants from "expo-constants";
 import { useAccount } from "../auth/AccountProvider";
-import { sermons } from "../data/sermons";
+import { catalogueMode, useCatalogue } from "../catalogue/CatalogueProvider";
 import { space } from "../theme";
 import { sermonCount } from "../topics";
 import { Header, Page, PageTitle, SectionHeading, T, s } from "../ui";
@@ -9,6 +9,7 @@ const version = Constants.expoConfig?.version;
 
 export default function About() {
   const account = useAccount();
+  const { sermons } = useCatalogue();
   return (
     <Page>
       <Header back />
@@ -17,11 +18,21 @@ export default function About() {
         lead="A place to find and watch public sermons by Apostle Arome Osayi, organised by how they build you up."
       />
       <SectionHeading>What’s here</SectionHeading>
-      <T style={s.body}>
-        {sermonCount(sermons.length)} from public sources. Their titles, dates
-        and artwork were checked against public ministry links and YouTube on
-        30 September 2026. It’s a small sample, not the full archive.
-      </T>
+      {catalogueMode === "remote" ? (
+        <T style={s.body}>
+          {sermonCount(sermons.length)} from the Apostle Arome Osayi YouTube
+          channel, including messages by other ministers shared there. New
+          sermons appear here as they’re added to the channel. Titles, dates
+          and artwork come from YouTube; each sermon’s short headline is read
+          from its title, and the exact title is always shown with it.
+        </T>
+      ) : (
+        <T style={s.body}>
+          {sermonCount(sermons.length)} from public sources. Their titles, dates
+          and artwork were checked against public ministry links and YouTube on
+          30 September 2026. It’s a small sample, not the full archive.
+        </T>
+      )}
       <SectionHeading>Topics</SectionHeading>
       <T style={s.body}>
         Spiritual Growth, Prayer, Faith and Christian Living show how sermons

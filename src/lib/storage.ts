@@ -40,4 +40,6 @@ export const keys = {
   guestWatch: "aao.guestWatch.v1",
   localSession: "aao.local.session.v1",
   localData: (userId: string) => `aao.local.data.v1.${userId}`,
+  // The sermon library's on-device copy (catalogue/records.ts).
+  catalogue: "aao.catalogue.v1",
 };

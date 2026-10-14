@@ -19,7 +19,7 @@ Open **SQL Editor** and run each file in `migrations/` once, in order of their n
 - `watch_progress` (`20261014000200_watch_progress.sql`): where the viewer stopped in each sermon, for resuming and Home's Continue watching.
 - `delete_account()`: lets a signed-in viewer delete their own account (required by App Store guideline 5.1.1(v)); profile, saved and watch-progress rows are removed with it.
 
-Row level security is on for every table: each viewer can only read and change their own rows.
+Row level security is on for every table: each viewer can only read and change their own rows. The sermon catalogue has its own migration; see [step 7](#7-load-the-sermon-catalogue).
 
 (With the Supabase CLI instead: `supabase link --project-ref <ref>` then `supabase db push`.)
 
@@ -103,3 +103,15 @@ npm run web
 Create an account with an email code, sign out, sign back in with a password, save a sermon, and delete the account from **Account → Delete account**. The row should disappear from **Authentication → Users**.
 
 For App Review, create a dedicated review account (email + password) and put its details in App Store Connect → App Review Information.
+
+## 7. Load the sermon catalogue
+
+`migrations/20261014200000_sermon_catalogue.sql` creates the library the app reads: `sermons` (one row per long-form video on the Apostle Arome Osayi channel, keyed by `youtube_id`) and `series` (multi-part teachings and multi-day gatherings). Everyone, guests included, can read both; nobody can write them through the API. Run it like the accounts migration.
+
+Rows come from the channel manifest made by the transcript pipeline (`videos` keyed by YouTube ID with title, upload time, duration and, for some, description, thumbnail and tags; transcripts aren't read). Each title is read by `src/catalogue/parseTitle.ts` for the short headline, event, series, part or day, guest ministers, venue and preaching date. To load or refresh:
+
+1. Create a personal access token at [supabase.com/dashboard/account/tokens](https://supabase.com/dashboard/account/tokens) and add it to `.env` as `SUPABASE_ACCESS_TOKEN` (never an `EXPO_PUBLIC_` variable). `EXPO_PUBLIC_SUPABASE_URL` names the project.
+2. Check how the titles read: `npm run catalogue:import -- <path/to/_manifest.json> --dry-run`.
+3. Load: `npm run catalogue:import -- <path/to/_manifest.json>`.
+
+The import is safe to repeat as the channel grows: it upserts on `youtube_id`, only touches a row when something about it changed (so the app's "changed since" sync stays small), never clears a description, thumbnail or tags the manifest doesn't have, and never deletes a sermon; series no sermon belongs to any more are removed. Parsed fields are rewritten on every run, so hand edits to them in the dashboard don't last; put hand-written headlines in `src/catalogue/editorial.ts` instead. Installed apps pick up new and changed sermons the next time they open, or after 30 minutes away.

@@ -5,6 +5,7 @@ import {
   View,
   useWindowDimensions,
 } from "react-native";
+import { useCatalogue } from "./catalogue/CatalogueProvider";
 import {
   Category,
   categories,
@@ -21,10 +22,12 @@ export function TopicNotice() {
   return <Notice>{topicDisclaimer}</Notice>;
 }
 
-/** Whole-string plurals: "1 sermon", "3 sermons", "No sermons yet". */
+/** Whole-string plurals: "1 sermon", "2,820 sermons", "No sermons yet". */
 export function sermonCount(count: number, empty = "No sermons yet") {
   if (count === 0) return empty;
-  return count === 1 ? "1 sermon" : `${count} sermons`;
+  return count === 1
+    ? "1 sermon"
+    : `${String(count).replace(/\B(?=(\d{3})+(?!\d))/g, ",")} sermons`;
 }
 
 function openTopic(go: ReturnType<typeof useGo>, id: CategoryId) {
@@ -36,10 +39,11 @@ export function TopicGrid() {
   const go = useGo();
   const { width, fontScale } = useWindowDimensions();
   const oneColumn = (Math.min(width, 760) - 54) / 2 / fontScale < 130;
+  const { sermons } = useCatalogue();
   return (
     <View style={styles.grid}>
       {categories.map((category) => {
-        const count = sermonsInCategory(category.id).length;
+        const count = sermonsInCategory(sermons, category.id).length;
         return (
           <Tap
             key={category.id}
@@ -66,7 +70,8 @@ export function TopicGrid() {
 /** Full-width topic rows with descriptions, for the topic library. */
 export function TopicRow({ category }: { category: Category }) {
   const go = useGo();
-  const count = sermonsInCategory(category.id).length;
+  const { sermons } = useCatalogue();
+  const count = sermonsInCategory(sermons, category.id).length;
   return (
     <Tap
       accessibilityRole="button"

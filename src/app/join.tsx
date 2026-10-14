@@ -28,7 +28,8 @@ import {
   useAuthTask,
 } from "../auth/ui";
 import { eventLine, headline } from "../data/display";
-import { Sermon, sermons } from "../data/sermons";
+import { useCatalogue } from "../catalogue/CatalogueProvider";
+import type { Sermon } from "../data/sermons";
 import { useReducedMotion } from "../motion";
 import { firstParam, useGo, usePageTitle } from "../navigation";
 import { motion } from "../onboarding/parts";
@@ -80,8 +81,6 @@ const SHEET_GAP = Platform.OS === "web" ? 56 : 40;
 // Wide browser windows get a centred dialog instead of a bottom sheet.
 const DIALOG_WIDTH = 768;
 
-const findSermon = (id?: string) => sermons.find((item) => item.id === id) ?? null;
-
 /**
  * The sign-up sheet. It opens over whatever was tapped (Watch, Save, or
  * Account), names the sermon when there is one, and carries on with it
@@ -112,6 +111,8 @@ export default function Join() {
   const busy = task.busy !== null;
   const sermonParam = firstParam(params.sermon);
   const intentId = firstParam(params.intent);
+  const catalogue = useCatalogue();
+  const findSermon = (id?: string) => catalogue.find(id) ?? null;
   // Read once, so the sermon stays put while the sheet closes after its
   // intent has been carried out.
   const [sermon, setSermon] = useState<Sermon | null>(() =>
@@ -128,12 +129,13 @@ export default function Join() {
     if (sermonParam) return;
     let active = true;
     readPendingIntent(intentId).then((intent) => {
-      if (active && intent) setSermon((current) => current ?? findSermon(intent.sermonId));
+      if (active && intent)
+        setSermon((current) => current ?? catalogue.find(intent.sermonId) ?? null);
     });
     return () => {
       active = false;
     };
-  }, [intentId, sermonParam]);
+  }, [intentId, sermonParam, catalogue]);
 
   // Closing without an account (Close, the scrim, a swipe down) drops what was
   // tapped, so it can't run after some later, unrelated sign-in. Closed while

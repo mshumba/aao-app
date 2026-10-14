@@ -1,9 +1,21 @@
 import { router, useNavigation } from "expo-router";
-import { StyleSheet, View } from "react-native";
+import {
+  ActivityIndicator,
+  ScrollView,
+  StyleSheet,
+  View,
+  useWindowDimensions,
+} from "react-native";
 import { useAccount } from "../../auth/AccountProvider";
+import { catalogueMode, useCatalogue } from "../../catalogue/CatalogueProvider";
 import { ContinueWatching } from "../../continueWatching";
 import { eventLine, headline } from "../../data/display";
-import { Sermon, sermonCategoryIds, sermons } from "../../data/sermons";
+import {
+  Sermon,
+  type SeriesRail,
+  sermonCategoryIds,
+  seriesRails,
+} from "../../data/sermons";
 import { requestSearchFocus, useGo, usePageTitle } from "../../navigation";
 import { font, radius, space, type } from "../../theme";
 import { TopicGrid, TopicNotice, sermonCount } from "../../topics";
@@ -11,11 +23,14 @@ import {
   Header,
   Icon,
   Page,
+  Notice,
   SectionHeading,
+  SermonCard,
   SermonRow,
   SermonTitle,
   T,
   Tap,
+  TextButton,
   Thumbnail,
   c,
   fieldBorder,
@@ -24,6 +39,11 @@ import {
   sermonLabel,
   useNarrow,
 } from "../../ui";
+
+// Latest sermons shown on Home; the rest are a search away.
+const LATEST = 8;
+// Sermons in a series rail before "See all".
+const RAIL = 12;
 
 // Switching to Search keeps whatever it already holds (a typed query, a
 // topic filter from a link), as the tab bar does.
@@ -44,7 +64,11 @@ export default function Browse() {
   const tabs = useNavigation<TabsNavigation>();
   const narrow = useNarrow();
   const account = useAccount();
+  const catalogue = useCatalogue();
+  const { sermons } = catalogue;
   const [featured, ...rest] = sermons;
+  // The whole library, rather than the bundled sample of four.
+  const library = catalogue.source !== "sample";
   // The viewer's topics a sermon covers, its primary topic first.
   const matches = (sermon: Sermon) =>
     sermonCategoryIds(sermon).filter((id) => account.interests.includes(id));
@@ -56,7 +80,11 @@ export default function Browse() {
     .sort((a, b) => b.shared - a.shared || a.index - b.index)
     .slice(0, 3)
     .map((item) => item.sermon);
-  const latest = rest.filter((sermon) => !forYou.includes(sermon));
+  const newer = rest.filter((sermon) => !forYou.includes(sermon));
+  const latest = newer.slice(0, LATEST);
+  const rails = library ? seriesRails(sermons, catalogue.seriesName) : [];
+  const searchAll = () =>
+    go.run(() => tabs.navigate("search", undefined, { merge: true }));
   const name = account.user && account.displayName?.trim();
   return (
     <Page>
@@ -80,37 +108,55 @@ export default function Browse() {
 
       <ContinueWatching />
 
-      <Tap
-        accessibilityRole="button"
-        accessibilityLabel={`Watch sermon: ${sermonLabel(featured)}`}
-        onPress={() =>
-          go.push({ pathname: "/sermon/[id]", params: { id: featured.id } })
-        }
-        unstable_pressDelay={60}
-        feedback="scaleLarge"
-        style={styles.feature}
-      >
-        <View style={styles.featureClip}>
-          <Thumbnail sermon={featured} style={styles.featureArt} />
-          <View style={[styles.featureBody, narrow && { padding: space.lg }]}>
-            <T style={styles.eyebrow}>Featured</T>
-            <SermonTitle
-              title={headline(featured)}
-              style={[styles.featureTitle, narrow && styles.featureTitleNarrow]}
-            />
-            <View>
-              <T style={styles.featureMeta}>{eventLine(featured)}</T>
-              <T style={styles.featureMeta}>
-                {nowrap(featured.date)} · {nowrap(featured.duration)}
-              </T>
-            </View>
-            <View style={styles.cta}>
-              <Icon name="play" color={c.onAccent} size={18} />
-              <T style={styles.ctaText}>Watch sermon</T>
+      {/* Offline at first launch: the bundled sample stands in. */}
+      {catalogueMode === "remote" && !library && catalogue.settled && (
+        <View style={styles.offline}>
+          <Notice icon="cloud-offline-outline">
+            You’re offline, so only a few sermons are here. The full library
+            loads when you’re back online.
+          </Notice>
+          <TextButton label="Try again" align="start" onPress={catalogue.retry} />
+        </View>
+      )}
+
+      {!featured ? (
+        <View style={styles.loading}>
+          <ActivityIndicator color={c.accent} />
+          <T style={s.body}>Loading sermons…</T>
+        </View>
+      ) : (
+        <Tap
+          accessibilityRole="button"
+          accessibilityLabel={`Watch sermon: ${sermonLabel(featured)}`}
+          onPress={() =>
+            go.push({ pathname: "/sermon/[id]", params: { id: featured.id } })
+          }
+          unstable_pressDelay={60}
+          feedback="scaleLarge"
+          style={styles.feature}
+        >
+          <View style={styles.featureClip}>
+            <Thumbnail sermon={featured} style={styles.featureArt} />
+            <View style={[styles.featureBody, narrow && { padding: space.lg }]}>
+              <T style={styles.eyebrow}>{library ? "Newest sermon" : "Featured"}</T>
+              <SermonTitle
+                title={headline(featured)}
+                style={[styles.featureTitle, narrow && styles.featureTitleNarrow]}
+              />
+              <View>
+                <T style={styles.featureMeta}>{eventLine(featured)}</T>
+                <T style={styles.featureMeta}>
+                  {nowrap(featured.date)} · {nowrap(featured.duration)}
+                </T>
+              </View>
+              <View style={styles.cta}>
+                <Icon name="play" color={c.onAccent} size={18} />
+                <T style={styles.ctaText}>Watch sermon</T>
+              </View>
             </View>
           </View>
-        </View>
-      </Tap>
+        </Tap>
+      )}
 
       {forYou.length > 0 && (
         <>
@@ -128,6 +174,33 @@ export default function Browse() {
         </>
       )}
 
+      {latest.length > 0 && (
+        <>
+          <SectionHeading
+            action={
+              newer.length > latest.length
+                ? {
+                    label: "See all",
+                    hint: "Searches every sermon",
+                    onPress: searchAll,
+                  }
+                : undefined
+            }
+          >
+            Latest sermons
+          </SectionHeading>
+          <View style={{ gap: space.sm }}>
+            {latest.map((sermon) => (
+              <SermonRow key={sermon.id} sermon={sermon} />
+            ))}
+          </View>
+        </>
+      )}
+
+      {rails.map((rail) => (
+        <SeriesRailSection key={rail.key} rail={rail} />
+      ))}
+
       <SectionHeading
         action={{
           label: "See all",
@@ -142,24 +215,61 @@ export default function Browse() {
         <TopicNotice />
       </View>
 
-      {latest.length > 0 && (
-        <>
-          <SectionHeading>Latest sermons</SectionHeading>
-          <View style={{ gap: space.sm }}>
-            {latest.map((sermon) => (
-              <SermonRow key={sermon.id} sermon={sermon} />
-            ))}
-          </View>
-        </>
+      {sermons.length > 0 && (
+        <View style={styles.footer}>
+          <T style={s.meta}>
+            {library
+              ? `${sermonCount(sermons.length)} from the Apostle Arome Osayi channel, newest first.`
+              : `This preview has ${sermonCount(sermons.length).toLowerCase()}, not the full archive.`}
+          </T>
+        </View>
       )}
-
-      <View style={styles.footer}>
-        <T style={s.meta}>
-          This preview has {sermonCount(sermons.length).toLowerCase()}, not the
-          full archive.
-        </T>
-      </View>
     </Page>
+  );
+}
+
+/**
+ * One series as a horizontal rail of cards, in order, under its name. Each
+ * card says which part it is; "See all" opens the whole series.
+ */
+function SeriesRailSection({ rail }: { rail: SeriesRail }) {
+  const go = useGo();
+  const { width, fontScale } = useWindowDimensions();
+  // About one and a half cards on a phone, so the rail reads as scrollable.
+  const cardWidth = Math.round(
+    Math.min(280, Math.max(200, (Math.min(width, 760) - space.gutter * 2) * 0.62)) *
+      Math.min(fontScale, 1.3),
+  );
+  const shown = rail.sermons.slice(0, RAIL);
+  return (
+    <View>
+      <SectionHeading
+        action={{
+          label: "See all",
+          hint: `Opens every part of ${rail.name}`,
+          onPress: () =>
+            go.push({ pathname: "/series/[key]", params: { key: rail.key } }),
+        }}
+      >
+        {rail.name}
+      </SectionHeading>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.rail}
+        contentContainerStyle={styles.railContent}
+        accessibilityLabel={`${rail.name}, ${sermonCount(rail.sermons.length)}`}
+      >
+        {shown.map((sermon) => (
+          <SermonCard
+            key={sermon.id}
+            sermon={sermon}
+            width={cardWidth}
+            detail={sermon.session ?? undefined}
+          />
+        ))}
+      </ScrollView>
+    </View>
   );
 }
 
@@ -223,4 +333,13 @@ const styles = StyleSheet.create({
   },
   ctaText: { color: c.onAccent, fontFamily: font.bold, fontSize: 16 },
   footer: { marginTop: space.xxl },
+  offline: { gap: space.xs, marginBottom: space.lg },
+  loading: {
+    alignItems: "center",
+    gap: space.md,
+    paddingVertical: space.xxl,
+  },
+  // Full-bleed, so cards scroll in from the screen's edge.
+  rail: { marginHorizontal: -space.gutter },
+  railContent: { paddingHorizontal: space.gutter, gap: space.md },
 });

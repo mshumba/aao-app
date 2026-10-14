@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { useAccount } from "../auth/AccountProvider";
-import { Sermon, sermons } from "../data/sermons";
+import { useCatalogue } from "../catalogue/CatalogueProvider";
+import type { Sermon } from "../data/sermons";
 import { exitTo, useGo } from "../navigation";
 import { space } from "../theme";
 import { sermonCount } from "../topics";
@@ -18,10 +19,9 @@ import {
 
 export default function Saved() {
   const account = useAccount();
+  const catalogue = useCatalogue();
   const go = useGo();
   const [retrying, setRetrying] = useState(false);
-  // The saved list arrives a moment after the session.
-  const loading = retrying || !account.ready || (!!account.user && !account.loaded);
 
   async function retry() {
     if (retrying) return;
@@ -34,8 +34,15 @@ export default function Saved() {
   // Newest first, as the account keeps them; ids no longer in the library
   // are skipped rather than shown as broken rows.
   const list = account.saved
-    .map((id) => sermons.find((sermon) => sermon.id === id))
+    .map((id) => catalogue.find(id))
     .filter((sermon): sermon is Sermon => !!sermon);
+  // The saved list arrives a moment after the session; a sermon newer than
+  // the device's copy of the library arrives with the sync.
+  const loading =
+    retrying ||
+    !account.ready ||
+    (!!account.user && !account.loaded) ||
+    (!catalogue.settled && list.length < account.saved.length);
 
   return (
     <Page>

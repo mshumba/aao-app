@@ -1,79 +1,205 @@
+import {
+  defaultThumbnail,
+  type SeriesRecord,
+  type SermonRecord,
+  type Snapshot,
+} from "../catalogue/records";
 import { CategoryId, getCategory } from "./categories";
-import { eventLine, headline } from "./display";
 import { assignments } from "./edification";
 
 /**
- * Verified source metadata only. Titles, channel, dates, durations and
- * thumbnails were checked against public ministry links and YouTube on
- * 30 September 2026. Topic assignments live separately in edification.ts.
+ * A sermon as the app shows it, made from a catalogue record (Supabase, the
+ * device's copy, or the bundled sample below). Topic assignments live
+ * separately in edification.ts and are never part of the record.
  */
 export type Sermon = {
+  /** The YouTube video ID: the stable key everywhere. */
   id: string;
+  /** The exact YouTube title, never edited. */
   title: string;
+  /** A short headline read from the title (or written by hand). */
+  headline: string;
+  event: string | null;
+  /** Which part of the event, e.g. "Day 2 Evening" or "Grand Finale". */
+  session: string | null;
+  seriesKey: string | null;
+  part: number | null;
+  /** Named preachers when it isn't Apostle Arome Osayi alone. */
+  speaker: string | null;
+  venue: string | null;
   channel: string;
-  duration: string;
-  date: string;
+  /** The occasion in a few words, shown where artwork can't load. */
   collection: string;
+  /** "27 Sep 2026": when it was preached, else when it was uploaded. */
+  date: string;
+  /** The same day as YYYY-MM-DD, for ordering. */
+  day: string;
+  publishedAt: string;
+  /** "3 hr 35 min" */
+  duration: string;
   thumbnail: string;
   source: string;
-  sourcePage: string;
 };
-const sourcePage = "https://www.rcnnorthamerica.com/";
-export const sermons: Sermon[] = [
+
+export const CHANNEL = "Apostle Arome Osayi";
+
+const MONTHS = "Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split(" ");
+const LONG_MONTHS =
+  "January February March April May June July August September October November December".split(" ");
+
+/** "2026-09-27" → "27 Sep 2026" (or "27 September 2026" when long). */
+export function formatDay(day: string, long = false) {
+  const [y, m, d] = day.split("-").map(Number);
+  if (!y || !m || !d) return day;
+  return `${d} ${(long ? LONG_MONTHS : MONTHS)[m - 1]} ${y}`;
+}
+
+/** 12914 → "3 hr 35 min" (whole minutes, as YouTube rounds down). */
+export function formatDuration(seconds: number | null) {
+  if (seconds == null || seconds < 0) return "";
+  const minutes = Math.floor(seconds / 60);
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  if (!h) return `${m} min`;
+  return m ? `${h} hr ${m} min` : `${h} hr`;
+}
+
+const withoutYear = (name: string) => name.replace(/\s+(?:(?:19|20)\d\d|['’]\d\d)$/, "");
+
+export function toSermon(record: SermonRecord, seriesName?: string | null): Sermon {
+  const day = record.preached_on ?? record.published_at.slice(0, 10);
+  return {
+    id: record.youtube_id,
+    title: record.title,
+    headline: record.headline || record.title,
+    event: record.event,
+    session: record.session,
+    seriesKey: record.series_key,
+    part: record.part,
+    speaker: record.speaker,
+    venue: record.venue,
+    channel: CHANNEL,
+    collection:
+      record.event ?? (seriesName ? withoutYear(seriesName) : null) ?? record.venue ?? CHANNEL,
+    date: formatDay(day),
+    day,
+    publishedAt: record.published_at,
+    duration: formatDuration(record.duration_seconds),
+    thumbnail: record.thumbnail_url ?? defaultThumbnail(record.youtube_id),
+    source: `https://www.youtube.com/watch?v=${record.youtube_id}`,
+  };
+}
+
+/** Newest first: by the day preached (else uploaded), then by upload time. */
+export function compareNewest(a: Sermon, b: Sermon) {
+  return b.day.localeCompare(a.day) || b.publishedAt.localeCompare(a.publishedAt);
+}
+
+/** A snapshot's sermons, ready to show and newest first. */
+export function sermonsFrom(snapshot: Pick<Snapshot, "sermons" | "series">) {
+  const names = new Map(snapshot.series.map((s) => [s.key, s.name]));
+  return snapshot.sermons
+    .map((record) => toSermon(record, record.series_key ? names.get(record.series_key) : null))
+    .sort(compareNewest);
+}
+
+// Bundled sample ------------------------------------------------------------------
+// Four sermons shipped with the app: shown before the catalogue first loads
+// with no network, and the whole library in development's on-device mode
+// (EXPO_PUBLIC_AUTH_MODE=local), so the automated tests are deterministic.
+// Titles, dates, durations and thumbnails were checked against public
+// ministry links and YouTube on 30 September 2026; the other fields are what
+// the import wrote to Supabase for the same videos.
+
+export const sampleSeries: SeriesRecord[] = [
+  { key: "lioness-conference-2026", name: "Lioness Conference 2026" },
+  { key: "apostolic-shift-2026", name: "Apostolic Shift 2026" },
+];
+
+export const sampleRecords: SermonRecord[] = [
   {
-    id: "nUW8NT2Pe88",
+    youtube_id: "nUW8NT2Pe88",
     title:
       "LIONESS CONFERENCE || PRAY WITHOUT CEASING || GRAND FINALE || 27TH SEPTEMBER 2026",
-    channel: "Apostle Arome Osayi",
-    duration: "3 hr 35 min",
-    date: "27 Sep 2026",
-    collection: "Lioness Conference",
-    thumbnail: "https://i.ytimg.com/vi/nUW8NT2Pe88/maxresdefault.jpg",
-    source: "https://www.youtube.com/watch?v=nUW8NT2Pe88",
-    sourcePage: sourcePage,
+    headline: "Pray Without Ceasing",
+    event: "Lioness Conference",
+    series_key: "lioness-conference-2026",
+    part: null,
+    session: "Grand Finale",
+    speaker: null,
+    venue: null,
+    preached_on: "2026-09-27",
+    published_at: "2026-09-27T20:39:22+00:00",
+    duration_seconds: 12914,
+    thumbnail_url: "https://i.ytimg.com/vi/nUW8NT2Pe88/maxresdefault.jpg",
   },
   {
-    id: "H9sRbSUt0YE",
+    youtube_id: "H9sRbSUt0YE",
     title:
       "APOSTOLIC SHIFT | GRAND FINALE | Apostle Arome Osayi LIVE | The Votage | 23/09/26",
-    channel: "Apostle Arome Osayi",
-    duration: "2 hr 28 min",
-    date: "23 Sep 2026",
-    collection: "Apostolic Shift",
-    thumbnail: "https://i.ytimg.com/vi/H9sRbSUt0YE/maxresdefault.jpg",
-    source: "https://www.youtube.com/watch?v=H9sRbSUt0YE",
-    sourcePage: sourcePage,
+    headline: "Apostolic Shift: Grand Finale",
+    event: null,
+    series_key: "apostolic-shift-2026",
+    part: null,
+    session: "Grand Finale",
+    speaker: null,
+    venue: "The Votage",
+    preached_on: "2026-09-23",
+    published_at: "2026-09-23T18:57:07+00:00",
+    duration_seconds: 8915,
+    thumbnail_url: "https://i.ytimg.com/vi/H9sRbSUt0YE/maxresdefault.jpg",
   },
   {
-    id: "yUDzMcZsVk8",
+    youtube_id: "yUDzMcZsVk8",
     title:
       "APOSTOLIC SHIFT | DAY TWO MORNING | Apostle Arome Osayi LIVE | The Votage | 23/09/26",
-    channel: "Apostle Arome Osayi",
-    duration: "2 hr 49 min",
-    date: "23 Sep 2026",
-    collection: "Apostolic Shift",
-    thumbnail: "https://i.ytimg.com/vi/yUDzMcZsVk8/maxresdefault.jpg",
-    source: "https://www.youtube.com/watch?v=yUDzMcZsVk8",
-    sourcePage: sourcePage,
+    headline: "Apostolic Shift: Day Two Morning",
+    event: null,
+    series_key: "apostolic-shift-2026",
+    part: 2,
+    session: "Day 2 Morning",
+    speaker: null,
+    venue: "The Votage",
+    preached_on: "2026-09-23",
+    published_at: "2026-09-23T11:45:00+00:00",
+    duration_seconds: 10195,
+    thumbnail_url: "https://i.ytimg.com/vi/yUDzMcZsVk8/maxresdefault.jpg",
   },
   {
-    id: "WYiA7rjenVI",
+    youtube_id: "WYiA7rjenVI",
     title:
       "APOSTOLIC SHIFT | DAY ONE | Apostle Arome Osayi LIVE | The Votage | 22/09/26",
-    channel: "Apostle Arome Osayi",
-    duration: "1 hr 47 min",
-    date: "22 Sep 2026",
-    collection: "Apostolic Shift",
-    thumbnail: "https://i.ytimg.com/vi/WYiA7rjenVI/maxresdefault.jpg",
-    source: "https://www.youtube.com/watch?v=WYiA7rjenVI",
-    sourcePage: sourcePage,
+    headline: "Apostolic Shift: Day One",
+    event: null,
+    series_key: "apostolic-shift-2026",
+    part: 1,
+    session: "Day 1",
+    speaker: null,
+    venue: "The Votage",
+    preached_on: "2026-09-22",
+    published_at: "2026-09-22T18:08:56+00:00",
+    duration_seconds: 6441,
+    thumbnail_url: "https://i.ytimg.com/vi/WYiA7rjenVI/maxresdefault.jpg",
   },
 ];
+
+/** The bundled sample as a snapshot that never counts as synced. */
+export const sampleSnapshot: Snapshot = {
+  sermons: sampleRecords,
+  series: sampleSeries,
+  syncedAt: null,
+  fullAt: 0,
+};
+
+export const sampleSermons: Sermon[] = sermonsFrom(sampleSnapshot);
+
+// Topics and search -----------------------------------------------------------------
+
 /**
  * Demo topics for a sermon, primary first. A sermon is stored once, even
  * when it belongs to several topics; unassigned sermons have none.
  */
-export function sermonCategoryIds(sermon: Sermon): CategoryId[] {
+export function sermonCategoryIds(sermon: Pick<Sermon, "id">): CategoryId[] {
   const assignment = assignments[sermon.id];
   if (!assignment) return [];
   return [
@@ -83,30 +209,134 @@ export function sermonCategoryIds(sermon: Sermon): CategoryId[] {
     ]),
   ];
 }
-export function sermonsInCategory(categoryId: CategoryId): Sermon[] {
-  return sermons.filter((sermon) =>
-    sermonCategoryIds(sermon).includes(categoryId),
-  );
+
+export function sermonsInCategory(list: Sermon[], categoryId: CategoryId): Sermon[] {
+  return list.filter((sermon) => sermonCategoryIds(sermon).includes(categoryId));
 }
+
+// Built once per sermon object: typing filters thousands of these.
+const searchText = new WeakMap<Sermon, string>();
+
+function textOf(sermon: Sermon) {
+  let text = searchText.get(sermon);
+  if (text == null) {
+    text = [
+      sermon.title,
+      sermon.headline,
+      sermon.event,
+      sermon.session,
+      sermon.speaker,
+      sermon.venue,
+      sermon.collection,
+      sermon.channel,
+      sermon.date,
+      formatDay(sermon.day, true),
+      sermon.day,
+      ...sermonCategoryIds(sermon).map((id) => getCategory(id)?.label || ""),
+      ...(assignments[sermon.id]?.tags ?? []),
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLocaleLowerCase();
+    searchText.set(sermon, text);
+  }
+  return text;
+}
+
+/**
+ * Sermons matching every word of the query, in the list's order: by headline,
+ * exact title, event, speaker, venue, date ("27 September 2026", "Sep 2026"),
+ * and sample topics and tags.
+ */
 export function searchSermons(
+  list: Sermon[],
   query: string,
   categoryId?: CategoryId,
 ): Sermon[] {
   const terms = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
-  const candidates = categoryId ? sermonsInCategory(categoryId) : sermons;
+  const candidates = categoryId ? sermonsInCategory(list, categoryId) : list;
+  if (!terms.length) return candidates;
   return candidates.filter((sermon) => {
-    const text = [
-      sermon.title,
-      headline(sermon),
-      eventLine(sermon),
-      sermon.channel,
-      sermon.collection,
-      sermon.date,
-      ...sermonCategoryIds(sermon).map((id) => getCategory(id)?.label || ""),
-      ...(assignments[sermon.id]?.tags ?? []),
-    ]
-      .join(" ")
-      .toLocaleLowerCase();
+    const text = textOf(sermon);
     return terms.every((term) => text.includes(term));
   });
+}
+
+// Series ------------------------------------------------------------------------------
+
+// Within a day: morning, afternoon, evening, night, then a finale.
+function timeOfDay(session: string | null) {
+  if (!session) return 1.5;
+  if (/finale/i.test(session)) return 4;
+  if (/night|vigil/i.test(session)) return 3;
+  if (/evening/i.test(session)) return 2;
+  if (/afternoon/i.test(session)) return 1;
+  if (/morning/i.test(session)) return 0;
+  return 1.5;
+}
+
+/** A series in order: by the day preached, part, time of day, then upload. */
+export function compareInSeries(a: Sermon, b: Sermon) {
+  return (
+    a.day.localeCompare(b.day) ||
+    (a.part ?? Number.MAX_SAFE_INTEGER) - (b.part ?? Number.MAX_SAFE_INTEGER) ||
+    timeOfDay(a.session) - timeOfDay(b.session) ||
+    a.publishedAt.localeCompare(b.publishedAt)
+  );
+}
+
+/** Every sermon in a series, in order. */
+export function seriesSermons(list: Sermon[], key: string) {
+  return list.filter((sermon) => sermon.seriesKey === key).sort(compareInSeries);
+}
+
+export type SeriesRail = { key: string; name: string; sermons: Sermon[] };
+
+/**
+ * Series for Home: the ones with the most recent sermons, each with at least
+ * `min` sermons, in order. `list` is newest first.
+ */
+export function seriesRails(
+  list: Sermon[],
+  name: (key: string) => string | undefined,
+  { count = 3, min = 3 }: { count?: number; min?: number } = {},
+): SeriesRail[] {
+  const groups = new Map<string, Sermon[]>();
+  for (const sermon of list) {
+    if (!sermon.seriesKey) continue;
+    const group = groups.get(sermon.seriesKey) ?? [];
+    group.push(sermon);
+    groups.set(sermon.seriesKey, group);
+  }
+  const rails: SeriesRail[] = [];
+  // Map order is first-seen order: the series with the newest sermon first.
+  for (const [key, sermons] of groups) {
+    if (sermons.length < min) continue;
+    rails.push({ key, name: name(key) ?? sermons[0].collection, sermons: sermons.sort(compareInSeries) });
+    if (rails.length === count) break;
+  }
+  return rails;
+}
+
+/**
+ * Sermons to suggest after this one: the rest of its series (the parts after
+ * it first), then ones sharing a sample topic, then the newest.
+ */
+export function relatedSermons(sermon: Sermon, list: Sermon[], count = 3) {
+  const topics = sermonCategoryIds(sermon);
+  const series = sermon.seriesKey ? seriesSermons(list, sermon.seriesKey) : [];
+  const at = series.findIndex((s) => s.id === sermon.id);
+  const nextInSeries = [...series.slice(at + 1), ...series.slice(0, Math.max(at, 0))];
+  const rank = new Map(nextInSeries.map((s, i) => [s.id, i]));
+  return list
+    .filter((other) => other.id !== sermon.id)
+    .map((other, index) => ({
+      other,
+      index,
+      series: rank.get(other.id) ?? Number.MAX_SAFE_INTEGER,
+      shared: sermonCategoryIds(other).filter((t) => topics.includes(t)).length,
+    }))
+    .sort((a, b) => a.series - b.series || b.shared - a.shared || a.index - b.index)
+    .slice(0, count)
+    .map(({ other }) => other);
 }

@@ -1,8 +1,9 @@
 import { useCallback, useState } from "react";
 import { Image, StyleSheet, View, useWindowDimensions } from "react-native";
 import Animated from "react-native-reanimated";
+import { useCatalogue } from "../catalogue/CatalogueProvider";
 import { artworkWash } from "../data/artwork";
-import { Sermon, sermons } from "../data/sermons";
+import { Sermon, sampleSermons } from "../data/sermons";
 import { c, easeOut, radius } from "../theme";
 import { gradient, web } from "../ui";
 import { motion } from "./parts";
@@ -38,6 +39,9 @@ export function ArtworkCollage({
   reduced: boolean;
 }) {
   const { width, height } = useWindowDimensions();
+  const catalogue = useCatalogue();
+  // The newest artwork, which is the sharpest; the sample until it loads.
+  const sermons = catalogue.sermons.length ? catalogue.sermons.slice(0, 12) : sampleSermons;
   const [failed, setFailed] = useState<Record<string, true>>({});
   const markFailed = useCallback(
     (id: string) =>

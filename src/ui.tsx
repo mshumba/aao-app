@@ -853,6 +853,50 @@ export function SermonRow({
   );
 }
 
+/**
+ * A sermon as a card in a horizontal rail: artwork above, then the headline
+ * and which part of the series it is.
+ */
+export function SermonCard({
+  sermon,
+  width,
+  detail,
+}: {
+  sermon: Sermon;
+  width: number;
+  /** The line under the headline; the event line by default. */
+  detail?: string;
+}) {
+  const go = useGo();
+  const meta = detail ?? eventLine(sermon);
+  return (
+    <Tap
+      testID="sermon-card"
+      accessibilityRole="button"
+      accessibilityLabel={sermonLabel(sermon)}
+      onPress={() =>
+        go.push({ pathname: "/sermon/[id]", params: { id: sermon.id } })
+      }
+      unstable_pressDelay={60}
+      feedback="scaleLarge"
+      style={[s.card, { width }]}
+    >
+      <Thumbnail sermon={sermon} duration compact style={s.cardThumb} />
+      <View style={{ gap: 4 }}>
+        <SermonTitle
+          title={headline(sermon)}
+          numberOfLines={2}
+          style={s.rowTitle}
+        />
+        <T style={s.meta} numberOfLines={2}>
+          {meta ? `${meta} · ` : ""}
+          {nowrap(sermon.date)}
+        </T>
+      </View>
+    </Tap>
+  );
+}
+
 export const s = StyleSheet.create({
   text: {
     color: c.text,
@@ -1057,6 +1101,8 @@ export const s = StyleSheet.create({
     fontSize: 16,
     lineHeight: 22,
   },
+  card: { gap: space.sm, paddingVertical: space.xs },
+  cardThumb: { borderRadius: radius.md },
   divider: { height: 1, backgroundColor: c.divider },
   // The scrubber's rail and fill, so watched progress reads the same
   // everywhere. Over artwork: white on a dark wash, which holds on pale
