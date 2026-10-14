@@ -10,9 +10,9 @@ Screens talk to `useAccount()` and `useGate()`. They never import supabase-js.
 | --- | --- |
 | `src/auth/types.ts` | `AuthBackend`, the interface every account service implements, plus `AuthResult` and `AuthError` codes |
 | `src/auth/config.ts` | Picks the service and the sign-in methods from `EXPO_PUBLIC_*` variables |
-| `src/auth/supabaseBackend.ts` | Supabase Auth and the `profiles`, `saved_sermons` and `app_settings` tables |
+| `src/auth/supabaseBackend.ts` | Supabase Auth and the `profiles`, `saved_sermons`, `watch_progress` and `app_settings` tables |
 | `src/auth/localBackend.ts` | An on-device stand-in for development and the automated tests |
-| `src/auth/AccountProvider.tsx` | `useAccount()`: session, profile, saved sermons, onboarding state, shared-link passes, `guestWatch` |
+| `src/auth/AccountProvider.tsx` | `useAccount()`: session, profile, saved sermons, watch progress, onboarding state, shared-link passes, `guestWatch` |
 | `src/auth/gate.tsx` | `useGate()`, `useFinishFlow()`, `useCloseAuthRoutes()` and `IntentRunner` (mounted in the root layout) |
 | `src/auth/intent.ts` | The pending intent: what a guest tapped before signing up |
 | `src/auth/ui.tsx` | Shared kit for the sign-in and onboarding screens (`FlowScreen`, `AuthField`, `CodeInput`, `ProviderButtons`, …) |
@@ -114,6 +114,7 @@ A profile read that fails is kept apart from an empty profile (`profileError`): 
 | Device state | AsyncStorage (localStorage on the web): `aao.onboarding.v1`, `aao.pendingIntent.v1`, `aao.sharedPasses.v1`, `aao.guestWatch.v1` |
 | Stand-in accounts | `aao.local.session.v1` and `aao.local.data.v1.<userId>`, on the device only |
 | Profile and saved sermons | Supabase `profiles` (display name, topics, onboarding time) and `saved_sermons`, each limited to its owner by row level security |
+| Watch progress | Supabase `watch_progress`: one row per account and sermon (position, length, finished, last saved), limited to its owner by row level security. Saved by the player for signed-in viewers only; guests' places aren't kept. See [architecture](architecture.md#watch-progress). |
 
 Sign-out is local (`scope: "local"`), so it works offline. It removes the session and any unsaved Apple name; shared-link passes stay on the device. The account's topics were never on it. Passwords and codes must never be logged or stored by the app (see [contributing](contributing.md)).
 
@@ -135,7 +136,7 @@ With the stand-in (`mode === "local"`), nothing leaves the device, and the sign-
 
 ## Account deletion
 
-**Account → Delete account** (`/account/delete`) asks once, then calls `delete_account()`. That database function deletes the caller's own `auth.users` row, the `profiles` and `saved_sermons` rows go with it, and the app signs out. Only signed-in users can call it, and only for themselves.
+**Account → Delete account** (`/account/delete`) asks once, then calls `delete_account()`. That database function deletes the caller's own `auth.users` row, the `profiles`, `saved_sermons` and `watch_progress` rows go with it (foreign keys `on delete cascade`), and the app signs out. Only signed-in users can call it, and only for themselves.
 
 Known follow-up: Apple asks apps that offer Sign in with Apple to revoke the user's Apple tokens on deletion (Apple's REST revoke endpoint). That needs a server-side function holding a Sign in with Apple key, plus the authorization code captured at sign-in. Neither exists yet.
 
@@ -145,4 +146,4 @@ Known follow-up: Apple asks apps that offer Sign in with Apple to revoke the use
 - **5.1.1(v) deletion:** account deletion starts in the app and removes the account and its data. Token revocation is the gap above.
 - **5.1.1(v) registration:** Apple rejects apps that require an account for features that aren't account-based. Saving is account-based. Watching free public sermons may not be, so asking guests to sign up to watch is a review risk. If review raises it, set `guest_watch` to `"all"`: no new build is needed and saving stays behind an account. Whether to submit with `"shared"` or `"all"` is the user's decision.
 - **2.1 review access:** give App Review a password account in App Review Information (reviewers can't read emailed codes), and make sure the Supabase project isn't paused during review. Free projects pause after about a week of low activity.
-- **Privacy:** App Store Connect needs a public privacy policy URL. The App Privacy answers will cover email address, name, user ID and product interaction (saved sermons), all linked to the user for app functionality. There is no tracking.
+- **Privacy:** App Store Connect needs a public privacy policy URL. The App Privacy answers will cover email address, name, user ID and product interaction (saved sermons and watch progress), all linked to the user for app functionality. There is no tracking.

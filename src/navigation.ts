@@ -99,3 +99,18 @@ export function takeSearchFocus() {
   searchFocusRequested = false;
   return requested;
 }
+
+// Continue watching opens a sermon and resumes it in one tap. The sermon's
+// screen starts the player once it has settled, so the player never flashes
+// in the dock first. A request left by a swallowed tap expires.
+let watchRequest: { id: string; at: number } | null = null;
+export function requestWatch(sermonId: string) {
+  watchRequest = { id: sermonId, at: Date.now() };
+}
+export function watchRequested(sermonId: string) {
+  const request = watchRequest;
+  return !!request && request.id === sermonId && Date.now() - request.at < 5000;
+}
+export function clearWatchRequest() {
+  watchRequest = null;
+}

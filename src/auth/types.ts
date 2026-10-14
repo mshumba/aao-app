@@ -18,6 +18,21 @@ export type Profile = {
 
 export type ProfileChanges = Partial<Profile>;
 
+/** How far the viewer got through a sermon, kept with their account. */
+export type WatchProgress = {
+  sermonId: string;
+  /** Where to resume, in whole seconds. */
+  positionSeconds: number;
+  /** The video's length when last saved, in whole seconds. */
+  durationSeconds: number;
+  /** Watched to (or near) the end, so it starts from the beginning again. */
+  finished: boolean;
+  /** ISO time of the last save. */
+  updatedAt: string;
+};
+
+export type ProgressUpdate = Omit<WatchProgress, "updatedAt">;
+
 /**
  * What guests may watch without an account, set remotely so it can change
  * without a new build (for example if App Review asks for open playback):
@@ -114,4 +129,8 @@ export interface AuthBackend {
   updateProfile(userId: string, changes: ProfileChanges): Promise<void>;
   listSaved(userId: string): Promise<string[]>;
   setSaved(userId: string, sermonId: string, saved: boolean): Promise<void>;
+  /** The account's watch progress, most recently watched first. */
+  listProgress(userId: string): Promise<WatchProgress[]>;
+  /** Records where the viewer is in a sermon, replacing what was there. */
+  saveProgress(userId: string, progress: ProgressUpdate): Promise<void>;
 }

@@ -25,10 +25,17 @@ import { eventLine, headline } from "../../data/display";
 import { Sermon, sermonCategoryIds, sermons } from "../../data/sermons";
 import { HEADER_HEIGHT, fullFrame } from "../../player/layout";
 import { NowPlaying } from "../../player/NowPlaying";
-import { usePlayerSession } from "../../player/PlayerProvider";
+import { clock, usePlayerSession } from "../../player/PlayerProvider";
+import { fraction, resumePoint } from "../../player/progress";
 import { canRetry, canWatchOnYouTube, playerError } from "../../player/types";
 import { useDockInset } from "../../player/useDockInset";
-import { exitTo, firstParam, usePageTitle } from "../../navigation";
+import {
+  clearWatchRequest,
+  exitTo,
+  firstParam,
+  usePageTitle,
+  watchRequested,
+} from "../../navigation";
 import { shareSermon } from "../../share";
 import { font, radius, space, type } from "../../theme";
 import { useToast } from "../../toast";
@@ -40,6 +47,7 @@ import {
   type IconName,
   Notice,
   Page,
+  ProgressBar,
   SectionHeading,
   SermonRow,
   SermonTitle,
@@ -146,6 +154,28 @@ function NowPlayingScreen({ sermon }: { sermon: Sermon }) {
   const current = session.sermon?.id === sermon.id;
   const failed = current && session.phase === "error";
   const pinned = current && !failed;
+  // Where Watch would pick up for a signed-in viewer.
+  const saved = account.user ? account.progressFor(sermon.id) : null;
+  const resumeAt = resumePoint(saved);
+  const watch = () => {
+    if (!gate.require({ kind: "watch", sermonId: sermon.id })) return;
+    setWatched(true);
+    session.load(sermon);
+  };
+  // Opened from Continue watching: resume once the screen has settled and
+  // can show the player, so it never appears in the dock first.
+  const [resumeOnOpen] = useState(() => watchRequested(sermon.id));
+  const resumed = useRef(false);
+  const staged = session.stage === sermon.id;
+  useEffect(() => {
+    if (!resumeOnOpen || !staged || resumed.current) return;
+    resumed.current = true;
+    clearWatchRequest();
+    if (!current && gate.require({ kind: "watch", sermonId: sermon.id }))
+      session.load(sermon);
+    // Only when the request is first carried out.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resumeOnOpen, staged]);
   // Where the scrolling column starts, to line the poster up with the video.
   const contentLeft = (window.width - Math.min(window.width, 760)) / 2 + space.gutter;
   const topics = sermonCategoryIds(sermon);
@@ -211,6 +241,8 @@ function NowPlayingScreen({ sermon }: { sermon: Sermon }) {
                   sermon={sermon}
                   height={frame.height}
                   radius={frame.radius}
+                  resumeAt={resumeAt}
+                  watched={saved && resumeAt ? fraction(saved) : 0}
                   // A guest is asked for a free account first; the sermon
                   // starts once they have one.
                   hint={
@@ -218,12 +250,7 @@ function NowPlayingScreen({ sermon }: { sermon: Sermon }) {
                       ? undefined
                       : "Asks you to create a free account first"
                   }
-                  onWatch={() => {
-                    if (!gate.require({ kind: "watch", sermonId: sermon.id }))
-                      return;
-                    setWatched(true);
-                    session.load(sermon);
-                  }}
+                  onWatch={watch}
                 />
               )}
             </View>
@@ -545,20 +572,32 @@ function Poster({
   sermon,
   height,
   radius: corner,
-  hint = "Starts the sermon in the YouTube player",
+  resumeAt = 0,
+  watched = 0,
+  hint,
   onWatch,
 }: {
   sermon: Sermon;
   height: number;
   radius: number;
+  /** Where Watch picks up from, in seconds; 0 starts at the beginning. */
+  resumeAt?: number;
+  /** How much has been watched, 0 to 1, drawn along the bottom edge. */
+  watched?: number;
   hint?: string;
   onWatch: () => void;
 }) {
+  const label = resumeAt ? `Resume at ${clock(resumeAt)}` : "Watch sermon";
   return (
     <Tap
       accessibilityRole="button"
-      accessibilityLabel="Watch sermon"
-      accessibilityHint={hint}
+      accessibilityLabel={label}
+      accessibilityHint={
+        hint ??
+        (resumeAt
+          ? "Plays the sermon from where you left off"
+          : "Starts the sermon in the YouTube player")
+      }
       onPress={onWatch}
       feedback="scaleLarge"
       style={{ height }}
@@ -569,10 +608,23 @@ function Poster({
         duration
         style={{ borderRadius: corner }}
       />
+      {watched > 0 && (
+        <View
+          style={[
+            styles.posterProgress,
+            {
+              borderBottomLeftRadius: corner,
+              borderBottomRightRadius: corner,
+            },
+          ]}
+        >
+          <ProgressBar value={watched} onMedia />
+        </View>
+      )}
       <View style={[styles.center, { pointerEvents: "none" }]}>
         <View style={styles.watch}>
           <Icon name="play" color={c.onAccent} size={20} />
-          <T style={styles.watchLabel}>Watch sermon</T>
+          <T style={styles.watchLabel}>{label}</T>
         </View>
       </View>
     </Tap>
@@ -666,6 +718,15 @@ const styles = StyleSheet.create({
     boxShadow: "0 6px 20px rgba(0, 0, 0, 0.35)",
   },
   watchLabel: { color: c.onAccent, fontFamily: font.bold, fontSize: 16 },
+  // Along the artwork's bottom edge, clipped to its rounded corners.
+  posterProgress: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    overflow: "hidden",
+    pointerEvents: "none",
+  },
   skipLink: {
     position: "absolute",
     top: 4,

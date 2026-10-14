@@ -564,12 +564,14 @@ export function SectionHeading({
   children,
   aside,
   action,
+  style,
 }: PropsWithChildren<{
   aside?: string;
   action?: { label: string; onPress: () => void; hint?: string };
+  style?: StyleProp<ViewStyle>;
 }>) {
   return (
-    <View style={[s.sectionHeading, action && { minHeight: 48 }]}>
+    <View style={[s.sectionHeading, action && { minHeight: 48 }, style]}>
       <Heading level={2} style={s.sectionTitle}>
         {children}
       </Heading>
@@ -728,6 +730,37 @@ export function Thumbnail({
           </T>
         </View>
       )}
+    </View>
+  );
+}
+
+/**
+ * How much of a sermon has been watched, 0 to 1. Decorative: the time left
+ * is always said in words beside it. `onMedia` draws it over artwork.
+ */
+export function ProgressBar({
+  value,
+  onMedia = false,
+  style,
+}: {
+  value: number;
+  onMedia?: boolean;
+  style?: StyleProp<ViewStyle>;
+}) {
+  const percent = Math.round(Math.min(1, Math.max(0, value)) * 1000) / 10;
+  return (
+    <View
+      testID="progress-bar"
+      style={[s.progressTrack, onMedia && s.progressTrackOnMedia, style]}
+      {...web({ "aria-hidden": true })}
+    >
+      <View
+        style={[
+          s.progressFill,
+          onMedia && s.progressFillOnMedia,
+          { width: `${percent}%` },
+        ]}
+      />
     </View>
   );
 }
@@ -1025,4 +1058,15 @@ export const s = StyleSheet.create({
     lineHeight: 22,
   },
   divider: { height: 1, backgroundColor: c.divider },
+  // The scrubber's rail and fill, so watched progress reads the same
+  // everywhere. Over artwork: white on a dark wash, which holds on pale
+  // artwork and dark alike.
+  progressTrack: {
+    height: 4,
+    backgroundColor: "rgba(27, 30, 36, 0.5)",
+    overflow: "hidden",
+  },
+  progressTrackOnMedia: { backgroundColor: c.scrim },
+  progressFill: { height: 4, backgroundColor: c.accent },
+  progressFillOnMedia: { backgroundColor: c.onMedia },
 });

@@ -23,6 +23,7 @@ import {
   GuestWatch,
   Profile,
   Provider,
+  WatchProgress,
 } from "./types";
 
 /** Where OAuth providers and email links return to. */
@@ -409,6 +410,46 @@ export function createSupabaseBackend(): AuthBackend {
             .eq("sermon_id", sermonId),
         );
       }
+    },
+
+    async listProgress(userId) {
+      const data = await run(() =>
+        client
+          .from("watch_progress")
+          .select("sermon_id, position_seconds, duration_seconds, finished, updated_at")
+          .eq("user_id", userId)
+          .order("updated_at", { ascending: false })
+          .limit(100),
+      );
+      return (data ?? []).map(
+        (row: {
+          sermon_id: string;
+          position_seconds: number;
+          duration_seconds: number;
+          finished: boolean;
+          updated_at: string;
+        }) =>
+          ({
+            sermonId: row.sermon_id,
+            positionSeconds: row.position_seconds,
+            durationSeconds: row.duration_seconds,
+            finished: row.finished,
+            updatedAt: row.updated_at,
+          }) satisfies WatchProgress,
+      );
+    },
+    async saveProgress(userId, progress) {
+      const id = userId || (await currentUserId());
+      // One row per sermon; updated_at is set by the database.
+      await run(() =>
+        client.from("watch_progress").upsert({
+          user_id: id,
+          sermon_id: progress.sermonId,
+          position_seconds: Math.max(0, Math.round(progress.positionSeconds)),
+          duration_seconds: Math.max(0, Math.round(progress.durationSeconds)),
+          finished: progress.finished,
+        }),
+      );
     },
   };
 }

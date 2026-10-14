@@ -1,6 +1,6 @@
 # Supabase setup
 
-AAO uses [Supabase Auth](https://supabase.com/docs/guides/auth) for accounts and two small tables for profiles and saved sermons. The free plan is enough. Until a project is configured, development builds and the automated tests use an on-device stand-in (see `src/auth/localBackend.ts`), and release builds say accounts aren't available and leave watching open.
+AAO uses [Supabase Auth](https://supabase.com/docs/guides/auth) for accounts and small tables for profiles, saved sermons and watch progress. The free plan is enough. Until a project is configured, development builds and the automated tests use an on-device stand-in (see `src/auth/localBackend.ts`), and release builds say accounts aren't available and leave watching open.
 
 ## 1. Create the project
 
@@ -12,13 +12,14 @@ Never put the `service_role` / secret key in the app or in `.env`.
 
 ## 2. Create the tables
 
-Open **SQL Editor**, paste `migrations/20261014000000_accounts.sql`, and run it once. It creates:
+Open **SQL Editor** and run each file in `migrations/` once, in order of their names. Together they create:
 
 - `profiles`: display name, chosen topics, onboarding time; one row per account, made automatically on sign-up.
 - `saved_sermons`: the viewer's saved sermon IDs.
-- `delete_account()`: lets a signed-in viewer delete their own account (required by App Store guideline 5.1.1(v)); profile and saved rows are removed with it.
+- `watch_progress` (`20261014000200_watch_progress.sql`): where the viewer stopped in each sermon, for resuming and Home's Continue watching.
+- `delete_account()`: lets a signed-in viewer delete their own account (required by App Store guideline 5.1.1(v)); profile, saved and watch-progress rows are removed with it.
 
-Row level security is on for both tables: each viewer can only read and change their own rows.
+Row level security is on for every table: each viewer can only read and change their own rows.
 
 (With the Supabase CLI instead: `supabase link --project-ref <ref>` then `supabase db push`.)
 

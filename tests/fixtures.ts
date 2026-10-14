@@ -70,8 +70,8 @@ export function tab(page: Page, name: "Home" | "Topics" | "Search" | "Account") 
 /**
  * Replace YouTube's IFrame API with a deterministic stand-in: a 10-minute
  * video whose clock ticks while playing. Commands the app sends through the
- * official API are recorded on window.__yt for assertions. Like the real API,
- * player methods only exist once it's ready.
+ * official API, and each player's `start`, are recorded on window.__yt for
+ * assertions. Like the real API, player methods only exist once it's ready.
  * - error: fail with this YouTube error code instead of becoming ready.
  * - readyAfter: milliseconds before ready (or the error).
  * - stallFirst: the first script load never defines a player, as when
@@ -104,10 +104,10 @@ export async function fakeYouTube(
       });
     return route.fulfill({
       contentType: "text/javascript",
-      body: `window.__yt = window.__yt || { created: 0, destroyed: 0, commands: [] };
+      body: `window.__yt = window.__yt || { created: 0, destroyed: 0, commands: [], starts: [] };
       window.YT = { Player: function (el, o) {
         var yt = window.__yt, self = this, state = -1, t = (o.playerVars && o.playerVars.start) || 0, timer, pend = [], refuse = ${JSON.stringify(blockAutoplay === true ? "silent" : blockAutoplay || "")};
-        yt.created++;
+        yt.created++; yt.starts.push(t);
         el.setAttribute("data-testid", "fake-yt");
         el.style.width = "100%"; el.style.height = "100%";
         el.innerHTML = '<iframe title="Fake YouTube player" style="width:100%;height:100%;border:0;background:#000"></iframe>';
@@ -155,8 +155,11 @@ export async function sendToBackground(page: Page) {
 export async function ytLog(page: Page) {
   return page.evaluate(
     () =>
-      (window as unknown as { __yt?: { created: number; destroyed: number; commands: string[] } })
-        .__yt ?? { created: 0, destroyed: 0, commands: [] },
+      (
+        window as unknown as {
+          __yt?: { created: number; destroyed: number; commands: string[]; starts: number[] };
+        }
+      ).__yt ?? { created: 0, destroyed: 0, commands: [], starts: [] },
   );
 }
 
