@@ -11,8 +11,8 @@ import {
 import { useAccount } from "../../auth/AccountProvider";
 import type { Provider } from "../../auth/types";
 import { AccountBenefits, FormAlert, useAuthTask } from "../../auth/ui";
+import { useCatalogue } from "../../catalogue/CatalogueProvider";
 import { getCategory } from "../../data/categories";
-import { sermons } from "../../data/sermons";
 import { useGo } from "../../navigation";
 import { font, radius, space, type } from "../../theme";
 import { useToast } from "../../toast";
@@ -64,9 +64,8 @@ export default function AccountTab() {
     .map((id) => getCategory(id)?.label)
     .filter(Boolean)
     .join(", ");
-  const saved = account.saved.filter((id) =>
-    sermons.some((sermon) => sermon.id === id),
-  ).length;
+  const catalogue = useCatalogue();
+  const saved = account.saved.filter((id) => catalogue.find(id)).length;
 
   const library: Row[] = [
     ...(user

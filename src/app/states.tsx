@@ -1,7 +1,7 @@
 import { exitTo } from "../navigation";
 import { useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
-import { sermons } from "../data/sermons";
+import { sampleSermons } from "../data/sermons";
 import { font, radius, space } from "../theme";
 import {
   Header,
@@ -139,7 +139,7 @@ function Samples() {
         {state === "artwork" && (
           <View style={{ gap: space.lg }}>
             <Thumbnail
-              sermon={sermons[1]}
+              sermon={sampleSermons[1]}
               missing
               duration
               style={{ borderRadius: radius.lg }}

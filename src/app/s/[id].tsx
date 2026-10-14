@@ -2,7 +2,7 @@ import { Redirect, useLocalSearchParams } from "expo-router";
 import { useEffect } from "react";
 import { View } from "react-native";
 import { useAccount } from "../../auth/AccountProvider";
-import { sermons } from "../../data/sermons";
+import { useCatalogue } from "../../catalogue/CatalogueProvider";
 import { firstParam } from "../../navigation";
 import { c } from "../../theme";
 
@@ -15,15 +15,17 @@ export default function SharedLink() {
   const params = useLocalSearchParams<{ id: string | string[] }>();
   const id = firstParam(params.id) ?? "";
   const { ready, hasPass, grantPass } = useAccount();
-  const known = sermons.some((sermon) => sermon.id === id);
+  const catalogue = useCatalogue();
+  const known = !!catalogue.find(id);
 
   useEffect(() => {
     if (ready && known) grantPass(id);
   }, [ready, known, id, grantPass]);
 
   // A blank page until the pass is in place, so the sermon page never
-  // opens asking a guest to sign in for a sermon they were sent.
-  if (!ready || (known && !hasPass(id)))
+  // opens asking a guest to sign in for a sermon they were sent. A sermon
+  // newer than the device's copy of the library arrives with the sync.
+  if (!ready || (!known && !catalogue.settled) || (known && !hasPass(id)))
     return <View style={{ flex: 1, backgroundColor: c.bg }} />;
   if (!id) return <Redirect href="/" />;
   return <Redirect href={{ pathname: "/sermon/[id]", params: { id } }} />;

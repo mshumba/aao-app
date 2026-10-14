@@ -4,7 +4,7 @@
 
 The locked project uses Expo **57.0.26**, React Native **0.86.3**, React **19.2.3** and WebView **13.16.1**. Node **24.20.0** is the tested version. Use an existing Node version manager with `nvm use` if available; `.nvmrc` does not install one. Run `node --version` and `npm --version`, then `npm ci`. Keep the lockfile and avoid ad-hoc dependency upgrades. [Expo’s SDK table](https://docs.expo.dev/versions/latest/) is the compatibility reference.
 
-Media thumbnails and the player need internet access. The catalog and category search are local.
+Media thumbnails and the player need internet access. With a Supabase project in `.env`, the sermon library loads from it (the device keeps a copy); in on-device mode (`EXPO_PUBLIC_AUTH_MODE=local`, or no Supabase project) the app uses four bundled sermons. Search is local over whichever list is loaded.
 
 ## Environment
 
@@ -39,7 +39,8 @@ Every variable, and how the service is chosen, is in [accounts](accounts.md#whic
 | `npm run typecheck` | Strict source, test and configuration TypeScript checks |
 | `npm run lint` | Expo ESLint rules |
 | `npm run doctor` | Pinned Expo Doctor compatibility/configuration checks |
-| `npm run test:catalog` | Catalog integrity and metadata-search assertions |
+| `npm run test:catalog` | Catalog integrity, title parsing, sync and search assertions |
+| `npm run catalogue:import -- <manifest.json>` | Load the channel catalogue into Supabase ([details](../../supabase/README.md#7-load-the-sermon-catalogue)) |
 | `npm test` | Catalog plus deterministic browser regressions |
 | `npm run export:all` | Web assets and iOS/Android JavaScript/Hermes bundles in `dist/` |
 | `npm run icons` | Redraws the app icon, adaptive icon, splash mark and favicon in `assets/` from `assets/icon-source/render.mjs` |

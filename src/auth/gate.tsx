@@ -1,7 +1,7 @@
 import { router, useNavigation, usePathname } from "expo-router";
 import { useCallback, useEffect, useRef } from "react";
 import { Platform } from "react-native";
-import { sermons } from "../data/sermons";
+import { useCatalogue } from "../catalogue/CatalogueProvider";
 import { useGo } from "../navigation";
 import { usePlayerSession } from "../player/PlayerProvider";
 import { useToast } from "../toast";
@@ -134,17 +134,22 @@ export function useFinishFlow() {
  */
 export function IntentRunner() {
   const account = useAccount();
+  const catalogue = useCatalogue();
   const session = usePlayerSession();
   const pathname = usePathname();
   const toast = useToast();
-  const latest = useRef({ account, session, pathname, toast });
+  const latest = useRef({ account, catalogue, session, pathname, toast });
   useEffect(() => {
-    latest.current = { account, session, pathname, toast };
-  }, [account, session, pathname, toast]);
+    latest.current = { account, catalogue, session, pathname, toast };
+  }, [account, catalogue, session, pathname, toast]);
 
   useEffect(() => {
     registerIntentRunner(async (intent) => {
-      const sermon = sermons.find((item) => item.id === intent.sermonId);
+      // After a web reload the library may still be loading.
+      const find = () => latest.current.catalogue.find(intent.sermonId);
+      for (let i = 0; i < 50 && !find() && !latest.current.catalogue.settled; i++)
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      const sermon = find();
       if (!sermon) return;
       const allowed = (now: Viewer) =>
         !!now.user || (intent.kind === "watch" && guestMayWatch(now, sermon.id));

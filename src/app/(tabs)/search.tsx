@@ -1,5 +1,5 @@
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AccessibilityInfo,
   Keyboard,
@@ -8,6 +8,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { useCatalogue } from "../../catalogue/CatalogueProvider";
 import { CategoryId, getCategory } from "../../data/categories";
 import { searchSermons } from "../../data/sermons";
 import { firstParam, takeSearchFocus } from "../../navigation";
@@ -21,11 +22,15 @@ import {
   SermonRow,
   StatePanel,
   T,
+  TextButton,
   c,
   fieldBorder,
   noWebOutline,
   s,
 } from "../../ui";
+
+// Results shown at a time; "Show more" adds the next page.
+const PAGE = 30;
 
 export default function Search() {
   const params = useLocalSearchParams<{
@@ -67,7 +72,10 @@ function SearchForm({
   const [query, setQuery] = useState(initialQuery);
   const [categoryId, setCategoryId] = useState(initialCategory);
   const [focused, setFocused] = useState(false);
+  // How many results show; a new search starts again from the top.
+  const [more, setMore] = useState({ key: "", limit: PAGE });
   const input = useRef<TextInput>(null);
+  const { sermons } = useCatalogue();
   // Home's search field asks for focus; arriving by the tab itself doesn't.
   useFocusEffect(
     useCallback(() => {
@@ -76,7 +84,13 @@ function SearchForm({
   );
   const category = getCategory(categoryId);
   const trimmed = query.trim();
-  const results = searchSermons(query, categoryId);
+  const results = useMemo(
+    () => searchSermons(sermons, query, categoryId),
+    [sermons, query, categoryId],
+  );
+  const resultsKey = `${categoryId ?? ""}:${trimmed}`;
+  const limit = more.key === resultsKey ? more.limit : PAGE;
+  const shown = results.slice(0, limit);
   // Always mounted and announced; never blank, so an empty result is heard.
   const count =
     results.length === 0
@@ -136,7 +150,8 @@ function SearchForm({
       </View>
       {!query && (
         <T style={[s.meta, styles.hint]}>
-          Search by title, topic or event, like Apostolic Shift.
+          Search by title, topic, event, minister or date, like Apostolic
+          Shift.
         </T>
       )}
 
@@ -156,11 +171,25 @@ function SearchForm({
       </View>
 
       {results.length ? (
-        <View style={{ gap: space.sm }}>
-          {results.map((sermon) => (
-            <SermonRow key={sermon.id} sermon={sermon} lead={categoryId} />
-          ))}
-        </View>
+        <>
+          <View style={{ gap: space.sm }}>
+            {shown.map((sermon) => (
+              <SermonRow key={sermon.id} sermon={sermon} lead={categoryId} />
+            ))}
+          </View>
+          {results.length > shown.length && (
+            <View style={styles.more}>
+              <T style={s.meta}>
+                Showing {shown.length} of {sermonCount(results.length)}
+              </T>
+              <TextButton
+                label="Show more"
+                icon="chevron-down"
+                onPress={() => setMore({ key: resultsKey, limit: limit + PAGE })}
+              />
+            </View>
+          )}
+        </>
       ) : trimmed ? (
         <StatePanel
           icon="search-outline"
@@ -221,4 +250,5 @@ const styles = StyleSheet.create({
   filters: { marginTop: space.lg },
   summary: { marginTop: space.lg, marginBottom: space.sm, gap: space.md },
   count: { color: c.text, fontFamily: font.semibold },
+  more: { marginTop: space.lg, alignItems: "center", gap: space.xs },
 });

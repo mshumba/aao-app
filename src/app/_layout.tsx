@@ -21,6 +21,7 @@ import { Platform, StyleSheet, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { AccountProvider, useAccount } from "../auth/AccountProvider";
 import { IntentRunner } from "../auth/gate";
+import { CatalogueProvider, useCatalogue } from "../catalogue/CatalogueProvider";
 import { MotionProvider, useReducedMotion } from "../motion";
 import { TAB_PATHS } from "../player/layout";
 import { PlayerHost } from "../player/PlayerHost";
@@ -28,9 +29,9 @@ import { PlayerProvider } from "../player/PlayerProvider";
 import { c } from "../theme";
 import { ToastProvider } from "../toast";
 
-// Keep the native splash up until fonts, the saved session and the
-// first-run state are ready, so a cold start never shows a blank frame, then
-// a spinner, then content.
+// Keep the native splash up until fonts, the saved session, the first-run
+// state and the library's on-device copy are ready, so a cold start never
+// shows a blank frame, then a spinner, then content.
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
 // A link straight to a sermon or topic still opens over the tabs, so Back,
@@ -52,23 +53,25 @@ function RootLayout() {
   if (!loaded && !error) return <View style={{ flex: 1, backgroundColor: c.bg }} />;
   return (
     <MotionProvider>
-      <AccountProvider>
-        <PlayerProvider>
-          <ToastProvider>
-            {/* Dark clock and icons on the ivory page. A screen drawn under
-                the status bar over dark artwork sets its own. */}
-            <StatusBar style="dark" />
-            {/* The scrubber's drag and the page's scroll share touches. */}
-            <GestureHandlerRootView style={{ flex: 1, backgroundColor: c.bg }}>
-              <Screens />
-              {/* One player for the whole app, above every screen. */}
-              <PlayerHost />
-              <IntentRunner />
-              <FirstRun />
-            </GestureHandlerRootView>
-          </ToastProvider>
-        </PlayerProvider>
-      </AccountProvider>
+      <CatalogueProvider>
+        <AccountProvider>
+          <PlayerProvider>
+            <ToastProvider>
+              {/* Dark clock and icons on the ivory page. A screen drawn under
+                  the status bar over dark artwork sets its own. */}
+              <StatusBar style="dark" />
+              {/* The scrubber's drag and the page's scroll share touches. */}
+              <GestureHandlerRootView style={{ flex: 1, backgroundColor: c.bg }}>
+                <Screens />
+                {/* One player for the whole app, above every screen. */}
+                <PlayerHost />
+                <IntentRunner />
+                <FirstRun />
+              </GestureHandlerRootView>
+            </ToastProvider>
+          </PlayerProvider>
+        </AccountProvider>
+      </CatalogueProvider>
     </MotionProvider>
   );
 }
@@ -81,11 +84,12 @@ function RootLayout() {
  */
 function FirstRun() {
   const account = useAccount();
+  const catalogue = useCatalogue();
   const pathname = usePathname();
   const [covered, setCovered] = useState(true);
   const decided = useRef(false);
   useEffect(() => {
-    if (!account.ready || decided.current) return;
+    if (!account.ready || !catalogue.hydrated || decided.current) return;
     decided.current = true;
     const first = !account.welcomed && !account.user && TAB_PATHS.includes(pathname);
     if (first) router.push("/welcome");
@@ -94,7 +98,7 @@ function FirstRun() {
       setCovered(false);
       SplashScreen.hideAsync().catch(() => {});
     });
-  }, [account.ready, account.welcomed, account.user, pathname]);
+  }, [account.ready, catalogue.hydrated, account.welcomed, account.user, pathname]);
   if (!covered) return null;
   return <View style={[StyleSheet.absoluteFill, { backgroundColor: c.bg }]} />;
 }

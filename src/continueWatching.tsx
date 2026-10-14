@@ -2,8 +2,9 @@ import { router } from "expo-router";
 import { ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
 import { useAccount } from "./auth/AccountProvider";
 import type { WatchProgress } from "./auth/types";
+import { useCatalogue } from "./catalogue/CatalogueProvider";
 import { headline } from "./data/display";
-import { Sermon, sermons } from "./data/sermons";
+import type { Sermon } from "./data/sermons";
 import { requestWatch, useGo } from "./navigation";
 import { fraction, resumePoint, timeLeft } from "./player/progress";
 import { usePlayerSession } from "./player/PlayerProvider";
@@ -28,6 +29,7 @@ const MAX = 6;
  */
 export function ContinueWatching() {
   const account = useAccount();
+  const catalogue = useCatalogue();
   const { width } = useWindowDimensions();
   if (!account.user) return null;
   const items = [...account.progress]
@@ -35,7 +37,7 @@ export function ContinueWatching() {
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
     .map((progress) => ({
       progress,
-      sermon: sermons.find((sermon) => sermon.id === progress.sermonId),
+      sermon: catalogue.find(progress.sermonId),
     }))
     .filter((item): item is { progress: WatchProgress; sermon: Sermon } => !!item.sermon)
     .slice(0, MAX);
