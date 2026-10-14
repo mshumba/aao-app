@@ -29,9 +29,11 @@ export const authMode: "supabase" | "local" | "unavailable" =
 
 export const supabaseConfig = { url, key };
 
-const methods = (process.env.EXPO_PUBLIC_AUTH_METHODS ?? "apple,google,email")
-  .split(",")
-  .map((x) => x.trim().toLowerCase());
+// Typed explicitly: without the generated expo-env.d.ts (as in CI),
+// process.env values are untyped.
+const methodList: string =
+  process.env.EXPO_PUBLIC_AUTH_METHODS ?? "apple,google,email";
+const methods = methodList.split(",").map((x: string) => x.trim().toLowerCase());
 
 /**
  * Sign-in methods shown. Each needs its provider enabled in Supabase; leave
