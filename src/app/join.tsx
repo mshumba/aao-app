@@ -249,14 +249,21 @@ export default function Join() {
           <IconButton name="close" label="Close" testID="join-close" onPress={close} />
         </View>
       </View>
-      <ScrollView
-        style={[styles.scroll, { maxHeight: room }]}
-        contentContainerStyle={styles.column}
-        alwaysBounceVertical={false}
-        keyboardShouldPersistTaps="handled"
-      >
-        {body}
-      </ScrollView>
+      {Platform.OS === "web" ? (
+        <ScrollView
+          style={[styles.scroll, { maxHeight: room }]}
+          contentContainerStyle={styles.column}
+          alwaysBounceVertical={false}
+          keyboardShouldPersistTaps="handled"
+        >
+          {body}
+        </ScrollView>
+      ) : (
+        // iOS sizes the sheet to this content (fitToContents) and mismeasures
+        // a nested ScrollView, drawing it over the Close row. Past the room on
+        // screen the native sheet itself scrolls.
+        <View style={styles.column}>{body}</View>
+      )}
     </View>
   );
 
