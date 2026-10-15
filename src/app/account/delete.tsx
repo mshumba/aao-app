@@ -4,7 +4,8 @@ import { useAccount } from "../../auth/AccountProvider";
 import type { AuthUser } from "../../auth/types";
 import { FormAlert, useAuthTask } from "../../auth/ui";
 import { exitTo, useGo } from "../../navigation";
-import { radius, space, type } from "../../theme";
+import { Card } from "../../kit";
+import { space, type } from "../../theme";
 import { useToast } from "../../toast";
 import {
   Button,
@@ -25,6 +26,7 @@ const deleted: { icon: IconName; text: string }[] = [
   { icon: "person-outline", text: "Your name and sign-in details" },
   { icon: "albums-outline", text: "Your topics" },
   { icon: "bookmark-outline", text: "Your saved sermons" },
+  { icon: "time-outline", text: "Where you are in sermons and guided paths" },
 ];
 
 /**
@@ -95,6 +97,7 @@ export default function DeleteAccount() {
     <Page>
       <Header back />
       <PageTitle
+        kicker="Account"
         title="Delete your account?"
         lead={
           user.email
@@ -103,7 +106,7 @@ export default function DeleteAccount() {
         }
       />
 
-      <View style={styles.card}>
+      <Card style={styles.card}>
         <Heading level={2} style={styles.cardTitle}>
           What’s deleted
         </Heading>
@@ -115,7 +118,7 @@ export default function DeleteAccount() {
             </View>
           ))}
         </View>
-      </View>
+      </Card>
 
       <View style={styles.notes}>
         <T style={s.body}>
@@ -154,16 +157,8 @@ export default function DeleteAccount() {
 
 const styles = StyleSheet.create({
   loading: { paddingVertical: space.xxl, alignItems: "center" },
-  card: {
-    marginTop: space.lg,
-    padding: space.lg,
-    gap: space.md,
-    borderRadius: radius.lg,
-    backgroundColor: c.surface,
-    borderWidth: 1,
-    borderColor: c.border,
-  },
-  cardTitle: { ...type.kicker, color: c.muted },
+  card: { marginTop: space.lg, gap: space.md },
+  cardTitle: { ...type.sectionSmall, color: c.text },
   item: { flexDirection: "row", alignItems: "flex-start", gap: space.md },
   itemText: { ...type.body, flex: 1, color: c.text },
   notes: { marginTop: space.xl, gap: space.lg },

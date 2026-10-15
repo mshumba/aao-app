@@ -19,18 +19,21 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  Text,
   TextInput,
   View,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useGo, usePageTitle } from "../navigation";
 import { useToast } from "../toast";
-import { font, radius, space, type } from "../theme";
+import { splitItalic } from "../kit/italic";
+import { font, radius, space, textCap, type } from "../theme";
 import {
   Heading,
   Icon,
   IconButton,
   type IconName,
+  RoundBack,
   T,
   Tap,
   TextButton,
@@ -171,13 +174,9 @@ export function FlowScreen({
       >
         <View style={styles.flowBar}>
           {leading !== "none" ? (
-            <IconButton
-              name={leading === "close" ? "close" : "arrow-back"}
-              label={leading === "close" ? "Close" : "Back"}
-              onPress={onLeading ?? go.back}
-            />
+            <RoundBack close={leading === "close"} onPress={onLeading ?? go.back} />
           ) : (
-            <View style={{ width: 48 }} />
+            <View style={{ width: 40 }} />
           )}
           {/* Centred on the screen, whatever width the actions either side. */}
           <View style={styles.flowSteps} pointerEvents="none">
@@ -240,28 +239,39 @@ function StepBar({ current, total }: { current: number; total: number }) {
 }
 
 /**
- * A step's headline with an optional lead line. The serif is kept for the
- * emotional moments (onboarding questions); the sign-in forms pass
- * serif={false} and use the app's sans display, like other utility pages.
+ * A step's headline with an optional lead line, in the serif question size
+ * every step uses (onboarding and sign-in alike), with at most one phrase in
+ * italics: "Check your *email*", "What should we *call you*?". `serif` is
+ * kept for older callers; every step is serif now.
  */
 export function FlowTitle({
   title,
   lead,
-  serif = true,
+  italic,
+  kicker,
 }: {
   title: string;
   lead?: ReactNode;
+  /** The phrase of the title set in Newsreader italic. */
+  italic?: string;
+  /** A gold eyebrow above the title ("Step 2 of 3" is drawn by the bar). */
+  kicker?: string;
+  /** @deprecated Every step is serif. */
   serif?: boolean;
 }) {
   usePageTitle(title);
+  const parts = splitItalic(title, italic);
   return (
     <View style={{ gap: space.md }}>
-      <Heading
-        level={1}
-        style={serif ? type.question : type.display}
-        maxFontSizeMultiplier={1.6}
-      >
-        {title}
+      {kicker ? (
+        <T style={styles.kicker} maxFontSizeMultiplier={textCap.section}>
+          {kicker}
+        </T>
+      ) : null}
+      <Heading level={1} style={styles.title} maxFontSizeMultiplier={textCap.display}>
+        {parts.before}
+        {parts.italic ? <Text style={styles.italic}>{parts.italic}</Text> : null}
+        {parts.after}
       </Heading>
       {lead ? <T style={[type.lead, { color: c.muted }]}>{lead}</T> : null}
     </View>
@@ -509,9 +519,15 @@ export function FlowButton({
   busy = false,
   disabled = false,
   testID,
+  shape = "pill",
 }: {
   label: string;
   onPress: () => void;
+  /**
+   * "pill", as every button in the app; "rounded" (radius 12) only where an
+   * approved screen keeps its original shape (the welcome).
+   */
+  shape?: "pill" | "rounded";
   tone?: "primary" | "apple" | "surface" | "outline";
   icon?: IconName;
   image?: ImageSourcePropType;
@@ -531,7 +547,7 @@ export function FlowButton({
       busy={busy}
       onPress={onPress}
       feedback="scaleLarge"
-      style={[styles.flowButton, styles[tone]]}
+      style={[styles.flowButton, shape === "rounded" && styles.rounded, styles[tone]]}
     >
       {busy ? (
         <ActivityIndicator color={fg} size="small" />
@@ -599,7 +615,7 @@ export function ProviderButtons({
                   : AppleAuthentication.AppleAuthenticationButtonType.CONTINUE
               }
               buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.BLACK}
-              cornerRadius={radius.md}
+              cornerRadius={26}
               style={[styles.appleNative, locked && { opacity: 0.5 }]}
               onPress={() => {
                 if (!locked) provider("apple");
@@ -726,14 +742,14 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     minHeight: 56,
-    paddingHorizontal: space.sm,
+    paddingHorizontal: space.lg,
   },
   flowSteps: {
     ...StyleSheet.absoluteFill,
     alignItems: "center",
     justifyContent: "center",
   },
-  flowTrailing: { minWidth: 48, alignItems: "flex-end", paddingEnd: space.lg },
+  flowTrailing: { minWidth: 48, alignItems: "flex-end", paddingEnd: space.sm },
   flowScroll: {
     flexGrow: 1,
     paddingHorizontal: space.gutter,
@@ -758,15 +774,18 @@ const styles = StyleSheet.create({
   // decorative hairline, so they can be counted.
   step: { flex: 1, height: 4, borderRadius: 2, backgroundColor: fieldBorder },
   stepOn: { backgroundColor: c.accent },
-  stepLabel: { ...type.caption, fontSize: 12, lineHeight: 16, color: c.muted },
+  stepLabel: { ...type.caption, lineHeight: 17, color: c.muted },
+  kicker: { ...type.overline, color: c.gold },
+  title: { ...type.question, color: c.text },
+  italic: { fontFamily: font.serifItalic },
   field: { gap: space.sm },
-  label: { ...type.label, fontSize: 14, lineHeight: 20 },
+  label: { ...type.label, color: c.text },
   // A point of padding inside the 1pt border, so focus can take it for a
   // 2pt border without the field growing or the text moving.
   inputRow: {
     borderWidth: 1,
     borderColor: FIELD_BORDER,
-    borderRadius: radius.md,
+    borderRadius: radius.lg,
     backgroundColor: c.surface,
     flexDirection: "row",
     alignItems: "center",
@@ -786,11 +805,11 @@ const styles = StyleSheet.create({
   input: {
     flex: 1,
     minWidth: 0,
-    minHeight: 52,
+    minHeight: 54,
     paddingVertical: 14,
     paddingEnd: 14,
     color: c.text,
-    fontSize: 16,
+    fontSize: type.lead.fontSize,
     fontFamily: font.regular,
     ...noWebOutline,
   },
@@ -818,7 +837,7 @@ const styles = StyleSheet.create({
   codeDigit: {
     color: c.text,
     fontFamily: font.bold,
-    fontSize: 24,
+    fontSize: type.section.fontSize,
     lineHeight: 30,
     fontVariant: ["tabular-nums"],
   },
@@ -838,21 +857,24 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
     borderWidth: 1,
     borderColor: c.error,
-    borderRadius: radius.md,
+    borderRadius: radius.lg,
     backgroundColor: `${c.error}0d`,
     padding: 14,
   },
   alertText: { ...type.body, flex: 1, color: c.text },
+  // Pills, as every button in the app is (Apple's and Google's included:
+  // both allow a fully rounded button).
   flowButton: {
     minHeight: 52,
     paddingVertical: 14,
-    paddingHorizontal: 20,
-    borderRadius: radius.md,
+    paddingHorizontal: 24,
+    borderRadius: radius.pill,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 10,
   },
+  rounded: { borderRadius: radius.md },
   primary: { backgroundColor: c.accent },
   apple: { backgroundColor: c.black },
   // Google's light-theme stroke (#747775): the button keeps its edge on the
@@ -860,9 +882,7 @@ const styles = StyleSheet.create({
   surface: { backgroundColor: c.surface, borderWidth: 1, borderColor: "#747775" },
   outline: { borderWidth: 1, borderColor: FIELD_BORDER },
   flowButtonText: {
-    fontFamily: font.bold,
-    fontSize: 16,
-    lineHeight: 22,
+    ...type.buttonLarge,
     textAlign: "center",
     flexShrink: 1,
   },

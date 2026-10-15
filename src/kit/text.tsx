@@ -12,27 +12,12 @@ import { trustLine } from "../learning/format";
 import type { PathStatus } from "../learning/types";
 import { c, font, textCap, type } from "../theme";
 import { Heading, Icon, T, TextButton, web } from "../ui";
+import { splitItalic } from "./italic";
 import { spokenKicker, spokenText } from "./time";
 
 // ---- ItalicTitle -------------------------------------------------------------------
 
-/**
- * Splits `text` around one phrase set in italics: `italic` (the editor's
- * phrase, first match, any case) or, with `italicLast`, the last word. The
- * words are never changed; only the face of one phrase is.
- */
-export function splitItalic(text: string, italic?: string | null, italicLast = false) {
-  if (italic) {
-    const at = text.toLocaleLowerCase().indexOf(italic.toLocaleLowerCase());
-    if (at >= 0)
-      return { before: text.slice(0, at), italic: text.slice(at, at + italic.length), after: text.slice(at + italic.length) };
-  }
-  if (italicLast) {
-    const match = /^(.*\s)(\S+)(\s*)$/s.exec(text);
-    if (match) return { before: match[1], italic: match[2], after: match[3] };
-  }
-  return { before: text, italic: "", after: "" };
-}
+export { splitItalic };
 
 export type ItalicTitleProps = TextProps & {
   text: string;
@@ -87,7 +72,7 @@ const kickerColor: Record<KickerTone, string> = {
 };
 
 /**
- * The concept's eyebrow: 11/14, tracked, uppercase. Write it in sentence
+ * The concept's eyebrow: 13/16, tracked, uppercase. Write it in sentence
  * case ("Your path · Day 3 of 7"); it's read aloud with full stops.
  * Gold on ivory and white; onFeature on sand (gold fails contrast there);
  * onMedia on the dark surfaces.
@@ -101,7 +86,7 @@ export const Kicker = memo(function Kicker({
 }: {
   children: string;
   tone?: KickerTone;
-  /** 10.5pt, for the compact path card. */
+  /** Tracked a little tighter, for the compact path card. */
   small?: boolean;
   style?: StyleProp<TextStyle>;
   numberOfLines?: number;
@@ -197,7 +182,7 @@ export const SectionHeader = memo(function SectionHeader({
   /** "4 moments", "14 found". */
   count?: string;
   kicker?: string;
-  /** "lg" 24/28 (Home); "md" 22/28 (Search results); "sermon" 23/28 (moments on a sermon). */
+  /** "lg" 24/28 (Home); "md" 22/28 (Search results); "sermon" 24/28 (moments on a sermon). */
   size?: "lg" | "md" | "sermon";
   /** Horizontal padding (24 when it sits directly on a page). */
   inset?: number;
@@ -290,7 +275,7 @@ export function Strong({ children }: { children: ReactNode }) {
 const styles = StyleSheet.create({
   serif: { fontFamily: font.serif, color: c.text },
   italic: { fontFamily: font.serifItalic },
-  kickerSmall: { fontSize: 10.5, lineHeight: 13 },
+  kickerSmall: { letterSpacing: 0.5 },
   quoteText: { color: c.text },
   hung: { position: "absolute", top: 0 },
   sectionKicker: { marginBottom: 4 },
@@ -304,8 +289,8 @@ const styles = StyleSheet.create({
   sectionWrap: { flexWrap: "wrap", rowGap: 2 },
   sectionTitleWhole: { flexShrink: 0, maxWidth: "100%" },
   countEnd: { marginLeft: "auto" },
-  sectionMd: { fontSize: 22, lineHeight: 28 },
-  sectionSermon: { fontSize: 23, lineHeight: 28 },
+  sectionMd: { fontSize: 22, lineHeight: 28, letterSpacing: -0.2 },
+  sectionSermon: { fontSize: 24, lineHeight: 28 },
   // The text button is 48pt tall; pull it back so its label sits on the
   // title's baseline instead of pushing the row taller.
   sectionAction: { marginVertical: -14 },

@@ -7,6 +7,10 @@ import React, {
   useRef,
   useState,
 } from "react";
+import { Artwork } from "./kit/Artwork";
+import { T, web } from "./kit/base";
+import { splitItalic } from "./kit/italic";
+import { spokenKicker } from "./kit/time";
 import {
   AccessibilityInfo,
   ActivityIndicator,
@@ -36,19 +40,11 @@ import { Sermon, sermonCategoryIds } from "./data/sermons";
 import { useReducedMotion } from "./motion";
 import { useGo, usePageTitle } from "./navigation";
 import { useDockInset } from "./player/useDockInset";
-import { c, easeOut, font, press, radius, space, type } from "./theme";
-export { c };
+import { c, easeOut, font, press, radius, shadows, space, tabular, textCap, type } from "./theme";
+export { c, T, web };
 
 type IconName = ComponentProps<typeof Ionicons>["name"];
 export type { IconName };
-
-/**
- * Web-only attributes (heading levels, field descriptions) that React Native's
- * types don't describe. react-native-web maps them onto the DOM.
- */
-export function web(props: Record<string, unknown>) {
-  return Platform.OS === "web" ? props : {};
-}
 
 /**
  * Text fields here draw their own navy focus border, so the browser's default
@@ -156,14 +152,6 @@ export function dockScrollPadding(dock: number) {
     : undefined;
 }
 
-export function T({ style, ref, ...props }: TextProps & { ref?: Ref<Text> }) {
-  // When the system text size changes while the app is open or in the
-  // background, iOS keeps the old measured box for text already on screen
-  // (rows kept their old height). A key per font scale re-measures it.
-  const { fontScale } = useWindowDimensions();
-  return <Text key={fontScale} ref={ref} {...props} style={[s.text, style]} />;
-}
-
 /** A heading with a real level: h1 for the page title, h2 for sections. */
 export function Heading({
   level = 2,
@@ -181,11 +169,25 @@ export function Heading({
  */
 export function SermonTitle({
   title,
+  list = false,
+  style,
+  numberOfLines,
   ...props
-}: TextProps & { title: string }) {
+}: TextProps & {
+  title: string;
+  /**
+   * In a list (rows, rails, cards): the one style every list draws a
+   * sermon's title in, two lines at most unless numberOfLines says else.
+   */
+  list?: boolean;
+}) {
   const parts = title.split(/(\|+)/);
   return (
-    <T {...props}>
+    <T
+      {...props}
+      numberOfLines={list && numberOfLines === undefined ? 2 : numberOfLines}
+      style={[list && s.listTitle, style]}
+    >
       {parts.map((part, index) =>
         /^\|+$/.test(part) ? (
           <Text key={index} style={s.separator}>
@@ -405,6 +407,12 @@ export function IconButton({
   );
 }
 
+/**
+ * The app's one button shape: a pill. "primary" is the navy action (one per
+ * card or section), "secondary" a white pill with a hairline, "danger" the
+ * destructive and final kind. Full width by default, 52pt; `compact` sizes
+ * it to its label at 44pt (state panels, inline actions).
+ */
 export function Button({
   label,
   onPress,
@@ -414,6 +422,7 @@ export function Button({
   busy = false,
   hint,
   testID,
+  compact = false,
 }: {
   label: string;
   onPress: () => void;
@@ -424,8 +433,9 @@ export function Button({
   busy?: boolean;
   hint?: string;
   testID?: string;
+  compact?: boolean;
 }) {
-  const fg = variant === "secondary" ? c.text : c.onAccent;
+  const fg = variant === "secondary" ? c.accent : c.onAccent;
   return (
     <Tap
       testID={testID}
@@ -438,14 +448,20 @@ export function Button({
       onPress={onPress}
       disabled={disabled}
       busy={busy}
-      style={[s.button, s[variant]]}
+      feedback={compact ? "scale" : "scaleLarge"}
+      style={[s.button, compact && s.buttonCompact, s[variant]]}
     >
       {busy ? (
         <ActivityIndicator color={fg} size="small" />
       ) : (
-        icon && <Icon name={icon} color={fg} size={20} />
+        icon && <Icon name={icon} color={fg} size={compact ? 16 : 20} />
       )}
-      <T style={[s.buttonText, { color: fg }]}>{label}</T>
+      <T
+        style={[compact ? s.buttonTextCompact : s.buttonText, { color: fg }]}
+        maxFontSizeMultiplier={textCap.chip}
+      >
+        {label}
+      </T>
     </Tap>
   );
 }
@@ -538,10 +554,11 @@ export function Page({
 }
 
 /**
- * Screen chrome for Home (the wordmark) and for screens opened over the tabs:
- * Back, or Close for the account forms you leave rather than go back through.
- * A title here is the page's heading, so screens with their own large title
- * leave it out.
+ * Screen chrome for screens opened over the tabs: Back (or Close, for the
+ * account forms you leave rather than go back through) as the concept's
+ * round button, white on the ivory page. Without either it draws the
+ * wordmark. A title here is the page's heading, so screens with their own
+ * large title leave it out.
  */
 export function Header({
   title,
@@ -565,11 +582,7 @@ export function Header({
         </View>
       ) : (
         <>
-          <IconButton
-            name={close ? "close" : "arrow-back"}
-            label={close ? "Close" : "Back"}
-            onPress={go.back}
-          />
+          <RoundBack close={close} onPress={go.back} />
           <View style={{ flex: 1 }}>
             {title ? (
               <Heading level={1} numberOfLines={1} style={s.headerTitle}>
@@ -583,24 +596,81 @@ export function Header({
   );
 }
 
-/** A screen's large title with an optional lead paragraph. */
+/** Back or Close: a 40pt white circle with a hairline, 48pt to touch. */
+export function RoundBack({
+  close = false,
+  onPress,
+  label,
+  testID,
+}: {
+  close?: boolean;
+  onPress: () => void;
+  label?: string;
+  testID?: string;
+}) {
+  return (
+    <Tap
+      testID={testID}
+      accessibilityRole="button"
+      accessibilityLabel={label ?? (close ? "Close" : "Back")}
+      onPress={onPress}
+      hitSlop={4}
+      style={s.roundBack}
+    >
+      <Icon name={close ? "close" : "chevron-back"} size={20} color={c.text} />
+    </Tap>
+  );
+}
+
+/**
+ * A page's title, as the finished screens set theirs: an optional gold
+ * kicker, the title in the serif (one phrase in italics when `italic`
+ * names it), and a muted lead. Wraps, never truncates; Dynamic Type stops
+ * at 1.3× for the title.
+ */
 export function PageTitle({
   title,
   lead,
+  kicker,
+  italic,
   children,
-}: PropsWithChildren<{ title: string; lead?: ReactNode }>) {
+}: PropsWithChildren<{
+  title: string;
+  lead?: ReactNode;
+  /** Sentence case; drawn uppercase ("Your account"). */
+  kicker?: string;
+  /** The phrase of the title set in Newsreader italic. */
+  italic?: string | null;
+}>) {
   usePageTitle(title);
+  const parts = splitItalic(title, italic);
   return (
     <View style={s.pageTitleBlock}>
       {children}
-      <Heading level={1} style={s.pageTitle} maxFontSizeMultiplier={1.8}>
-        {title}
+      {kicker ? (
+        <T
+          style={s.pageKicker}
+          accessibilityLabel={spokenKicker(kicker)}
+          maxFontSizeMultiplier={textCap.section}
+        >
+          {kicker}
+        </T>
+      ) : null}
+      <Heading level={1} style={s.pageTitle} maxFontSizeMultiplier={textCap.display}>
+        {parts.before}
+        {parts.italic ? <Text style={s.italic}>{parts.italic}</Text> : null}
+        {parts.after}
       </Heading>
-      {lead ? <T style={s.lead}>{lead}</T> : null}
+      {lead ? <T style={[s.lead, s.pageLead]}>{lead}</T> : null}
     </View>
   );
 }
 
+/**
+ * A section's serif heading on a page (24/28), with a navy text action or a
+ * muted aside on its baseline. Serif for what is said to you; a list's
+ * label stays in Manrope.
+ */
 export function SectionHeading({
   children,
   aside,
@@ -612,20 +682,21 @@ export function SectionHeading({
   style?: StyleProp<ViewStyle>;
 }>) {
   return (
-    <View style={[s.sectionHeading, action && { minHeight: 48 }, style]}>
-      <Heading level={2} style={s.sectionTitle}>
+    <View style={[s.sectionHeading, style]}>
+      <Heading level={2} style={s.sectionTitle} maxFontSizeMultiplier={textCap.section}>
         {children}
       </Heading>
       {action ? (
-        <TextButton
-          label={action.label}
-          hint={action.hint}
-          onPress={action.onPress}
-          icon="chevron-forward"
-          align="end"
-        />
+        <View style={s.sectionAction}>
+          <TextButton
+            label={action.label}
+            hint={action.hint}
+            onPress={action.onPress}
+            align="end"
+          />
+        </View>
       ) : (
-        aside && <T style={s.meta}>{aside}</T>
+        aside && <T style={[s.meta, tabular]}>{aside}</T>
       )}
     </View>
   );
@@ -652,6 +723,12 @@ export function Badge({ children }: PropsWithChildren) {
   );
 }
 
+/**
+ * What happened, in one serif line; why, in one muted line; and the way
+ * forward as pills. A white card on the ivory page with a sand icon well,
+ * as Search's calm states are drawn. Errors stay calm (navy, never red):
+ * `tone` is kept for older callers.
+ */
 export function StatePanel({
   icon = "albums-outline",
   title,
@@ -662,6 +739,8 @@ export function StatePanel({
   secondaryLabel,
   tone = "neutral",
   level = 2,
+  testID,
+  children,
 }: {
   icon?: IconName;
   title: string;
@@ -672,29 +751,27 @@ export function StatePanel({
   secondaryLabel?: string;
   tone?: "neutral" | "error";
   level?: 1 | 2;
+  testID?: string;
+  children?: ReactNode;
 }) {
   // A panel that is the page's heading names the page.
   usePageTitle(level === 1 ? title : null);
   return (
-    <View style={s.state}>
+    <View testID={testID} style={s.state}>
       <View style={s.stateIcon}>
-        <Icon
-          name={icon}
-          color={tone === "error" ? c.error : c.accent}
-          size={28}
-        />
+        <Icon name={icon} color={c.accent} size={24} />
       </View>
-      <View style={{ gap: space.sm }}>
-        <Heading level={level} style={s.stateTitle}>
-          {title}
-        </Heading>
-        <T style={s.body}>{body}</T>
-      </View>
+      <Heading level={level} style={s.stateTitle} maxFontSizeMultiplier={textCap.section}>
+        {title}
+      </Heading>
+      <T style={s.stateBody}>{body}</T>
+      {children ? <View style={s.stateExtra}>{children}</View> : null}
       {(action || secondaryAction) && (
-        <View style={{ gap: space.md, marginTop: space.sm }}>
-          {action && label && <Button label={label} onPress={action} />}
+        <View style={s.stateActions}>
+          {action && label && <Button compact label={label} onPress={action} />}
           {secondaryAction && secondaryLabel && (
             <Button
+              compact
               label={secondaryLabel}
               variant="secondary"
               onPress={secondaryAction}
@@ -825,15 +902,19 @@ export function useNarrow() {
   return (Math.min(width, 760) - space.gutter * 2) / fontScale < 300;
 }
 
+/** Row artwork: 128pt, 112pt on a narrow phone (320pt). */
+export function rowArtWidth(width: number) {
+  return width < 360 ? 112 : 128;
+}
+
 /**
- * Side-by-side rows need roughly 140pt of text column at the user's text
+ * Side-by-side rows need roughly 120pt of text column at the user's text
  * size; below that the artwork moves above the text.
  */
-function useStackedRows() {
+function useStackedRows(art: number) {
   const { width, fontScale } = useWindowDimensions();
   const content = Math.min(width, 760) - space.gutter * 2;
-  const thumb = Math.min(176, Math.max(112, content * 0.4));
-  return (content - thumb - 14) / fontScale < 140;
+  return (content - art - 16) / fontScale < 120;
 }
 
 export function sermonLabel(sermon: Sermon, lead?: CategoryId) {
@@ -847,48 +928,80 @@ export function sermonLabel(sermon: Sermon, lead?: CategoryId) {
     .join(" ");
 }
 
+/** "23 Sep 2026 · 2 hr 28 min", unbroken inside each part. */
+export function sermonMeta(sermon: Pick<Sermon, "date" | "duration">) {
+  return sermon.duration ? `${nowrap(sermon.date)} · ${nowrap(sermon.duration)}` : nowrap(sermon.date);
+}
+
 /**
- * The list unit for sermons: artwork on the leading side, then sample topic
- * labels, the short headline and the event and date.
+ * The list unit for sermons, everywhere a list of them appears (Home's
+ * latest, All sermons, Saved, a series, a topic, More sermons): 16:9 artwork
+ * on the leading side, then the event as a gold kicker, the headline (two
+ * lines, see SermonTitle) and the date and length. At large text the
+ * artwork moves above the words. One accessible element.
  */
 export function SermonRow({
   sermon,
   lead,
+  kicker,
+  detail,
+  onPress,
+  hint,
+  progress,
+  testID = "sermon-row",
 }: {
   sermon: Sermon;
+  /** The topic being browsed: read first among the sample topics. */
   lead?: CategoryId;
+  /** Replaces the event line as the kicker ("Part 2", "Session 3"). */
+  kicker?: string | null;
+  /** A line under the date ("1 hr 12 min left"), in navy. */
+  detail?: string | null;
+  /** Instead of opening the sermon's page. */
+  onPress?: () => void;
+  hint?: string;
+  /** Watched part, 0 to 1, along the artwork's bottom edge. */
+  progress?: number | null;
+  testID?: string;
 }) {
   const go = useGo();
-  const stacked = useStackedRows();
-  const topics = topicLabels(sermon, lead).slice(0, 2);
+  const { width } = useWindowDimensions();
+  const art = rowArtWidth(width);
+  const stacked = useStackedRows(art);
+  const top = kicker === undefined ? eventLine(sermon) : kicker;
   return (
     <Tap
-      testID="sermon-row"
+      testID={testID}
       accessibilityRole="button"
-      accessibilityLabel={sermonLabel(sermon, lead)}
-      onPress={() =>
-        go.push({ pathname: "/sermon/[id]", params: { id: sermon.id } })
+      accessibilityLabel={
+        detail ? `${sermonLabel(sermon, lead)} ${detail}.` : sermonLabel(sermon, lead)
+      }
+      accessibilityHint={hint}
+      onPress={
+        onPress ??
+        (() => go.push({ pathname: "/sermon/[id]", params: { id: sermon.id } }))
       }
       unstable_pressDelay={60}
       feedback="scaleLarge"
       style={[s.row, stacked && s.rowStacked]}
     >
-      <Thumbnail
-        sermon={sermon}
-        duration
-        compact={!stacked}
-        style={stacked ? s.rowThumbStacked : s.rowThumb}
+      <Artwork
+        art={sermon}
+        width={stacked ? undefined : art}
+        radius={10}
+        progress={progress}
+        fallback={sermon.collection}
+        priority="low"
       />
       <View style={s.rowBody}>
-        {topics.length > 0 && <T style={s.kicker}>{topics.join(" · ")}</T>}
-        <SermonTitle
-          title={headline(sermon)}
-          numberOfLines={stacked ? undefined : 2}
-          style={s.rowTitle}
-        />
-        <T style={s.meta}>
-          {eventLine(sermon)} · {nowrap(sermon.date)}
-        </T>
+        {top ? (
+          <T style={s.rowKicker} numberOfLines={stacked ? undefined : 1} maxFontSizeMultiplier={textCap.section}>
+            {top}
+          </T>
+        ) : null}
+        <SermonTitle list title={headline(sermon)} numberOfLines={stacked ? 0 : 2} />
+        <T style={s.rowMeta}>{sermonMeta(sermon)}</T>
+        {detail ? <T style={s.rowDetail}>{detail}</T> : null}
       </View>
     </Tap>
   );
@@ -896,23 +1009,25 @@ export function SermonRow({
 
 /**
  * A sermon as a card in a horizontal rail: artwork above, then the headline
- * and which part of the series it is.
+ * and a line under it (the event line by default).
  */
 export function SermonCard({
   sermon,
   width,
   detail,
+  testID = "sermon-card",
 }: {
   sermon: Sermon;
   width: number;
   /** The line under the headline; the event line by default. */
   detail?: string;
+  testID?: string;
 }) {
   const go = useGo();
   const meta = detail ?? eventLine(sermon);
   return (
     <Tap
-      testID="sermon-card"
+      testID={testID}
       accessibilityRole="button"
       accessibilityLabel={sermonLabel(sermon)}
       onPress={() =>
@@ -922,14 +1037,16 @@ export function SermonCard({
       feedback="scaleLarge"
       style={[s.card, { width }]}
     >
-      <Thumbnail sermon={sermon} duration compact style={s.cardThumb} />
-      <View style={{ gap: 4 }}>
-        <SermonTitle
-          title={headline(sermon)}
-          numberOfLines={2}
-          style={s.rowTitle}
-        />
-        <T style={s.meta} numberOfLines={2}>
+      <Artwork
+        art={sermon}
+        width={width}
+        chip={sermon.duration || null}
+        fallback={sermon.collection}
+        priority="low"
+      />
+      <View style={{ gap: 3 }}>
+        <SermonTitle list title={headline(sermon)} />
+        <T style={s.rowMeta} numberOfLines={2}>
           {meta ? `${meta} · ` : ""}
           {nowrap(sermon.date)}
         </T>
@@ -964,22 +1081,30 @@ export const s = StyleSheet.create({
   header: {
     flexDirection: "row",
     alignItems: "center",
-    gap: space.xs,
+    gap: space.md,
     minHeight: 56,
-    marginHorizontal: -12,
-    marginBottom: space.sm,
+    marginBottom: space.xs,
   },
   headerTitle: {
-    fontFamily: font.bold,
-    fontSize: 17,
-    lineHeight: 24,
+    ...type.buttonLarge,
+    color: c.text,
+  },
+  roundBack: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: c.surface,
+    borderWidth: 1,
+    borderColor: c.border,
+    boxShadow: "0 1px 2px rgba(27,30,36,0.05)",
+    alignItems: "center",
+    justifyContent: "center",
   },
   wordmark: {
     flex: 1,
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
-    paddingStart: 12,
   },
   wordmarkLine: {
     width: 4,
@@ -987,6 +1112,7 @@ export const s = StyleSheet.create({
     backgroundColor: c.accent,
     borderRadius: 2,
   },
+  // The wordmark is a lockup (the welcome's), not a step on the type scale.
   wordmarkText: { fontFamily: font.bold, fontSize: 18, lineHeight: 24 },
   iconButton: {
     minWidth: 48,
@@ -998,12 +1124,19 @@ export const s = StyleSheet.create({
   button: {
     minHeight: 52,
     paddingVertical: 14,
-    paddingHorizontal: 20,
-    borderRadius: radius.md,
+    paddingHorizontal: 24,
+    borderRadius: radius.pill,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 10,
+  },
+  buttonCompact: {
+    minHeight: 44,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    gap: 8,
+    alignSelf: "flex-start",
   },
   primary: { backgroundColor: c.accent },
   // White with a hairline: quieter than the navy fill, still a clear button
@@ -1015,9 +1148,12 @@ export const s = StyleSheet.create({
   },
   danger: { backgroundColor: c.error },
   buttonText: {
-    fontFamily: font.bold,
-    fontSize: 16,
-    lineHeight: 22,
+    ...type.buttonLarge,
+    textAlign: "center",
+    flexShrink: 1,
+  },
+  buttonTextCompact: {
+    ...type.button,
     textAlign: "center",
     flexShrink: 1,
   },
@@ -1036,21 +1172,26 @@ export const s = StyleSheet.create({
     textAlign: "center",
   },
   pageTitleBlock: {
-    gap: space.md,
-    marginTop: space.lg,
+    marginTop: space.md,
     marginBottom: space.sm,
   },
-  pageTitle: type.display,
+  pageKicker: { ...type.overline, color: c.gold, marginBottom: 6 },
+  pageTitle: { ...type.title, color: c.text },
+  pageLead: { marginTop: space.md },
+  italic: { fontFamily: font.serifItalic },
   sectionHeading: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "center",
+    alignItems: "baseline",
     flexWrap: "wrap",
     columnGap: space.md,
-    marginTop: 36,
+    marginTop: space.section,
     marginBottom: space.md,
   },
-  sectionTitle: { ...type.heading, flexShrink: 1 },
+  sectionTitle: { ...type.section, color: c.text, flexShrink: 1 },
+  // The text button is 48pt tall; pulled back so its label shares the
+  // title's baseline instead of pushing the row taller.
+  sectionAction: { marginVertical: -14 },
   lead: { ...type.lead, color: c.muted },
   body: { ...type.body, color: c.muted },
   meta: { ...type.caption, color: c.muted },
@@ -1066,22 +1207,37 @@ export const s = StyleSheet.create({
   // Sand, so it reads as a label (not a button) on ivory and white alike.
   badge: {
     alignSelf: "flex-start",
-    borderRadius: radius.sm,
+    borderRadius: radius.pill,
     paddingHorizontal: 10,
-    paddingVertical: 5,
+    paddingVertical: 4,
     backgroundColor: c.feature,
   },
-  badgeText: { ...type.kicker, color: c.accent },
-  state: { paddingVertical: space.xl, gap: space.lg },
+  badgeText: { ...type.overline, color: c.mutedOnFeature },
+  state: {
+    marginTop: space.lg,
+    padding: 22,
+    borderRadius: radius.r22,
+    backgroundColor: c.surface,
+    boxShadow: shadows.card,
+  },
   stateIcon: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     backgroundColor: c.feature,
     justifyContent: "center",
     alignItems: "center",
+    marginBottom: 14,
   },
-  stateTitle: { fontFamily: font.bold, fontSize: 22, lineHeight: 29 },
+  stateTitle: { ...type.sectionSmall, color: c.text },
+  stateBody: { ...type.body, color: c.muted, marginTop: 6 },
+  stateExtra: { marginTop: 14 },
+  stateActions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: space.md,
+    marginTop: 18,
+  },
   thumbnail: {
     width: "100%",
     backgroundColor: c.feature,
@@ -1117,32 +1273,26 @@ export const s = StyleSheet.create({
   },
   // On the dark scrim over artwork, whatever the page colour.
   durationText: {
-    fontSize: 12,
-    lineHeight: 16,
-    fontFamily: font.semibold,
+    ...type.metaSmall,
     color: c.onMedia,
+    ...tabular,
   },
   row: {
     flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 14,
-    paddingVertical: space.sm,
+    alignItems: "center",
+    gap: space.lg,
+    minHeight: 72,
   },
-  rowStacked: { flexDirection: "column", gap: space.md },
-  rowThumb: {
-    width: "40%",
-    maxWidth: 176,
-    minWidth: 112,
-    borderRadius: radius.md,
-  },
-  rowThumbStacked: { borderRadius: radius.md },
-  rowBody: { flex: 1, gap: 6, alignSelf: "stretch" },
-  rowTitle: {
-    fontFamily: font.semibold,
-    fontSize: 16,
-    lineHeight: 22,
-  },
-  card: { gap: space.sm, paddingVertical: space.xs },
+  rowStacked: { flexDirection: "column", alignItems: "stretch", gap: 10 },
+  rowBody: { flex: 1, minWidth: 0, gap: 3, alignSelf: "stretch", justifyContent: "center" },
+  rowKicker: { ...type.overline, color: c.gold },
+  rowMeta: { ...type.meta, color: c.muted, ...tabular },
+  rowDetail: { ...type.meta, fontFamily: font.bold, color: c.accent, ...tabular },
+  /** A sermon's title in any list (SermonTitle `list`). */
+  listTitle: { ...type.cardTitle, color: c.text },
+  // Kept for older callers; rows now use listTitle.
+  rowTitle: { ...type.cardTitle, color: c.text },
+  card: { gap: 10, paddingVertical: space.xs },
   cardThumb: { borderRadius: radius.md },
   divider: { height: 1, backgroundColor: c.divider },
   // The scrubber's rail and fill, so watched progress reads the same

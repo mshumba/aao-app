@@ -210,16 +210,40 @@ export const font = {
 };
 
 /**
+ * The type scale: twelve sizes, and every role below uses one of them.
+ * Readable text is never under 13pt; only tab labels use 11.
+ */
+export const fontSize = {
+  tab: 11,
+  small: 13,
+  body: 15,
+  lead: 16,
+  quote: 17,
+  heading: 19,
+  card: 22,
+  section: 24,
+  sermon: 27,
+  question: 30,
+  title: 34,
+  hero: 38,
+} as const;
+
+/**
  * Type roles. Every text style in the app starts from one of these. Kickers
  * are written in sentence case and uppercased here; verified sermon titles
  * are never transformed or re-tracked.
  */
 export const type = {
+  /**
+   * Retired (the design doc's "generic bold page title"): kept for older
+   * screens, now the serif question size so nothing still using it looks
+   * like a template.
+   */
   display: {
-    fontFamily: font.extrabold,
-    fontSize: 30,
+    fontFamily: font.serif,
+    fontSize: fontSize.question,
     lineHeight: 36,
-    letterSpacing: -0.6,
+    letterSpacing: -0.4,
   },
   /**
    * The title of the sermon you are on, on its own page (Newsreader, from the
@@ -227,33 +251,34 @@ export const type = {
    */
   sermonTitle: {
     fontFamily: font.serif,
-    fontSize: 27,
+    fontSize: fontSize.sermon,
     lineHeight: 32,
     letterSpacing: -0.5,
   },
   /** Welcome headline. One per screen at most. */
   hero: {
     fontFamily: font.serif,
-    fontSize: 38,
+    fontSize: fontSize.hero,
     lineHeight: 42,
     letterSpacing: -0.6,
   },
-  /** Onboarding questions and the sign-up sheet's headline. */
+  /** Onboarding and sign-in questions, the sign-up sheet's headline. */
   question: {
     fontFamily: font.serif,
-    fontSize: 30,
-    lineHeight: 35,
+    fontSize: fontSize.question,
+    lineHeight: 36,
     letterSpacing: -0.4,
   },
-  heading: { fontFamily: font.bold, fontSize: 19, lineHeight: 26 },
-  lead: { fontFamily: font.regular, fontSize: 16, lineHeight: 25 },
-  body: { fontFamily: font.regular, fontSize: 15, lineHeight: 24 },
-  label: { fontFamily: font.semibold, fontSize: 15, lineHeight: 21 },
-  caption: { fontFamily: font.regular, fontSize: 13, lineHeight: 19 },
+  /** Sheet titles only. */
+  heading: { fontFamily: font.bold, fontSize: fontSize.heading, lineHeight: 26 },
+  lead: { fontFamily: font.regular, fontSize: fontSize.lead, lineHeight: 25 },
+  body: { fontFamily: font.regular, fontSize: fontSize.body, lineHeight: 24 },
+  label: { fontFamily: font.semibold, fontSize: fontSize.body, lineHeight: 21 },
+  caption: { fontFamily: font.regular, fontSize: fontSize.small, lineHeight: 19 },
   kicker: {
     fontFamily: font.bold,
-    fontSize: 12,
-    lineHeight: 16,
+    fontSize: fontSize.small,
+    lineHeight: 17,
     letterSpacing: 0.6,
     textTransform: "uppercase" as const,
   },
@@ -262,106 +287,113 @@ export const type = {
   /** Home hero's sermon title over the dark stage ("The Heavenly *Calling*"). */
   masthead: {
     fontFamily: font.serif,
-    fontSize: 39,
+    fontSize: fontSize.hero,
     lineHeight: 41,
     letterSpacing: -0.8,
   },
   /** Root page titles and questions ("What are you *going through?*"). */
   title: {
     fontFamily: font.serif,
-    fontSize: 34,
+    fontSize: fontSize.title,
     lineHeight: 37,
     letterSpacing: -0.6,
   },
   /** A path's name on its dark cover. */
   coverTitle: {
     fontFamily: font.serif,
-    fontSize: 31,
+    fontSize: fontSize.question,
     lineHeight: 34,
     letterSpacing: -0.6,
   },
   /** "Good afternoon, *Mufaro*" on the hero. */
   greeting: {
     fontFamily: font.serifRegular,
-    fontSize: 22,
+    fontSize: fontSize.card,
     lineHeight: 28,
     letterSpacing: -0.2,
   },
   /** Section headings ("Continue watching", "Moments in this sermon"). */
   section: {
     fontFamily: font.serif,
-    fontSize: 24,
+    fontSize: fontSize.section,
     lineHeight: 28,
     letterSpacing: -0.3,
+  },
+  /** Smaller serif headings: a state's title, a list's heading, a card's name. */
+  sectionSmall: {
+    fontFamily: font.serif,
+    fontSize: fontSize.card,
+    lineHeight: 28,
+    letterSpacing: -0.2,
   },
   /** A path's name inside a card. */
   pathName: {
     fontFamily: font.serif,
-    fontSize: 23,
+    fontSize: fontSize.card,
     lineHeight: 26,
     letterSpacing: -0.3,
   },
   /** Short display quotes (three lines or fewer), italic. */
   quoteLarge: {
     fontFamily: font.serifItalic,
-    fontSize: 24,
+    fontSize: fontSize.section,
     lineHeight: 32,
     letterSpacing: -0.2,
   },
   /** Moment quotes in result cards. Upright: italic tires after two lines. */
   quote: {
     fontFamily: font.serifRegular,
-    fontSize: 17.5,
+    fontSize: fontSize.quote,
     lineHeight: 24,
     letterSpacing: -0.1,
   },
   /** Quotes inside rows (moments in a sermon). */
   quoteSmall: {
     fontFamily: font.serifRegular,
-    fontSize: 16,
+    fontSize: fontSize.lead,
     lineHeight: 22,
   },
-  /** The screen's one block of serif prose ("Why this path"). */
+  /** The screen's one block of serif prose ("Why this path", a blessing). */
   prose: {
     fontFamily: font.serifRegular,
-    fontSize: 17,
+    fontSize: fontSize.quote,
     lineHeight: 24,
     letterSpacing: -0.1,
   },
   /** The serif-italic prompt in the search field. */
   prompt: {
     fontFamily: font.serifRegularItalic,
-    fontSize: 19,
+    fontSize: fontSize.heading,
     lineHeight: 24,
     letterSpacing: -0.1,
   },
-  /** Sermon titles in cards, rows and day rows. */
-  cardTitle: { fontFamily: font.bold, fontSize: 14.5, lineHeight: 19 },
+  /** Sermon titles in cards, rows and day rows (see SermonTitle). */
+  cardTitle: { fontFamily: font.bold, fontSize: fontSize.body, lineHeight: 20 },
   /** Moment titles inside the moments list. */
-  rowTitle: { fontFamily: font.bold, fontSize: 13, lineHeight: 17 },
-  /** Typed text in the search field. */
-  field: { fontFamily: font.semibold, fontSize: 16, lineHeight: 22 },
+  rowTitle: { fontFamily: font.bold, fontSize: fontSize.small, lineHeight: 18 },
+  /** Typed text in the search field and the sign-in fields. */
+  field: { fontFamily: font.semibold, fontSize: fontSize.lead, lineHeight: 22 },
   /** Navy pills ("Play from 1:52:27"). Tabular figures where it counts. */
-  labelSmall: { fontFamily: font.bold, fontSize: 13.5, lineHeight: 18 },
+  labelSmall: { fontFamily: font.bold, fontSize: fontSize.small, lineHeight: 18 },
   /** Chips ("The same sin again"). */
-  chip: { fontFamily: font.semibold, fontSize: 13.5, lineHeight: 18 },
+  chip: { fontFamily: font.semibold, fontSize: fontSize.small, lineHeight: 18 },
   /** Lines under titles: "48 min left · 2 of 7 done". */
-  meta: { fontFamily: font.medium, fontSize: 12.5, lineHeight: 17 },
-  /** Smaller metadata: dates in results, counts, the progress caption. */
-  metaSmall: { fontFamily: font.semibold, fontSize: 12, lineHeight: 16 },
-  /** The concept's eyebrow: 11/14, widely tracked, uppercase. */
+  meta: { fontFamily: font.medium, fontSize: fontSize.small, lineHeight: 18 },
+  /** Metadata that sits a step quieter: dates in results, counts. */
+  metaSmall: { fontFamily: font.semibold, fontSize: fontSize.small, lineHeight: 17 },
+  /** The concept's eyebrow: tracked, uppercase, at the smallest readable size. */
   overline: {
     fontFamily: font.bold,
-    fontSize: 11,
-    lineHeight: 14,
-    letterSpacing: 1.3,
+    fontSize: fontSize.small,
+    lineHeight: 16,
+    letterSpacing: 0.8,
     textTransform: "uppercase" as const,
   },
   /** Pill buttons ("Watch", "Continue Day 3"). */
-  button: { fontFamily: font.bold, fontSize: 15, lineHeight: 20 },
-  buttonLarge: { fontFamily: font.bold, fontSize: 16, lineHeight: 22 },
-  /** Tab labels. */
-  tab: { fontFamily: font.semibold, fontSize: 11, lineHeight: 13 },
+  button: { fontFamily: font.bold, fontSize: fontSize.body, lineHeight: 20 },
+  buttonLarge: { fontFamily: font.bold, fontSize: fontSize.lead, lineHeight: 22 },
+  /** Tab labels: the one size under 13pt. */
+  tab: { fontFamily: font.semibold, fontSize: fontSize.tab, lineHeight: 13 },
 };
 
 /**

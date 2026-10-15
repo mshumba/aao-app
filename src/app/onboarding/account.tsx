@@ -110,7 +110,7 @@ export default function OnboardingAccount() {
         />
       }
     >
-      <FlowTitle title="Create your free account" />
+      <FlowTitle title="Create your free account" italic="free account" />
       <AccountBenefits size="lead" />
       <TestModeNotice />
       <View style={styles.actions}>

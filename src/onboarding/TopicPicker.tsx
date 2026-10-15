@@ -2,7 +2,7 @@ import * as Haptics from "expo-haptics";
 import { useState } from "react";
 import { Platform, StyleSheet, View, useWindowDimensions } from "react-native";
 import { Category, CategoryId, categories } from "../data/categories";
-import { font, radius, space } from "../theme";
+import { font, radius, shadows, space, textCap, type } from "../theme";
 import { Icon, T, Tap, c, s, web } from "../ui";
 
 /**
@@ -113,7 +113,9 @@ function TopicCard({
         <TopicIcon category={category} />
       )}
       <View style={[styles.text, !stacked && { flex: 1 }]}>
-        <T style={styles.label}>{category.label}</T>
+        <T style={styles.label} maxFontSizeMultiplier={textCap.section}>
+          {category.label}
+        </T>
         <T nativeID={descriptionId} style={s.meta}>
           {category.description}
         </T>
@@ -141,22 +143,23 @@ const styles = StyleSheet.create({
   list: { gap: space.md },
   // Cards in a row stretch to the taller one.
   row: { flexDirection: "row", gap: space.md },
-  // White cards on the ivory page, edged with a hairline. Picking thickens
-  // the edge to 2pt navy; padding gives up the difference so the content
-  // never shifts (a 16pt inset either way).
+  // White cards lifted off the ivory page, as the app's other cards are.
+  // Picking draws a 2pt navy edge (with the filled check: never colour
+  // alone); the edge is always there, clear, so nothing shifts.
   card: {
     flex: 1,
     flexDirection: "row",
     alignItems: "flex-start",
-    gap: space.md,
-    padding: 15,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: c.border,
+    gap: 14,
+    padding: 14,
+    borderRadius: radius.r22,
+    borderWidth: 2,
+    borderColor: "transparent",
     backgroundColor: c.surface,
+    boxShadow: shadows.card,
   },
   cardStacked: { flexDirection: "column", alignItems: "stretch" },
-  cardOn: { borderColor: c.accent, borderWidth: 2, padding: 14 },
+  cardOn: { borderColor: c.accent },
   stackedTop: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -165,13 +168,13 @@ const styles = StyleSheet.create({
   icon: {
     width: 40,
     height: 40,
-    borderRadius: radius.md,
+    borderRadius: 20,
     backgroundColor: c.feature,
     alignItems: "center",
     justifyContent: "center",
   },
   text: { gap: space.xs },
-  label: { fontFamily: font.bold, fontSize: 16, lineHeight: 22 },
+  label: { ...type.sectionSmall, lineHeight: 26, fontFamily: font.serif, color: c.text },
   // Unpicked: an empty ring in the muted colour, which keeps 3:1 against
   // the white card; picked: a filled navy disc with a white check.
   check: {

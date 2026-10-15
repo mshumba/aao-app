@@ -3,19 +3,10 @@ import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { useAccount } from "../auth/AccountProvider";
 import { useCatalogue } from "../catalogue/CatalogueProvider";
 import type { Sermon } from "../data/sermons";
-import { exitTo, useGo } from "../navigation";
+import { useGo } from "../navigation";
 import { space } from "../theme";
 import { sermonCount } from "../topics";
-import {
-  Header,
-  Page,
-  PageTitle,
-  SermonRow,
-  StatePanel,
-  T,
-  c,
-  s,
-} from "../ui";
+import { Header, Page, PageTitle, SermonRow, StatePanel, c } from "../ui";
 
 export default function Saved() {
   const account = useAccount();
@@ -47,7 +38,14 @@ export default function Saved() {
   return (
     <Page>
       <Header back />
-      <PageTitle title="Saved" />
+      <PageTitle
+        title="Saved"
+        lead={
+          !loading && account.user && !account.savedError && list.length
+            ? `${sermonCount(list.length)}, the most recently saved first.`
+            : undefined
+        }
+      />
       {loading ? (
         <View style={styles.loading}>
           <ActivityIndicator color={c.accent} accessibilityLabel="Loading saved sermons" />
@@ -58,8 +56,8 @@ export default function Saved() {
             icon="bookmark-outline"
             title="Saving isn’t available yet"
             body="Accounts are coming soon. Until then, you can browse and watch every sermon."
-            label="Browse sermons"
-            action={() => exitTo("/")}
+            label="Browse all sermons"
+            action={() => go.push("/sermons")}
           />
         ) : (
           <StatePanel
@@ -84,21 +82,18 @@ export default function Saved() {
           action={retry}
         />
       ) : list.length ? (
-        <>
-          <T style={[s.meta, styles.count]}>{sermonCount(list.length)}</T>
-          <View style={{ gap: space.sm }}>
-            {list.map((sermon) => (
-              <SermonRow key={sermon.id} sermon={sermon} />
-            ))}
-          </View>
-        </>
+        <View style={styles.rows}>
+          {list.map((sermon) => (
+            <SermonRow key={sermon.id} sermon={sermon} />
+          ))}
+        </View>
       ) : (
         <StatePanel
           icon="bookmark-outline"
           title="Nothing saved yet"
-          body="Tap Save on any sermon to keep it here."
-          label="Browse sermons"
-          action={() => exitTo("/")}
+          body="Tap Save on any sermon and it will wait for you here."
+          label="Browse all sermons"
+          action={() => go.push("/sermons")}
         />
       )}
     </Page>
@@ -107,5 +102,5 @@ export default function Saved() {
 
 const styles = StyleSheet.create({
   loading: { paddingVertical: space.xxl, alignItems: "center" },
-  count: { color: c.text, marginTop: space.lg, marginBottom: space.sm },
+  rows: { gap: space.lg, marginTop: space.lg },
 });

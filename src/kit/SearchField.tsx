@@ -53,6 +53,11 @@ export type SearchFieldProps = Common &
         arrow?: boolean;
         /** Drawn as focused (navy edge and ring) while results show for what's typed. */
         active?: boolean;
+        /**
+         * The leading glyph: the sparkle (search by meaning, the default) or a
+         * plain icon for a field that only matches titles.
+         */
+        leading?: "spark" | IconName;
         autoFocus?: boolean;
         inputRef?: Ref<TextInput>;
         onFocus?: TextInputProps["onFocus"];
@@ -167,6 +172,7 @@ function PageField({
   onClear,
   arrow = false,
   active = false,
+  leading = "spark",
   autoFocus,
   inputRef,
   onFocus,
@@ -190,7 +196,7 @@ function PageField({
             : { borderColor: fieldBorder, borderWidth: 1, boxShadow: shadows.fieldRest },
         ]}
       >
-        <Spark size={20} />
+        {leading === "spark" ? <Spark size={20} /> : <Icon name={leading} size={20} color={c.muted} />}
         <View style={styles.inputWrap}>
           <TextInput
             ref={inputRef}
@@ -317,7 +323,7 @@ const styles = StyleSheet.create({
     minHeight: 44,
   },
   promptLayer: { ...StyleSheet.absoluteFill, justifyContent: "center", pointerEvents: "none" },
-  pagePrompt: { color: c.muted, fontSize: 18 },
+  pagePrompt: { color: c.muted, fontSize: 17 },
   clear: {
     width: 26,
     height: 26,

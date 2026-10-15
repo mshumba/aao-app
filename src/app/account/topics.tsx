@@ -37,6 +37,7 @@ export default function YourTopics() {
     <Page>
       <Header back />
       <PageTitle
+        kicker="Account"
         title="Your topics"
         lead={
           account.user

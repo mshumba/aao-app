@@ -30,17 +30,16 @@ import {
 import { eventLine, headline } from "../data/display";
 import { useCatalogue } from "../catalogue/CatalogueProvider";
 import type { Sermon } from "../data/sermons";
-import { CardFan, ItalicTitle, spokenText } from "../kit";
+import { Artwork, CardFan, ItalicTitle, spokenText } from "../kit";
 import { minutesPerDayLabel, usePath } from "../learning";
 import { useReducedMotion } from "../motion";
 import { firstParam, useGo, usePageTitle } from "../navigation";
 import { motion } from "../onboarding/parts";
-import { easeOut, font, radius, space, type } from "../theme";
+import { easeOut, radius, space, type } from "../theme";
 import {
-  IconButton,
+  RoundBack,
   SermonTitle,
   T,
-  Thumbnail,
   c,
   noWebOutline,
   returnFocus,
@@ -235,7 +234,7 @@ export default function Join() {
         ) : (
           <SwitchLine
             prompt="New here?"
-            label="Create a free account"
+            label="Create free account"
             testID="join-switch"
             disabled={busy}
             onPress={() => switchMode("sign-up")}
@@ -267,7 +266,7 @@ export default function Join() {
           ) : (
             <View style={{ flex: 1 }} />
           )}
-          <IconButton name="close" label="Close" testID="join-close" onPress={close} />
+          <RoundBack close testID="join-close" onPress={close} />
         </View>
       </View>
       {Platform.OS === "web" ? (
@@ -350,9 +349,9 @@ function Context({ sermon }: { sermon: Sermon }) {
       accessible={Platform.OS !== "web"}
       accessibilityLabel={`${title}. ${event}`}
     >
-      <Thumbnail sermon={sermon} compact style={styles.thumb} />
+      <Artwork art={sermon} width={96} radius={10} fallback={sermon.collection} />
       <View style={styles.contextText}>
-        <SermonTitle title={title} numberOfLines={2} style={styles.contextTitle} />
+        <SermonTitle list title={title} />
         <T style={s.meta}>{event}</T>
       </View>
     </View>
@@ -528,15 +527,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: space.md,
     minHeight: TOP_ROW,
-    marginEnd: -space.md,
   },
   context: { flex: 1, flexDirection: "row", alignItems: "center", gap: space.md },
-  thumb: { width: 96, borderRadius: radius.sm },
   contextText: { flex: 1, gap: 2 },
-  contextTitle: { fontFamily: font.semibold, fontSize: 15, lineHeight: 21 },
-  pathName: { fontSize: 17, lineHeight: 21, letterSpacing: -0.2 },
+  pathName: { ...type.prose, lineHeight: 21, letterSpacing: -0.2 },
   intro: { gap: space.sm, marginTop: space.lg },
-  headline: { ...type.question, fontSize: 28, lineHeight: 33 },
+  headline: type.question,
   lead: { ...type.lead, color: c.muted },
   actions: { gap: space.md, marginTop: space.xl },
   legal: { marginTop: space.lg },

@@ -2,14 +2,19 @@ import { useLocalSearchParams } from "expo-router";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { useCatalogue } from "../../catalogue/CatalogueProvider";
 import { seriesSermons } from "../../data/sermons";
+import { seriesDays } from "../../home/copy";
+import { CoverPage } from "../../kit";
+import { messagesLabel } from "../../learning/format";
 import { exitTo, firstParam } from "../../navigation";
 import { space } from "../../theme";
-import { sermonCount } from "../../topics";
-import { Header, Page, PageTitle, SermonRow, StatePanel, T, c, s } from "../../ui";
+import { Header, Page, SermonRow, StatePanel, c } from "../../ui";
 
 /**
  * Every part of a series, in order: a multi-part teaching such as "Gift of
- * Prophecy", or the sessions of a gathering such as "Lioness Conference 2022".
+ * Prophecy", or the sessions of a gathering such as "Lioness Conference
+ * 2022". Built like a path's page: a dark cover with a fan of its own
+ * sermons, "Series · 3 messages", the name, the days it spans; then the
+ * messages in order on ivory.
  */
 export default function SeriesScreen() {
   const params = useLocalSearchParams<{ key: string | string[] }>();
@@ -42,25 +47,25 @@ export default function SeriesScreen() {
       </Page>
     );
 
-  const first = list[0].date;
-  const last = list[list.length - 1].date;
+  const days = seriesDays(list);
   return (
-    <Page>
-      <Header back />
-      <PageTitle title={name ?? list[0].collection} />
-      <T style={[s.meta, styles.count]}>
-        {sermonCount(list.length)} · {first === last ? first : `${first} to ${last}`}
-      </T>
-      <View style={{ gap: space.sm }}>
+    <CoverPage
+      testID="series-page"
+      title={name ?? list[0].collection}
+      kicker={`Series · ${messagesLabel(list.length)}`}
+      lead={days || null}
+      fan={list}
+    >
+      <View style={styles.rows}>
         {list.map((sermon) => (
           <SermonRow key={sermon.id} sermon={sermon} />
         ))}
       </View>
-    </Page>
+    </CoverPage>
   );
 }
 
 const styles = StyleSheet.create({
   loading: { paddingVertical: space.xxl, alignItems: "center" },
-  count: { color: c.text, marginBottom: space.md },
+  rows: { gap: space.lg },
 });

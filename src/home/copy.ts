@@ -1,4 +1,5 @@
 import type { Sermon } from "../data/sermons";
+import { messagesLabel } from "../learning/format";
 
 /**
  * Home's words, in one place so the hero, the cards and their accessibility
@@ -44,20 +45,33 @@ export function heroKicker(sermon: Sermon, now = new Date()) {
   return sermon.duration ? `${lead} · ${sermon.duration}` : lead;
 }
 
-/** "3 sessions · 22–23 Sep" for a series card, from its sermons' days. */
-export function seriesCaption(sermons: Pick<Sermon, "day">[], now = new Date()) {
-  const count = `${sermons.length} ${sermons.length === 1 ? "session" : "sessions"}`;
+/**
+ * A conference or teaching series has at least this many sermons, wherever
+ * one is listed (Home's rail, a sermon's "Part of a series", All sermons).
+ */
+export const SERIES_MIN = 2;
+
+/** "22–23 Sep", "30 Sep – 2 Oct" or "27 Sep": the days a series' sermons span. */
+export function seriesDays(sermons: Pick<Sermon, "day">[], now = new Date()) {
   const days = sermons.map((s) => s.day).filter(Boolean).sort();
-  if (!days.length) return count;
+  if (!days.length) return "";
   const first = days[0];
   const last = days[days.length - 1];
-  if (first === last) return `${count} · ${shortDay(first, now)}`;
+  if (first === last) return shortDay(first, now);
   const [fy, fm, fd] = first.split("-").map(Number);
   const [ly, lm] = last.split("-").map(Number);
   // "22–23 Sep" within one month; "30 Sep – 2 Oct" across two.
-  const range =
-    fy === ly && fm === lm
-      ? `${fd}–${shortDay(last, now)}`
-      : `${shortDay(first, now)} – ${shortDay(last, now)}`;
-  return `${count} · ${range}`;
+  return fy === ly && fm === lm
+    ? `${fd}–${shortDay(last, now)}`
+    : `${shortDay(first, now)} – ${shortDay(last, now)}`;
+}
+
+/**
+ * "3 messages · 22–23 Sep": a series counted the way paths count theirs
+ * (messagesLabel), the same on Home's cards, the series page and All sermons.
+ */
+export function seriesCaption(sermons: Pick<Sermon, "day">[], now = new Date()) {
+  const count = messagesLabel(sermons.length);
+  const days = seriesDays(sermons, now);
+  return days ? `${count} · ${days}` : count;
 }

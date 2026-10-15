@@ -12,7 +12,7 @@ import {
 import Animated from "react-native-reanimated";
 import { artworkTint } from "../data/artwork";
 import { artFade, artRadius, c, font, shadows, tabular, textCap } from "../theme";
-import { T, web } from "../ui";
+import { T, web } from "./base";
 
 /**
  * expo-image when this build has it (memory and disk cache, recycling,
@@ -257,8 +257,8 @@ const styles = StyleSheet.create({
   },
   chipText: {
     fontFamily: font.bold,
-    fontSize: 11.5,
-    lineHeight: 14,
+    fontSize: 13,
+    lineHeight: 16,
     color: c.white,
     ...tabular,
   },

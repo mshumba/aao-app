@@ -1,6 +1,6 @@
 import { PropsWithChildren } from "react";
 import { Linking, StyleSheet, View } from "react-native";
-import { space } from "../theme";
+import { space, type } from "../theme";
 import {
   Header,
   Notice,
@@ -9,13 +9,15 @@ import {
   SectionHeading,
   T,
   TextButton,
+  c,
   s,
   web,
 } from "../ui";
 
 /**
- * A draft written to match what the app actually does today (see
- * src/auth and supabase/). The Supabase project runs in AWS us-east-1
+ * A draft written to match what the app actually does today (see src/auth,
+ * src/learning and supabase/, including the search function in
+ * supabase/functions/search). The Supabase project runs in AWS us-east-1
  * (N. Virginia). Review it, and fill in the contact details, before a public
  * release.
  */
@@ -24,6 +26,7 @@ export default function Privacy() {
     <Page>
       <Header back />
       <PageTitle
+        kicker="Your information"
         title="Privacy Policy"
         lead="What AAO collects, why, and how to delete it. AAO is a free app for finding and watching public sermons."
       />
@@ -43,6 +46,7 @@ export default function Privacy() {
             "The topics you choose.",
             "The sermons you save.",
             "Where you stopped in each sermon you watch, so it can pick up there.",
+            "Your progress through guided paths: the paths you start, and the days you finish.",
           ]}
         />
         <P>
@@ -53,24 +57,57 @@ export default function Privacy() {
         </P>
       </Section>
 
+      <Section title="When you search">
+        <P>
+          When you type what you’re going through into Search, the words you
+          type are sent to OpenAI, an AI service, so it can understand what
+          you mean and find the moments in sermons that speak to it. They are
+          sent without your name, email address or account.
+        </P>
+        <P>
+          So the same question is answered faster next time, AAO keeps the
+          answer for up to 24 hours. It’s kept under a scrambled code made
+          from the question, not the words themselves, and it isn’t linked to
+          you or your account. After 24 hours it’s deleted.
+        </P>
+        <P>
+          To stop the service being overloaded, AAO counts how many searches
+          come from each signed-in account, or from each internet address
+          (scrambled) for guests, over the last few minutes and hour. That
+          count isn’t linked to what you searched for.
+        </P>
+        <P>
+          Your recent searches are kept on this device only, so you can run
+          them again. You can remove them in Search at any time.
+        </P>
+        <TextButton
+          label="OpenAI Privacy Policy"
+          icon="open-outline"
+          align="start"
+          hint="Opens in your browser"
+          onPress={() => Linking.openURL("https://openai.com/policies/privacy-policy")}
+        />
+      </Section>
+
       <Section title="On your device">
         <P>
           To keep you signed in and remember your choices between visits, the
           app stores your sign-in session (in the iPhone Keychain, Android’s
           secure storage, or your browser’s storage on the web), the topics you
-          chose, whether you’ve seen the welcome screens, and which sermons you
-          opened from a shared link. Signing out removes the session; the rest
-          stays until you change it or remove the app.
+          chose, your recent searches, whether you’ve seen the welcome
+          screens, which blessings you’ve already seen on Home, and which
+          sermons you opened from a shared link. Signing out removes the
+          session; the rest stays until you change it or remove the app.
         </P>
       </Section>
 
       <Section title="How it’s used">
         <P>
-          Only to run your account: to sign you in, keep your topics, saved
-          sermons and place in each sermon on any device, and greet you by
-          name. AAO emails you only to
-          send codes for signing in, confirming your email or resetting your
-          password.
+          Only to run your account and the app: to sign you in, keep your
+          topics, saved sermons, place in each sermon and progress through
+          paths on any device, find sermons for what you search, and greet
+          you by name. AAO emails you only to send codes for signing in,
+          confirming your email or resetting your password.
         </P>
       </Section>
 
@@ -91,16 +128,18 @@ export default function Privacy() {
           a crash-reporting service, so the problem can be fixed. A report
           holds the error, the device model, its operating system and the app
           version. It never includes your name, email address, IP address,
-          topics or saved sermons.
+          topics, searches or saved sermons.
         </P>
       </Section>
 
       <Section title="Sensitive information">
         <P>
-          The sermons you save and the topics you choose may say something
-          about your religious beliefs. AAO uses them only to run your account.
-          No one else can see them in the app, and they’re never used for
-          advertising or shared.
+          The sermons you save, the topics and paths you choose and what you
+          type into Search may say something about your religious beliefs or
+          what you’re going through. AAO uses them only to run your account
+          and answer your search. No one else can see them in the app, and
+          they’re never used for advertising or shared beyond the services
+          named here.
         </P>
       </Section>
 
@@ -127,13 +166,14 @@ export default function Privacy() {
 
       <Section title="Where it’s stored">
         <P>
-          Account information is stored with Supabase, a hosted database
-          service that processes it on AAO’s behalf, in the United States
-          (Amazon Web Services, N. Virginia). If you use AAO from another
-          country, your account information is sent to and stored there.
-          Connections between the app and Supabase are encrypted. Like most
-          online services, Supabase keeps short-lived technical logs of
-          requests, such as IP addresses, for security and troubleshooting.
+          Account information, and the search answers kept for 24 hours, are
+          stored with Supabase, a hosted database service that processes them
+          on AAO’s behalf, in the United States (Amazon Web Services, N.
+          Virginia). If you use AAO from another country, your information is
+          sent to and stored there. Connections between the app, Supabase and
+          OpenAI are encrypted. Like most online services, Supabase keeps
+          short-lived technical logs of requests, such as IP addresses, for
+          security and troubleshooting.
         </P>
       </Section>
 
@@ -141,10 +181,9 @@ export default function Privacy() {
         <P>
           Your information is kept while you have an account. You can delete
           your account at any time in Account › Delete account. Your account,
-          name, topics, saved sermons and watch progress are removed
-          immediately. If database
-          backups are turned on, a copy may remain in them for a short time
-          until they’re replaced.
+          name, topics, saved sermons, watch progress and path progress are
+          removed immediately. If database backups are turned on, a copy may
+          remain in them for a short time until they’re replaced.
         </P>
         <P>
           You can change your name and topics in Account at any time. Depending
@@ -174,7 +213,7 @@ export default function Privacy() {
       </Section>
 
       <T style={[s.meta, { marginTop: space.xxl }]}>
-        Draft of 14 October 2026
+        Draft of 15 October 2026
       </T>
     </Page>
   );
@@ -190,7 +229,7 @@ function Section({ title, children }: PropsWithChildren<{ title: string }>) {
 }
 
 function P({ children }: PropsWithChildren) {
-  return <T style={s.body}>{children}</T>;
+  return <T style={styles.body}>{children}</T>;
 }
 
 function Bullets({ items }: { items: string[] }) {
@@ -200,14 +239,14 @@ function Bullets({ items }: { items: string[] }) {
         <View key={item} style={styles.item} role="listitem">
           {/* Text, so the bullet scales and aligns with the line it marks. */}
           <T
-            style={s.body}
+            style={styles.bullet}
             accessibilityElementsHidden
             importantForAccessibility="no"
             {...web({ "aria-hidden": true })}
           >
             •
           </T>
-          <T style={[s.body, { flex: 1 }]}>{item}</T>
+          <T style={[styles.body, { flex: 1 }]}>{item}</T>
         </View>
       ))}
     </View>
@@ -216,6 +255,9 @@ function Bullets({ items }: { items: string[] }) {
 
 const styles = StyleSheet.create({
   section: { gap: space.md },
+  // Running text to read, so in the text colour rather than muted.
+  body: { ...type.body, color: c.text },
+  bullet: { ...type.body, color: c.gold },
   list: { gap: space.sm },
   item: { flexDirection: "row", gap: space.sm },
 });

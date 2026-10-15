@@ -123,7 +123,7 @@ function PasswordForm() {
       footer={
         <>
           <FlowButton
-            label={signUp ? "Create account" : "Sign in"}
+            label={signUp ? "Create free account" : "Sign in"}
             testID="password-submit"
             busy={task.busy === "submit"}
             onPress={submit}
@@ -139,7 +139,7 @@ function PasswordForm() {
           ) : (
             <SwitchLine
               prompt="New here?"
-              label="Create an account"
+              label="Create free account"
               testID="password-switch"
               disabled={busy}
               onPress={() => switchMode("sign-up")}
@@ -149,8 +149,8 @@ function PasswordForm() {
       }
     >
       <FlowTitle
-        serif={false}
         title={signUp ? "Create your account" : "Sign in with your password"}
+        italic={signUp ? "account" : "password"}
       />
       <View style={styles.fields}>
         <AuthField

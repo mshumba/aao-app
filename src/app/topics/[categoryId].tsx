@@ -3,26 +3,24 @@ import { StyleSheet, View } from "react-native";
 import { useCatalogue } from "../../catalogue/CatalogueProvider";
 import { getCategory } from "../../data/categories";
 import { sermonsInCategory } from "../../data/sermons";
+import { CoverPage } from "../../kit";
 import { exitTo, firstParam } from "../../navigation";
-import { radius, space } from "../../theme";
+import { space } from "../../theme";
 import { TopicNotice, sermonCount } from "../../topics";
-import {
-  Header,
-  Icon,
-  Page,
-  PageTitle,
-  SermonRow,
-  StatePanel,
-  T,
-  c,
-  s,
-} from "../../ui";
+import { Header, Page, SermonRow, StatePanel } from "../../ui";
 
-// The topic library is a tab; this returns to it rather than stacking another.
-function backToLibrary() {
+// Topics are browsed in Search (old /topics links land there); this returns
+// there rather than stacking another.
+function backToTopics() {
   exitTo("/topics");
 }
 
+/**
+ * A topic's sermons, newest first, under a cover made from them (as a
+ * series or a path is): "Topic · 12 sermons", the topic's name and what
+ * it's about. The labels are samples until the ministry reviews them, and
+ * the page says so once, quietly, at the end.
+ */
 export default function CategoryScreen() {
   const params = useLocalSearchParams<{ categoryId: string | string[] }>();
   const category = getCategory(firstParam(params.categoryId));
@@ -35,56 +33,46 @@ export default function CategoryScreen() {
           level={1}
           icon="pricetags-outline"
           title="This topic isn’t available"
-          body="The link may be out of date. Choose a topic from the library to keep exploring."
+          body="The link may be out of date. Choose a topic in Search to keep exploring."
           label="Browse topics"
-          action={backToLibrary}
+          action={backToTopics}
         />
       </Page>
     );
   const inTopic = sermonsInCategory(sermons, category.id);
   return (
-    <Page>
-      <Header back />
-      <PageTitle title={category.label} lead={category.description}>
-        <View style={styles.icon}>
-          <Icon name={category.icon} color={c.accent} size={26} />
-        </View>
-      </PageTitle>
+    <CoverPage
+      testID="topic-page"
+      title={category.label}
+      kicker={`Topic · ${sermonCount(inTopic.length)}`}
+      lead={category.description}
+      fan={inTopic}
+    >
       {inTopic.length > 0 ? (
         <>
-          <View style={styles.listHeader}>
-            <T style={[s.meta, { color: c.text }]}>
-              {sermonCount(inTopic.length)}
-            </T>
-            <TopicNotice />
-          </View>
-          <View style={{ gap: space.sm }}>
+          <View style={styles.rows}>
             {inTopic.map((sermon) => (
               <SermonRow key={sermon.id} sermon={sermon} lead={category.id} />
             ))}
+          </View>
+          <View style={styles.notice}>
+            <TopicNotice />
           </View>
         </>
       ) : (
         <StatePanel
           icon="leaf-outline"
           title={`No sermons in ${category.label} yet`}
-          body="Sermons haven’t been added to this topic in the preview. Other topics have sermons to explore."
+          body="Sermons haven’t been added to this topic yet. Other topics have sermons to explore."
           label="Browse other topics"
-          action={backToLibrary}
+          action={backToTopics}
         />
       )}
-    </Page>
+    </CoverPage>
   );
 }
 
 const styles = StyleSheet.create({
-  icon: {
-    width: 52,
-    height: 52,
-    borderRadius: radius.lg,
-    backgroundColor: c.feature,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  listHeader: { marginTop: space.lg, marginBottom: space.sm, gap: space.sm },
+  rows: { gap: space.lg },
+  notice: { marginTop: space.xl },
 });

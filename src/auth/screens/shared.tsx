@@ -92,7 +92,7 @@ export function AccountsUnavailable({ onClose }: { onClose?: () => void }) {
       onLeading={onClose}
       footer={<UnavailableClose onClose={onClose} />}
     >
-      <FlowTitle serif={false} title={UNAVAILABLE_TITLE} lead={UNAVAILABLE_LEAD} />
+      <FlowTitle title={UNAVAILABLE_TITLE} lead={UNAVAILABLE_LEAD} />
     </FlowScreen>
   );
 }

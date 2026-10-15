@@ -242,8 +242,8 @@ const styles = StyleSheet.create({
   },
   top: { flexDirection: "row", alignItems: "center", gap: 12 },
   topText: { flex: 1, minWidth: 0 },
-  title: { fontFamily: font.bold, fontSize: 14, lineHeight: 18, color: c.text },
-  meta: { fontFamily: font.medium, fontSize: 12, lineHeight: 16, color: c.muted, marginTop: 3, ...tabular },
+  title: { ...type.cardTitle, color: c.text },
+  meta: { ...type.meta, color: c.muted, marginTop: 3, ...tabular },
   // The opening quote mark hangs into the card's padding, so the lines of
   // the quote share the title's left edge.
   quoteBox: { marginVertical: 12, marginHorizontal: 2 },
@@ -266,14 +266,12 @@ const styles = StyleSheet.create({
     marginVertical: 2,
     boxShadow: shadows.row,
   },
-  // The doc's playing row: flat, a navy edge on the left, a cool wash.
+  // The playing row: a warm sand wash, no one-sided edge. The navy
+  // timestamp chip and the "Playing" kicker say where you are.
   rowPlaying: {
-    backgroundColor: "#f3f4f6",
-    borderLeftWidth: 3,
-    borderLeftColor: c.accent,
-    borderRadius: 12,
-    paddingLeft: 9,
-    paddingRight: 12,
+    backgroundColor: c.featureOnSurface,
+    borderRadius: 14,
+    paddingHorizontal: 12,
     marginHorizontal: -8,
     marginVertical: 2,
   },
@@ -291,8 +289,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 9,
   },
   stampOn: { backgroundColor: c.accent, borderColor: c.accent },
-  stampText: { fontFamily: font.extrabold, fontSize: 12.5, lineHeight: 16, color: c.accent, ...tabular },
+  stampText: { fontFamily: font.extrabold, fontSize: 13, lineHeight: 16, color: c.accent, ...tabular },
   rowText: { flex: 1, minWidth: 0 },
-  flag: { ...type.overline, fontSize: 11, letterSpacing: 1.1, color: c.gold },
+  flag: { ...type.overline, color: c.gold },
   rowQuote: { marginTop: 3 },
 });

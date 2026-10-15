@@ -98,11 +98,14 @@ export default function Welcome() {
               Teaching that <Text style={styles.emphasis}>builds</Text> you up
             </Heading>
             <T style={s.lead}>
-              Watch messages by Apostle Arome Osayi, gathered by how they edify.
+              Find what speaks to what you’re going through in the teaching of
+              Apostle Arome Osayi, and grow through guided paths.
             </T>
           </Rise>
           <Rise delay={380} reduced={reduced} style={styles.actions}>
+            {/* The approved welcome keeps its own button shape. */}
             <FlowButton
+              shape="rounded"
               label="Get started"
               testID="welcome-get-started"
               onPress={() => go.push("/onboarding/topics")}

@@ -2,14 +2,14 @@ import { exitTo } from "../navigation";
 import { useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { sampleSermons } from "../data/sermons";
-import { font, radius, space } from "../theme";
+import { FilterChip } from "../kit";
+import { space } from "../theme";
 import {
   Header,
   Page,
   PageTitle,
   StatePanel,
   T,
-  Tap,
   TextButton,
   Thumbnail,
   c,
@@ -59,6 +59,7 @@ function Samples() {
     <Page>
       <Header back />
       <PageTitle
+        kicker="For testing"
         title="Sample screens"
         lead="Examples of loading, offline and error screens. Nothing here changes your connection."
       />
@@ -67,30 +68,21 @@ function Samples() {
         accessibilityRole="radiogroup"
         accessibilityLabel="Sample state"
       >
-        {options.map((option) => {
-          const selected = state === option.id;
-          return (
-            <Tap
-              key={option.id}
-              {...radio(option.id)}
-              accessibilityRole="radio"
-              accessibilityLabel={option.label}
-              aria-checked={selected}
-              onPress={() => setState(option.id)}
-              style={[styles.option, selected && styles.optionOn]}
-            >
-              <T style={[styles.optionText, selected && { color: c.onAccent }]}>
-                {option.label}
-              </T>
-            </Tap>
-          );
-        })}
+        {options.map((option) => (
+          <FilterChip
+            key={option.id}
+            {...radio(option.id)}
+            label={option.label}
+            selected={state === option.id}
+            onPress={() => setState(option.id)}
+          />
+        ))}
       </View>
       <View style={styles.sample}>
         {state === "empty" && (
           <StatePanel
             title="No sermons here yet"
-            body="Sermons haven’t been added to this view. The rest of the library is still open."
+            body="Sermons haven’t been added to this view. The rest of the library is still here."
             label="Browse sermons"
             action={() => exitTo("/")}
           />
@@ -142,7 +134,7 @@ function Samples() {
               sermon={sampleSermons[1]}
               missing
               duration
-              style={{ borderRadius: radius.lg }}
+              style={{ borderRadius: 16 }}
             />
             <T style={s.body}>
               When artwork is missing, the sermon keeps its event name, title
@@ -162,17 +154,6 @@ const styles = StyleSheet.create({
     gap: space.sm,
     marginTop: space.xl,
   },
-  option: {
-    minHeight: 48,
-    paddingHorizontal: space.lg,
-    borderRadius: radius.pill,
-    borderWidth: 1,
-    borderColor: c.border,
-    backgroundColor: c.surface,
-    justifyContent: "center",
-  },
-  optionOn: { backgroundColor: c.accent, borderColor: c.accent },
-  optionText: { fontFamily: font.semibold, fontSize: 14, lineHeight: 20 },
   sample: { marginTop: space.lg },
   loadingRow: {
     flexDirection: "row",
@@ -181,11 +162,11 @@ const styles = StyleSheet.create({
     paddingTop: space.xl,
   },
   // Sand placeholders: visible on the ivory page, quieter than content.
-  skeletonRow: { flexDirection: "row", gap: 14 },
+  skeletonRow: { flexDirection: "row", gap: space.lg, alignItems: "center" },
   skeletonThumb: {
-    width: "40%",
+    width: 128,
     aspectRatio: 16 / 9,
-    borderRadius: radius.md,
+    borderRadius: 10,
     backgroundColor: c.feature,
   },
   skeletonLine: {

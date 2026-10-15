@@ -9,4 +9,4 @@ export { StartPathRail, YourPath, YourPathPlaceholder, todayProgress } from "./P
 export { ContinueRail } from "./ContinueRail";
 export { LatestSermons, SeriesRow } from "./Latest";
 export { pathHref, useSermonActions } from "./actions";
-export { greeting, heroKicker, isNewThisWeek, partOfDay, seriesCaption, shortDay } from "./copy";
+export { SERIES_MIN, greeting, heroKicker, isNewThisWeek, partOfDay, seriesCaption, seriesDays, shortDay } from "./copy";

@@ -138,8 +138,8 @@ function CodeForm({
     >
       <View>
         <FlowTitle
-          serif={false}
           title="Check your email"
+          italic="email"
           lead={
             <>
               Enter the 6-digit code we sent to <T style={styles.email}>{email}</T>

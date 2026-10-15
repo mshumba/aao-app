@@ -113,6 +113,7 @@ function NameForm({ initial }: { initial: string }) {
     <Page keyboard>
       <Header back />
       <PageTitle
+        kicker="Account"
         title="Your name"
         lead="Used to greet you in the app. Only you can see it."
       />

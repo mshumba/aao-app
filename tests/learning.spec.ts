@@ -165,15 +165,15 @@ test.describe("honest words", () => {
     expect(partOfDay(new Date("2026-10-14T16:59:00"))).toBe("afternoon");
   });
 
-  test("a series caption gives its sessions and days", () => {
+  test("a series caption counts its messages and gives its days", () => {
     const now = new Date("2026-10-14T08:00:00");
     expect(seriesCaption([{ day: "2026-09-22" }, { day: "2026-09-23" }, { day: "2026-09-23" }], now)).toBe(
-      "3 sessions · 22–23 Sep",
+      "3 messages · 22–23 Sep",
     );
     expect(seriesCaption([{ day: "2026-09-30" }, { day: "2026-10-02" }], now)).toBe(
-      "2 sessions · 30 Sep – 2 Oct",
+      "2 messages · 30 Sep – 2 Oct",
     );
-    expect(seriesCaption([{ day: "2026-09-30" }], now)).toBe("1 session · 30 Sep");
+    expect(seriesCaption([{ day: "2026-09-30" }], now)).toBe("1 message · 30 Sep");
   });
 });
 

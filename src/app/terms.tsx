@@ -1,6 +1,6 @@
 import { PropsWithChildren } from "react";
 import { Linking, StyleSheet, View } from "react-native";
-import { space } from "../theme";
+import { space, type } from "../theme";
 import {
   Header,
   Notice,
@@ -9,6 +9,7 @@ import {
   SectionHeading,
   T,
   TextButton,
+  c,
   s,
 } from "../ui";
 
@@ -21,6 +22,7 @@ export default function Terms() {
     <Page>
       <Header back />
       <PageTitle
+        kicker="Using AAO"
         title="Terms of Use"
         lead="The rules for using AAO. By creating an account, you agree to them."
       />
@@ -116,9 +118,11 @@ function Section({ title, children }: PropsWithChildren<{ title: string }>) {
 }
 
 function P({ children }: PropsWithChildren) {
-  return <T style={s.body}>{children}</T>;
+  return <T style={styles.body}>{children}</T>;
 }
 
 const styles = StyleSheet.create({
   section: { gap: space.md },
+  // Running text to read, so in the text colour rather than muted.
+  body: { ...type.body, color: c.text },
 });

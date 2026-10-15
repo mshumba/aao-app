@@ -1,7 +1,7 @@
 import { memo } from "react";
 import { StyleSheet, View, useWindowDimensions, type StyleProp, type ViewStyle } from "react-native";
 import type { PathStatus } from "../learning/types";
-import { c, font, radius, shadows, tabular, textCap, type } from "../theme";
+import { c, radius, shadows, tabular, textCap, type } from "../theme";
 import { Icon, T, Tap, nowrap, web } from "../ui";
 import { type ArtSource } from "./Artwork";
 import { CardFan } from "./CardFan";
@@ -292,7 +292,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   nextText: { flex: 1, minWidth: 0 },
-  nextTitle: { fontFamily: font.bold, fontSize: 14, lineHeight: 19, color: c.white },
+  nextTitle: { ...type.cardTitle, color: c.white },
   nextMeta: { ...type.meta, color: c.onMediaMuted, marginTop: 2, ...tabular },
   compact: {
     minHeight: 72,
@@ -307,8 +307,8 @@ const styles = StyleSheet.create({
     paddingVertical: 9,
   },
   compactText: { flex: 1, minWidth: 0 },
-  compactName: { fontFamily: font.bold, fontSize: 14, lineHeight: 19, color: c.white, marginTop: 3 },
-  compactMeta: { fontFamily: font.medium, fontSize: 12.5, lineHeight: 16, color: c.onMediaMuted, marginTop: 2 },
+  compactName: { ...type.cardTitle, color: c.white, marginTop: 3 },
+  compactMeta: { ...type.meta, color: c.onMediaMuted, marginTop: 2 },
   partOf: {
     flexDirection: "row",
     alignItems: "center",
@@ -321,5 +321,5 @@ const styles = StyleSheet.create({
     paddingRight: 14,
   },
   partOfText: { flex: 1, minWidth: 0 },
-  partOfName: { fontFamily: font.bold, fontSize: 14.5, lineHeight: 19, color: c.text, marginTop: 2 },
+  partOfName: { ...type.cardTitle, color: c.text, marginTop: 2 },
 });

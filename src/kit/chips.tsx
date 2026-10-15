@@ -1,7 +1,7 @@
-import { memo, type ReactNode } from "react";
+import { memo, type ReactNode, type Ref } from "react";
 import { ScrollView, StyleSheet, View, type StyleProp, type ViewStyle } from "react-native";
 import { c, radius, textCap, type } from "../theme";
-import { Icon, T, Tap, type IconName } from "../ui";
+import { Icon, T, Tap, type IconName, type WebKey } from "../ui";
 
 export type ChipVariant = "sand" | "outline" | "navy" | "surface";
 
@@ -45,6 +45,70 @@ export const NeedChip = memo(function NeedChip({
       <T style={[styles.label, { color: fg }]} numberOfLines={1} maxFontSizeMultiplier={textCap.chip}>
         {label}
       </T>
+    </Tap>
+  );
+});
+
+/**
+ * A filter: one of a group of choices (role "radio", navy when chosen, a
+ * check in place of its icon so choosing never shifts the row), or a
+ * control that shows a group ("button" with `expanded`). 36pt drawn, 44pt
+ * to touch. Spread useRadioKeys' props for a radio group's keyboard.
+ */
+export const FilterChip = memo(function FilterChip({
+  label,
+  onPress,
+  selected = false,
+  role = "radio",
+  expanded,
+  icon,
+  hint,
+  testID,
+  ref,
+  onWebKey,
+  ...rest
+}: {
+  label: string;
+  onPress: () => void;
+  selected?: boolean;
+  role?: "radio" | "button";
+  /** For a "button" that shows or hides a group of choices. */
+  expanded?: boolean;
+  icon?: IconName;
+  hint?: string;
+  testID?: string;
+  ref?: Ref<View>;
+  onWebKey?: (e: WebKey) => void;
+  /** Web: one Tab stop per radio group (from useRadioKeys). */
+  tabIndex?: 0 | -1;
+}) {
+  const on = selected;
+  const glyph: IconName | undefined =
+    role === "radio" ? (on ? "checkmark" : icon) : expanded ? "chevron-up" : "chevron-down";
+  return (
+    <Tap
+      ref={ref}
+      testID={testID}
+      accessibilityRole={role}
+      accessibilityLabel={label}
+      accessibilityHint={hint}
+      aria-checked={role === "radio" ? on : undefined}
+      aria-expanded={role === "button" ? !!expanded : undefined}
+      aria-selected={role === "button" ? on : undefined}
+      onWebKey={onWebKey}
+      {...rest}
+      onPress={onPress}
+      hitSlop={{ top: 4, bottom: 4 }}
+      style={[styles.chip, on ? chipStyles.navy : chipStyles.outline, !on && styles.filterIdle]}
+    >
+      <T
+        style={[styles.label, { color: on ? c.onAccent : c.text }]}
+        numberOfLines={1}
+        maxFontSizeMultiplier={textCap.chip}
+      >
+        {label}
+      </T>
+      {glyph ? <Icon name={glyph} size={16} color={on ? c.onAccent : c.accent} /> : null}
     </Tap>
   );
 });
@@ -103,6 +167,7 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   label: { ...type.chip },
+  filterIdle: { backgroundColor: c.surface },
   row: { zIndex: 1 },
   rowScroller: { marginVertical: -4 },
 });

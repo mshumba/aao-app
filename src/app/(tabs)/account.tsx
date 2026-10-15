@@ -1,6 +1,5 @@
 import Constants from "expo-constants";
 import { Href } from "expo-router";
-import { Fragment } from "react";
 import {
   ActivityIndicator,
   Platform,
@@ -13,8 +12,9 @@ import type { Provider } from "../../auth/types";
 import { AccountBenefits, FormAlert, useAuthTask } from "../../auth/ui";
 import { useCatalogue } from "../../catalogue/CatalogueProvider";
 import { getCategory } from "../../data/categories";
-import { useGo } from "../../navigation";
-import { font, radius, space, type } from "../../theme";
+import { Card, ListGroup, ListRow } from "../../kit";
+import { useGo, usePageTitle } from "../../navigation";
+import { font, space, textCap, type } from "../../theme";
 import { useToast } from "../../toast";
 import { sermonCount } from "../../topics";
 import {
@@ -24,9 +24,7 @@ import {
   IconName,
   Notice,
   Page,
-  PageTitle,
   T,
-  Tap,
   TextButton,
   c,
   s,
@@ -52,10 +50,19 @@ const provider: Record<Provider, { label: string; icon: IconName }> = {
 
 const version = Constants.expoConfig?.version;
 
+/**
+ * Account, in the Immersive look: "Account" as the gold kicker (the page's
+ * heading, as "Paths" is on its tab), then who you are (a navy avatar and
+ * your name in the serif) or, for a guest, a sand card inviting a free
+ * account. Settings sit in white grouped cards; signing out is a quiet
+ * pill, deleting the account a red row set apart.
+ */
 export default function AccountTab() {
+  usePageTitle("Account");
   const account = useAccount();
   const toast = useToast();
   const task = useAuthTask();
+  const go = useGo();
   const user = account.user;
   // The profile and saved list arrive a moment after the session.
   const loaded = account.loaded;
@@ -67,7 +74,7 @@ export default function AccountTab() {
   const catalogue = useCatalogue();
   const saved = account.saved.filter((id) => catalogue.find(id)).length;
 
-  const library: Row[] = [
+  const yours: Row[] = [
     ...(user
       ? [
           {
@@ -128,16 +135,32 @@ export default function AccountTab() {
     if (done) toast("Signed out");
   }
 
+  const rows = (list: Row[]) =>
+    list.map((row) => (
+      <ListRow
+        key={row.title}
+        testID={row.testID}
+        icon={row.icon}
+        title={row.title}
+        value={row.value}
+        hint={row.hint}
+        danger={row.danger}
+        onPress={() => go.push(row.route)}
+      />
+    ));
+
   return (
     <Page>
-      <PageTitle title="Account" />
+      <Heading level={1} style={styles.kicker} maxFontSizeMultiplier={textCap.section}>
+        Account
+      </Heading>
 
       {!account.ready ? (
         <View style={styles.loading}>
           <ActivityIndicator color={c.accent} accessibilityLabel="Loading your account" />
         </View>
       ) : user ? (
-        <ProfileCard />
+        <Profile />
       ) : account.mode === "unavailable" ? (
         <ComingSoonCard />
       ) : (
@@ -145,9 +168,13 @@ export default function AccountTab() {
       )}
 
       {account.ready && (
-        <Group title={user ? "Your library" : "On this device"} rows={library} />
+        <ListGroup title={user ? "Your account" : "On this device"} style={styles.group}>
+          {rows(yours)}
+        </ListGroup>
       )}
-      <Group title="About" rows={about} />
+      <ListGroup title="About" style={styles.group}>
+        {rows(about)}
+      </ListGroup>
 
       {user && (
         <>
@@ -162,8 +189,8 @@ export default function AccountTab() {
               onPress={signOut}
             />
           </View>
-          <Group
-            rows={[
+          <ListGroup style={styles.danger}>
+            {rows([
               {
                 title: "Delete account",
                 icon: "trash-outline",
@@ -171,8 +198,8 @@ export default function AccountTab() {
                 danger: true,
                 testID: "delete-account-row",
               },
-            ]}
-          />
+            ])}
+          </ListGroup>
         </>
       )}
 
@@ -196,7 +223,8 @@ function initials(name: string | null, email: string | null) {
     .toLocaleUpperCase();
 }
 
-function ProfileCard() {
+/** Who's signed in: the navy avatar, the name in the serif, the email and how. */
+function Profile() {
   const account = useAccount();
   const go = useGo();
   const user = account.user;
@@ -205,7 +233,7 @@ function ProfileCard() {
   const letters = initials(name, user.email);
   const via = provider[user.provider];
   return (
-    <View style={[styles.card, styles.profile]}>
+    <View style={styles.profile}>
       {/* Decorative: the name or email beside it says who this is. */}
       <View
         style={styles.avatar}
@@ -214,32 +242,32 @@ function ProfileCard() {
         {...web({ "aria-hidden": true })}
       >
         {letters ? (
-          <T style={styles.initials} maxFontSizeMultiplier={1.4}>
+          <T style={styles.initials} maxFontSizeMultiplier={1.3}>
             {letters}
           </T>
         ) : (
-          <Icon name="person" color={c.accent} size={26} />
+          <Icon name="person" color={c.onAccent} size={26} />
         )}
       </View>
       <View style={styles.profileText}>
-        {name ? (
-          <Heading level={2} style={styles.name}>
-            {name}
-          </Heading>
-        ) : account.profile ? (
-          <TextButton
-            label="Add your name"
-            align="start"
-            onPress={() => go.push("/account/name")}
-          />
-        ) : null}
+        <Heading level={2} style={styles.name} maxFontSizeMultiplier={textCap.display}>
+          {name ?? "Your account"}
+        </Heading>
         {user.email ? (
           <T style={[styles.email, wrapAnywhere]}>{user.email}</T>
         ) : null}
         <View style={styles.provider}>
-          <Icon name={via.icon} size={14} color={c.muted} />
+          <Icon name={via.icon} size={15} color={c.muted} />
           <T style={s.meta}>{via.label}</T>
         </View>
+        {!name && account.profile ? (
+          <TextButton
+            label="Add your name"
+            icon="chevron-forward"
+            align="start"
+            onPress={() => go.push("/account/name")}
+          />
+        ) : null}
       </View>
     </View>
   );
@@ -249,15 +277,10 @@ function GuestCard() {
   const account = useAccount();
   const go = useGo();
   return (
-    <View style={styles.card}>
-      <View style={styles.cardHead}>
-        <View style={styles.avatar}>
-          <Icon name="person-outline" color={c.accent} size={26} />
-        </View>
-        <Heading level={2} style={styles.cardTitle}>
-          Create your free account
-        </Heading>
-      </View>
+    <Card tone="sand" style={styles.invite}>
+      <Heading level={2} style={styles.inviteTitle} maxFontSizeMultiplier={textCap.section}>
+        Create your free account
+      </Heading>
       <AccountBenefits />
       <View style={styles.actions}>
         <Button
@@ -279,72 +302,19 @@ function GuestCard() {
           Test mode: accounts stay on this device.
         </Notice>
       )}
-    </View>
+    </Card>
   );
 }
 
 /** A release build without an account service: say so, and that nothing is locked. */
 function ComingSoonCard() {
   return (
-    <View style={[styles.card, styles.cardHead]}>
-      <View style={styles.avatar}>
-        <Icon name="time-outline" color={c.accent} size={26} />
-      </View>
-      <View style={{ flex: 1, gap: space.xs }}>
-        <Heading level={2} style={styles.cardTitle}>
-          Accounts are coming soon
-        </Heading>
-        <T style={s.body}>You can browse and watch every sermon without one.</T>
-      </View>
-    </View>
-  );
-}
-
-/** Rows that share one surface, under an optional small caps title. */
-function Group({ title, rows }: { title?: string; rows: Row[] }) {
-  const go = useGo();
-  return (
-    <View style={[styles.group, !title && { marginTop: space.xl }]}>
-      {title ? (
-        <Heading level={2} style={styles.groupTitle}>
-          {title}
-        </Heading>
-      ) : null}
-      <View style={styles.list}>
-        {rows.map((row, index) => {
-          const tint = row.danger ? c.error : c.accent;
-          return (
-            <Fragment key={row.title}>
-              {index > 0 && <View style={styles.divider} />}
-              <Tap
-                testID={row.testID}
-                accessibilityRole="button"
-                accessibilityLabel={
-                  row.value ? `${row.title}, ${row.value}` : row.title
-                }
-                accessibilityHint={row.hint}
-                onPress={() => go.push(row.route)}
-                feedback="highlight"
-                style={[
-                  styles.row,
-                  index === 0 && styles.first,
-                  index === rows.length - 1 && styles.last,
-                ]}
-              >
-                <Icon name={row.icon} color={tint} size={22} />
-                <View style={styles.rowText}>
-                  <T style={[styles.rowTitle, row.danger && { color: c.error }]}>
-                    {row.title}
-                  </T>
-                  {row.value ? <T style={s.meta}>{row.value}</T> : null}
-                </View>
-                <Icon name="chevron-forward" size={18} color={c.muted} />
-              </Tap>
-            </Fragment>
-          );
-        })}
-      </View>
-    </View>
+    <Card tone="sand" style={styles.invite}>
+      <Heading level={2} style={styles.inviteTitle} maxFontSizeMultiplier={textCap.section}>
+        Accounts are coming soon
+      </Heading>
+      <T style={s.body}>You can browse and watch every sermon without one.</T>
+    </Card>
   );
 }
 
@@ -355,78 +325,32 @@ const wrapAnywhere =
     ? ({ wordBreak: "break-word", overflowWrap: "anywhere" } as unknown as TextStyle)
     : null;
 
-// White surfaces sit in the ivory page on a hairline edge, no shadow.
 const styles = StyleSheet.create({
+  kicker: { ...type.overline, color: c.gold, marginTop: space.xl },
   loading: { paddingVertical: space.xxl, alignItems: "center" },
-  card: {
-    marginTop: space.md,
-    padding: space.lg,
-    gap: space.lg,
-    borderRadius: radius.lg,
-    backgroundColor: c.surface,
-    borderWidth: 1,
-    borderColor: c.border,
-  },
-  cardHead: { flexDirection: "row", alignItems: "center", gap: 14 },
+  profile: { marginTop: space.lg, gap: space.lg },
   avatar: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: c.feature,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: c.accent,
     alignItems: "center",
     justifyContent: "center",
   },
   initials: {
-    fontFamily: font.bold,
-    fontSize: 20,
-    lineHeight: 26,
-    color: c.accent,
+    fontFamily: font.serifItalic,
+    fontSize: type.sectionSmall.fontSize,
+    lineHeight: 28,
+    color: c.onAccent,
   },
-  cardTitle: { ...type.heading, flex: 1 },
-  actions: { gap: space.md },
-  profile: { flexDirection: "row", alignItems: "center", gap: space.lg },
-  profileText: { flex: 1, gap: 2 },
-  name: type.heading,
+  profileText: { gap: 4 },
+  name: { ...type.title, color: c.text },
   email: { ...type.body, color: c.text },
-  provider: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    marginTop: space.xs,
-  },
-  group: { marginTop: space.xxl, gap: space.sm },
-  groupTitle: { ...type.kicker, color: c.muted, paddingHorizontal: space.lg },
-  // No overflow clipping, so web focus rings on rows stay visible; the first
-  // and last rows carry the corner radius instead.
-  list: {
-    borderRadius: radius.lg,
-    backgroundColor: c.surface,
-    borderWidth: 1,
-    borderColor: c.border,
-  },
-  row: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 14,
-    minHeight: 56,
-    paddingHorizontal: space.lg,
-    paddingVertical: space.md,
-  },
-  // One point inside the list's edge, so a pressed row's tint follows it.
-  first: {
-    borderTopLeftRadius: radius.lg - 1,
-    borderTopRightRadius: radius.lg - 1,
-  },
-  last: {
-    borderBottomLeftRadius: radius.lg - 1,
-    borderBottomRightRadius: radius.lg - 1,
-  },
-  rowText: { flex: 1, gap: 2 },
-  rowTitle: { ...type.label, fontSize: 16, lineHeight: 22 },
-  divider: {
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: c.divider,
-    marginStart: 52,
-  },
+  provider: { flexDirection: "row", alignItems: "center", gap: 6 },
+  invite: { marginTop: space.lg, gap: space.lg },
+  inviteTitle: { ...type.sectionSmall, color: c.text },
+  actions: { gap: space.md },
+  group: { marginTop: space.xxl },
   signOut: { marginTop: space.xxl, gap: space.md },
+  danger: { marginTop: space.xl },
 });

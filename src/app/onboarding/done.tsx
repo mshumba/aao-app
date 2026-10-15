@@ -21,15 +21,14 @@ import { eventLine, headline } from "../../data/display";
 import { Sermon, sampleSermons, sermonCategoryIds } from "../../data/sermons";
 import { useReducedMotion } from "../../motion";
 import { useGo, usePageTitle } from "../../navigation";
-import { font, radius, space, type } from "../../theme";
+import { Artwork, ItalicTitle } from "../../kit";
+import { radius, shadows, space, textCap, type } from "../../theme";
 import {
-  Heading,
   Icon,
   SermonTitle,
   T,
   Tap,
   TextButton,
-  Thumbnail,
   c,
   nowrap,
   s,
@@ -113,9 +112,14 @@ export default function OnboardingDone() {
     >
       <View style={styles.top}>
         <Check reduced={reduced} />
-        <Heading level={1} style={styles.title} maxFontSizeMultiplier={1.6}>
-          {title}
-        </Heading>
+        <ItalicTitle
+          text={title}
+          italicLast={!!first}
+          accessibilityRole="header"
+          {...web({ "aria-level": 1 })}
+          style={styles.title}
+          maxFontSizeMultiplier={textCap.display}
+        />
         {account.interests.length > 0 && <TopicChips ids={account.interests} />}
       </View>
 
@@ -131,11 +135,17 @@ export default function OnboardingDone() {
           style={styles.card}
           testID="done-recommended"
         >
-          <Thumbnail sermon={sermon} duration />
+          <Artwork
+            art={sermon}
+            radius={14}
+            chip={sermon.duration || null}
+            fallback={sermon.collection}
+            priority="high"
+          />
           <View style={styles.cardBody}>
-            {kicker ? <T style={s.kicker}>{kicker}</T> : null}
-            <SermonTitle title={headline(sermon)} style={styles.cardTitle} />
-            <T style={s.meta}>
+            {kicker ? <T style={styles.kicker}>{kicker}</T> : null}
+            <SermonTitle list title={headline(sermon)} numberOfLines={0} />
+            <T style={styles.meta}>
               {eventLine(sermon)} · {nowrap(sermon.date)}
             </T>
           </View>
@@ -199,6 +209,8 @@ function TopicChips({ ids }: { ids: CategoryId[] }) {
 const styles = StyleSheet.create({
   top: { alignItems: "center", gap: space.lg, paddingTop: space.lg },
   title: { ...type.question, textAlign: "center" },
+  kicker: { ...type.overline, color: c.gold },
+  meta: { ...type.meta, color: c.muted },
   check: {
     width: 72,
     height: 72,
@@ -226,16 +238,14 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 6,
   },
-  chipLabel: { ...type.label, fontSize: 14, lineHeight: 20 },
+  chipLabel: { ...type.chip, color: c.text },
   caption: { textAlign: "center" },
-  // White on the ivory page, edged with a hairline rather than a shadow.
+  // A white card lifted off the ivory page, as search results are.
   card: {
-    borderRadius: radius.lg,
+    borderRadius: radius.r22,
     backgroundColor: c.surface,
-    borderWidth: 1,
-    borderColor: c.border,
-    overflow: "hidden",
+    boxShadow: shadows.card,
+    padding: 12,
   },
-  cardBody: { padding: space.lg, gap: 6 },
-  cardTitle: { fontFamily: font.bold, fontSize: 18, lineHeight: 24 },
+  cardBody: { paddingHorizontal: 6, paddingTop: 14, paddingBottom: 6, gap: 4 },
 });
