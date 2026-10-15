@@ -303,9 +303,12 @@ test("missing artwork falls back to the event name or an icon", async ({
   // Home's rows name the event on the dark tile instead.
   await expect(rows(page)).toHaveCount(3);
   for (const row of await rows(page).all()) await expect(row).toContainText("The Votage");
-  // Older list rows show a play icon tile.
+  // Every list uses the same row, so a topic's rows do the same: the
+  // occasion's name on the sermon's dark tile.
   await page.goto("/topics/prayer");
-  await expect(page.getByTestId("thumbnail-fallback").first()).toBeVisible();
+  await expect(rows(page)).toHaveCount(2);
+  for (const row of await rows(page).all())
+    await expect(row.getByText(/^(Lioness Conference|Apostolic Shift)$/)).toBeVisible();
 });
 
 test("sample screens are labelled, actionable and render without errors", async ({
