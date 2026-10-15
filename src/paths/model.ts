@@ -1,64 +1,95 @@
 import type { Href } from "expo-router";
 import type { WatchProgress } from "../auth/types";
-import { clockText, leftText, splitItalic, spokenText, spokenTime, type ArtSource } from "../kit";
-import type { PathDay, PathDayWithSermon } from "../learning";
+import { durationText, leftText, parseDuration, splitItalic, spokenText, type ArtSource } from "../kit";
+import type { Path, PathDayWithSermon } from "../learning";
+import { messagesLabel, teachingsLabel } from "../learning/format";
+import { resumePoint } from "../player/progress";
 
 /**
  * How the path screens describe days, times and artwork, kept apart from
  * the components so the Paths tab, the path page and its sheets all say the
- * same thing the same way.
+ * same thing the same way. A day plays its whole sermon, so every time here
+ * is the sermon's: "2 hr 16 min", "48 min left".
  */
 
-/** Seconds into a day's focus before "48 min left" replaces "16-min focus from 1:21:14". */
-const STARTED_AFTER = 15;
-/** Within this of the focus end, the day is as good as watched. */
-const ENDED_WITHIN = 10;
-
 export type DayTiming = {
-  /** The focus segment's length in whole minutes (at least 1). */
-  minutes: number;
-  /** 0 to 1: how far through the focus segment. */
+  /** The sermon's length in seconds, or null while it isn't known. */
+  length: number | null;
+  /** 0 to 1: how far through the sermon. */
   partial: number;
-  /** Where playing this day starts: inside the focus where they left off, else its start. */
+  /** Where the viewer left off (0: the beginning). The player resumes there itself. */
   resumeAt: number;
   started: boolean;
-  /** "48 min left" or "16-min focus from 1:21:14". */
+  /** "48 min left", or the whole length ("2 hr 16 min"); empty while it isn't known. */
   meta: string;
-  /** The same in words: "16-minute focus from 1 hour 21 minutes 14 seconds". */
+  /** The same in words: "48 minutes left". */
   spokenMeta: string;
-  /** After a dot on the call to action: "48 min left" or "16 min". */
+  /** After a dot on the call to action: the same as `meta`. */
   detail: string;
 };
 
+/** A sermon's length: the saved one (exact) or the catalogue's ("2 hr 16 min"). */
+export function sermonLength(day: PathDayWithSermon, watch?: WatchProgress | null) {
+  return watch?.durationSeconds || parseDuration(day.sermon?.duration) || null;
+}
+
 /**
- * Where someone is in a day's focus segment, from the sermon's saved
- * position (members only; guests always start at the focus).
+ * Where someone is in a day's sermon, from their saved place (members
+ * only; guests start from the beginning). A sermon watched to the end (or
+ * never started) reads as its whole length and starts over.
  */
-export function dayTiming(day: PathDay, watch: WatchProgress | null | undefined): DayTiming {
-  const length = Math.max(1, day.focusEnd - day.focusStart);
-  const minutes = Math.max(1, Math.round(length / 60));
-  const at = watch && !watch.finished ? watch.positionSeconds : null;
-  if (at != null && at >= day.focusStart + STARTED_AFTER && at < day.focusEnd - ENDED_WITHIN) {
-    const left = leftText(day.focusEnd - at);
+export function dayTiming(day: PathDayWithSermon, watch: WatchProgress | null | undefined): DayTiming {
+  const length = sermonLength(day, watch);
+  const at = resumePoint(watch ?? null);
+  if (at > 0 && length && at < length) {
+    const left = leftText(length - at);
     return {
-      minutes,
-      partial: (at - day.focusStart) / length,
-      resumeAt: Math.floor(at),
+      length,
+      partial: at / length,
+      resumeAt: at,
       started: true,
       meta: left,
       spokenMeta: spokenText(left),
       detail: left,
     };
   }
+  const whole = length ? durationText(length) : "";
+  return { length, partial: 0, resumeAt: 0, started: false, meta: whole, spokenMeta: spokenText(whole), detail: whole };
+}
+
+/** The path's sermons, whole, together (seconds); null until every one is known. */
+export function pathLength(days: readonly PathDayWithSermon[]) {
+  let total = 0;
+  for (const d of days) {
+    const length = sermonLength(d);
+    if (!length) return null;
+    total += length;
+  }
+  return days.length ? total : null;
+}
+
+/**
+ * How a guided path or a teaching series names itself and its days: "Day 3
+ * of 7" on a path, "Teaching 3 of 12" in a series.
+ */
+export function pathWords(path: Pick<Path, "kind">) {
+  const series = path.kind === "series";
   return {
-    minutes,
-    partial: 0,
-    resumeAt: day.focusStart,
-    started: false,
-    meta: `${minutes}-min focus from ${clockText(day.focusStart)}`,
-    spokenMeta: `${minutes}-minute focus from ${spokenTime(day.focusStart)}`,
-    detail: `${minutes} min`,
+    series,
+    /** "Day" or "Teaching". */
+    unit: series ? "Teaching" : "Day",
+    /** "Guided path" or "Teaching series". */
+    kind: series ? "Teaching series" : "Guided path",
+    /** "path" or "series", in sentences ("Your path", "Why this series"). */
+    noun: series ? "series" : "path",
+    /** "7 messages" or "12 teachings". */
+    count: (n: number) => (series ? teachingsLabel(n) : messagesLabel(n)),
   };
+}
+
+/** A series of one teaching has no page of its own: it opens the teaching. */
+export function isSingleTeaching(path: Pick<Path, "kind">, total: number) {
+  return path.kind === "series" && total === 1;
 }
 
 /** A day's artwork: its sermon, or YouTube's own copy while the library syncs. */
@@ -106,15 +137,18 @@ export function stateOf(day: number, done: readonly number[], today: number | nu
 }
 
 /**
- * Opens a day's sermon at `at`. With the path, the sermon page knows it's a
- * day of this path (it marks the day done at the focus end); without it,
- * it's an ordinary visit ("Open anyway", "Keep listening").
+ * A day's sermon page. With the path, the page knows it's a day of this
+ * path (finishing it marks the day done); without it, it's an ordinary
+ * visit ("Open anyway"). No `at`: the sermon resumes where the viewer left
+ * off, else plays from the beginning; `at` is for a single moment ("Key
+ * moment 53:44").
  */
-export function sermonHref(youtubeId: string, at: number, path?: { id: string; day: number }): Href {
-  const params: Record<string, string> = { id: youtubeId, t: String(Math.max(0, Math.floor(at))) };
-  if (path) {
-    params.path = path.id;
-    params.day = String(path.day);
+export function sermonHref(youtubeId: string, opts: { path?: { id: string; day: number }; at?: number } = {}): Href {
+  const params: Record<string, string> = { id: youtubeId };
+  if (opts.at != null) params.t = String(Math.max(0, Math.floor(opts.at)));
+  if (opts.path) {
+    params.path = opts.path.id;
+    params.day = String(opts.path.day);
   }
   return { pathname: "/sermon/[id]", params } as unknown as Href;
 }
@@ -133,9 +167,15 @@ export function breaksBeforeItalic(name: string, italic: string | null | undefin
   return !!parts.italic && parts.before.trim().length > 0;
 }
 
-/** "Day 1 · Lay aside every weight", the timeline's kicker for a day. */
-export function dayKicker(day: number, state: DayState, theme: string, opts: { enrolled: boolean; locked: boolean }) {
-  if (state === "today") return `Day ${day} · ${opts.enrolled ? "Today" : "Start here"}`;
-  if (state === "upcoming" && opts.locked) return `Day ${day} · Opens after Day ${day - 1}`;
-  return `Day ${day} · ${theme}`;
+/** "Day 1 · Lay aside every weight", the timeline's kicker for a day ("Teaching 1 · …" in a series). */
+export function dayKicker(
+  day: number,
+  state: DayState,
+  theme: string,
+  opts: { enrolled: boolean; locked: boolean; unit?: string },
+) {
+  const unit = opts.unit ?? "Day";
+  if (state === "today") return `${unit} ${day} · ${opts.enrolled ? (unit === "Day" ? "Today" : "Next") : "Start here"}`;
+  if (state === "upcoming" && opts.locked) return `${unit} ${day} · Opens after ${unit} ${day - 1}`;
+  return `${unit} ${day} · ${theme}`;
 }

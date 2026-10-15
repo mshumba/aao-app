@@ -21,9 +21,26 @@ export function messagesLabel(count: number) {
   return `${count} message${count === 1 ? "" : "s"}`;
 }
 
-/** "About 16 min a day". */
+/** "12 teachings": a teaching series' length. */
+export function teachingsLabel(count: number) {
+  return `${count} teaching${count === 1 ? "" : "s"}`;
+}
+
+/**
+ * "About 16 min a day": the focus segments' average.
+ * @deprecated A day plays its whole sermon, so this isn't watch time; say
+ * how many messages there are (messagesLabel) or how long the sermons are
+ * together (totalTimeLabel). Kept only until every screen has moved off it.
+ */
 export function minutesPerDayLabel(path: Pick<Path, "minutesPerDay">) {
   return `About ${path.minutesPerDay} min a day`;
+}
+
+/** "About 18 hours in all": a path's sermons, whole, together. */
+export function totalTimeLabel(seconds: number) {
+  if (seconds < 3600) return `About ${Math.max(1, Math.round(seconds / 60))} min in all`;
+  const hours = Math.round(seconds / 3600);
+  return `About ${hours} hour${hours === 1 ? "" : "s"} in all`;
 }
 
 /** "Day 3 of 7". */

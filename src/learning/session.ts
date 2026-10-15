@@ -15,7 +15,33 @@ export const restBase = `${supabaseConfig.url.replace(/\/+$/, "")}/rest/v1`;
 export const functionsBase = `${supabaseConfig.url.replace(/\/+$/, "")}/functions/v1`;
 export const publishableKey = supabaseConfig.key;
 
-type StoredSession = { access_token?: string; expires_at?: number };
+type StoredSession = { access_token?: string; expires_at?: number; user?: { id?: string } };
+
+async function storedSession(): Promise<StoredSession | null> {
+  const raw =
+    Platform.OS === "web"
+      ? (globalThis as { localStorage?: Storage }).localStorage?.getItem(SESSION_KEY) ?? null
+      : await secureSessionStorage.getItem(SESSION_KEY);
+  return raw ? (JSON.parse(raw) as StoredSession) : null;
+}
+
+/** A usable token from a stored session: null when missing or about to expire. */
+function usable(session: StoredSession | null) {
+  if (!session?.access_token) return null;
+  if (session.expires_at && session.expires_at * 1000 < Date.now() + 15_000) return null;
+  return session.access_token;
+}
+
+/** Whose token it is: the session's user, else the token's own subject. */
+function ownerOf(session: StoredSession, token: string) {
+  if (session.user?.id) return session.user.id;
+  try {
+    const payload = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+    return (JSON.parse(atob(payload)) as { sub?: string }).sub ?? null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * The signed-in viewer's access token, read from where the account's
@@ -32,15 +58,23 @@ type StoredSession = { access_token?: string; expires_at?: number };
 export async function accessToken(): Promise<string | null> {
   if (learningMode !== "remote") return null;
   try {
-    const raw =
-      Platform.OS === "web"
-        ? (globalThis as { localStorage?: Storage }).localStorage?.getItem(SESSION_KEY) ?? null
-        : await secureSessionStorage.getItem(SESSION_KEY);
-    if (!raw) return null;
-    const session = JSON.parse(raw) as StoredSession;
-    if (!session.access_token) return null;
-    if (session.expires_at && session.expires_at * 1000 < Date.now() + 15_000) return null;
-    return session.access_token;
+    return usable(await storedSession());
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The same, only when the session belongs to `owner` (the account's user
+ * id). Path progress syncs with this, so one account's changes never go
+ * out with another's token while accounts change.
+ */
+export async function accessTokenFor(owner: string): Promise<string | null> {
+  if (learningMode !== "remote") return null;
+  try {
+    const session = await storedSession();
+    const token = usable(session);
+    return token && session && ownerOf(session, token) === owner ? token : null;
   } catch {
     return null;
   }

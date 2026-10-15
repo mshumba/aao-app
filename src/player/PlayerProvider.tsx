@@ -12,10 +12,14 @@ import { AccessibilityInfo, AppState, Linking, Platform } from "react-native";
 import { useAccount } from "../auth/AccountProvider";
 import type { WatchProgress } from "../auth/types";
 import { Sermon } from "../data/sermons";
+import { useCompleteDay } from "../learning/completeDay";
 import { MIN_RESUME, SAVE_EVERY, isFinished, resumePoint } from "./progress";
 import { EmbedHandle, PlayerCommand, PlayerEvent, playerError } from "./types";
 
 export type Phase = "idle" | "loading" | "ready" | "error";
+
+/** The day of a path (or teaching series) the loaded sermon plays as. */
+export type PlayingDay = { pathId: string; day: number; sermonId: string };
 
 export const RATES = [1, 1.25, 1.5, 2, 0.75];
 
@@ -56,6 +60,14 @@ type Session = {
   hold: () => void;
   /** Moves keyboard focus into the provider's player (web). */
   focusPlayer: () => void;
+  /**
+   * Which path day the loaded sermon plays as. The sermon's page sets it;
+   * it stays while the sermon plays on docked, so finishing it there still
+   * marks the day done. Loading another sermon (or closing) clears it.
+   */
+  setPathDay: (day: PlayingDay | null) => void;
+  /** The last day playback marked done (`key` tells repeats apart), for a quiet notice. */
+  dayDone: { pathId: string; day: number; key: number } | null;
   watchOnYouTube: () => void;
   onEvent: (event: PlayerEvent) => void;
   /** Callback ref for the embed, so the context holds no ref object. */
@@ -123,6 +135,10 @@ const RESUME_NOTE_FOR = 120;
  * they left it, and the position is saved every 15 seconds while playing,
  * on pause, when the player docks or closes, when another sermon loads and
  * when the app goes to the background. Saving never waits on the network.
+ *
+ * Playing a day of a path, it marks the day done once the sermon has been
+ * watched (95%, the rule Continue watching uses, or played to the end),
+ * wherever the viewer is in the app by then.
  */
 export function PlayerProvider({ children }: { children: ReactNode }) {
   const embed = useRef<EmbedHandle>(null);
@@ -133,11 +149,14 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     accountRef.current = account;
   }, [account]);
   const [sermon, setSermon] = useState<Sermon | null>(null);
-  const [phase, setPhase] = useState<Phase>("idle");
+  const [phase, setPhaseState] = useState<Phase>("idle");
+  // Kept in step with every change, not after the next render: progress
+  // arriving just after a load starts must see that it's loading (catchUp).
   const phaseRef = useRef<Phase>("idle");
-  useEffect(() => {
-    phaseRef.current = phase;
-  }, [phase]);
+  const setPhase = useCallback((next: Phase) => {
+    phaseRef.current = next;
+    setPhaseState(next);
+  }, []);
   const [error, setError] = useState<number | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [start, setStart] = useState(0);
@@ -145,6 +164,13 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const [cover, setCover] = useState<"on" | "fading" | "off">("off");
   const [stage, setStageState] = useState<string | null>(null);
   const [dockAboveTabs, setDockAboveTabs] = useState(false);
+  const pathDayRef = useRef<PlayingDay | null>(null);
+  const [dayDone, setDayDone] = useState<Session["dayDone"]>(null);
+  const completeDay = useCompleteDay();
+  const completeRef = useRef(completeDay);
+  useEffect(() => {
+    completeRef.current = completeDay;
+  }, [completeDay]);
   const [state, setState] = useState(-1);
   const [seconds, setSeconds] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -157,6 +183,9 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const length = useRef(0);
   const savedAt = useRef(0);
   const resumeNote = useRef(0);
+  // A saved place that arrived while the player was still loading: moved to
+  // as soon as it's ready.
+  const seekOnReady = useRef<number | null>(null);
   const autoplay = useRef(false);
   // A second tap on Watch before the first one renders must not load twice.
   const pending = useRef(false);
@@ -207,6 +236,30 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  /**
+   * Marks the playing path day done once its sermon has been watched (or
+   * played to the end). Learning only marks the next day due on a path
+   * the viewer is on, and only once, so this can run on every tick.
+   */
+  const checkDay = useCallback((ended = false) => {
+    const day = pathDayRef.current;
+    const loaded = current.current;
+    if (!day || !loaded || loaded.id !== day.sermonId) return;
+    if (!ended && !isFinished(position.current, length.current)) return;
+    if (!completeRef.current(day.pathId, day.day)) return;
+    setDayDone({ pathId: day.pathId, day: day.day, key: Date.now() });
+  }, []);
+
+  const setPathDay = useCallback(
+    (next: PlayingDay | null) => {
+      if (next && current.current?.id !== next.sermonId) return;
+      pathDayRef.current = next;
+      // Already watched past the line (a place far into it): done now.
+      checkDay();
+    },
+    [checkDay],
+  );
+
   // The provider drops commands until it's ready, so a pause while loading
   // must also cancel the start that Watch queued.
   const hold = useCallback(() => {
@@ -228,11 +281,13 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     setStatus("");
     setCover("off");
     AccessibilityInfo.announceForAccessibility(playerError(code));
-  }, [clearBlockedCheck]);
+  }, [clearBlockedCheck, setPhase]);
 
   const begin = useCallback((next: Sermon, from: number) => {
     // Keep the place in the sermon being replaced.
     if (current.current && current.current.id !== next.id) persist("moment");
+    // Another sermon isn't that path day.
+    if (pathDayRef.current?.sermonId !== next.id) pathDayRef.current = null;
     current.current = next;
     length.current = 0;
     savedAt.current = Date.now();
@@ -244,6 +299,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     pending.current = true;
     autoplay.current = true;
     position.current = from;
+    seekOnReady.current = null;
     setSermon(next);
     setError(null);
     setPhase("loading");
@@ -258,7 +314,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     // iOS has no live regions, so the loading step is announced there.
     if (Platform.OS === "ios")
       AccessibilityInfo.announceForAccessibility("Loading the sermon.");
-  }, [clearBlockedCheck, persist]);
+  }, [clearBlockedCheck, persist, setPhase]);
 
   /**
    * The account's progress arrived after this sermon started loading (a
@@ -273,13 +329,15 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       if (!from || position.current >= MIN_RESUME) return;
       resumeNote.current = from;
       setResumedFrom(from);
-      if (phaseRef.current === "loading") return begin(loaded, from);
       position.current = from;
-      if (phaseRef.current !== "ready") return; // Try again starts there.
       setSeconds(from);
-      command({ type: "seek", seconds: from });
+      // Still loading: it moves there once ready (starting the load again
+      // would race the first player's own ready). After an error, Try again
+      // starts there.
+      if (phaseRef.current === "loading") seekOnReady.current = from;
+      else if (phaseRef.current === "ready") command({ type: "seek", seconds: from });
     },
-    [begin, command],
+    [command],
   );
 
   const load = useCallback(
@@ -312,6 +370,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   const close = useCallback(() => {
     persist("moment");
+    pathDayRef.current = null;
     current.current = null;
     resumeNote.current = 0;
     setResumedFrom(0);
@@ -324,7 +383,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     setCover("off");
     setStatus("");
     setState(-1);
-  }, [clearBlockedCheck, persist]);
+  }, [clearBlockedCheck, persist, setPhase]);
 
   const watchOnYouTube = useCallback(() => {
     if (!sermon) return;
@@ -346,6 +405,10 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         setDuration(e.duration);
       }
       if (e.type === "ready") {
+        if (seekOnReady.current != null) {
+          command({ type: "seek", seconds: seekOnReady.current });
+          seekOnReady.current = null;
+        }
         // The viewer pressed Watch, so start as soon as the provider can,
         // unless the app has gone to the background meanwhile. Until it
         // actually plays, keep saying it's loading; if it hasn't played after
@@ -396,6 +459,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       if (e.state === 1) persist("tick");
       else if (e.state === 2) persist("moment");
       else if (e.state === 0) persist("ended");
+      checkDay(e.state === 0);
       setState(e.state);
       if (Platform.OS === "ios" && e.state === 0)
         AccessibilityInfo.announceForAccessibility("Sermon ended.");
@@ -404,7 +468,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       if (starting.current) return;
       setStatus(blocked.current ? BLOCKED : statusFor(e.state));
     },
-    [command, fail, clearBlockedCheck, persist],
+    [command, fail, clearBlockedCheck, persist, checkDay, setPhase],
   );
 
   // Loading can't hang forever.
@@ -483,6 +547,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       close,
       hold,
       focusPlayer,
+      setPathDay,
+      dayDone,
       watchOnYouTube,
       onEvent,
       attach,
@@ -504,6 +570,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       close,
       hold,
       focusPlayer,
+      setPathDay,
+      dayDone,
       watchOnYouTube,
       onEvent,
       attach,

@@ -12,21 +12,20 @@ import {
   SectionHeader,
   TrustLine,
   Wash,
-  leftText,
   spokenText,
   type ArtSource,
 } from "../kit";
 import {
   doneLabel,
   messagesLabel,
-  minutesPerDayLabel,
   trustLine,
   useEnrollment,
   type ActivePath,
   type Path,
   type PathDay,
+  type PathDayWithSermon,
 } from "../learning";
-import { dayTiming } from "../paths/model";
+import { dayTiming, pathWords } from "../paths/model";
 import { usePlayDay } from "../paths/navigation";
 import { c, radius, textCap, type } from "../theme";
 import { T, Tap } from "../ui";
@@ -38,17 +37,13 @@ function art(find: (id: string) => Sermon | undefined, youtubeId: string): ArtSo
 
 /**
  * Where today's day stands for this viewer, the same way the path page
- * says it (dayTiming): how far into its focus they've watched, what's left,
- * and where Play starts (their place inside the focus, else its start).
+ * says it (dayTiming): how far into its sermon they've watched, what's left
+ * of it ("48 min left", or its whole length before they start), and where
+ * it picks up (the player resumes there itself).
  */
-export function todayProgress(day: PathDay, watch: Parameters<typeof dayTiming>[1]) {
+export function todayProgress(day: PathDayWithSermon, watch: Parameters<typeof dayTiming>[1]) {
   const timing = dayTiming(day, watch);
-  const span = Math.max(1, day.focusEnd - day.focusStart);
-  return {
-    partial: timing.partial,
-    left: timing.started ? day.focusEnd - timing.resumeAt : span,
-    from: timing.resumeAt,
-  };
+  return { partial: timing.partial, meta: timing.meta, from: timing.resumeAt };
 }
 
 // ---- Your path ---------------------------------------------------------------------------
@@ -56,7 +51,9 @@ export function todayProgress(day: PathDay, watch: Parameters<typeof dayTiming>[
 /**
  * The navy "Your path · Day 3 of 7" card: the fan of today's sermon and the
  * two before it, the path's name, progress by day, and "Today · …" with a
- * play circle that starts today's focus (or picks up inside it).
+ * play circle that plays today's sermon, whole, from where the viewer left
+ * off. The sermon's page knows it's today's day, so watching it marks the
+ * day done. A teaching series says "Your series · Teaching 3 of 12".
  */
 export const YourPath = memo(function YourPath({
   active,
@@ -65,13 +62,15 @@ export const YourPath = memo(function YourPath({
 }: {
   active: ActivePath;
   onOpenPath: (id: string) => void;
-  onPlay: (youtubeId: string, at: number) => void;
+  /** Opens the sermon playing (no place asked: it resumes, else starts at the beginning). */
+  onPlay: (youtubeId: string) => void;
 }) {
   const { find } = useCatalogue();
   const account = useAccount();
   const { path, day, done, total, days, today } = active;
+  const words = pathWords(path);
   const saved = today && account.user ? account.progressFor(today.youtubeId) : null;
-  const now = today ? todayProgress(today, saved) : { partial: 0, left: 0, from: 0 };
+  const now = today ? todayProgress(today, saved) : { partial: 0, meta: "", from: 0 };
 
   const fan = useMemo(() => {
     // Today in front; behind it the two days before (or after, on Day 1).
@@ -95,10 +94,13 @@ export const YourPath = memo(function YourPath({
       done={done}
       partial={now.partial}
       fan={fan}
+      kicker={words.series ? `Your series · ${words.unit} ${day} of ${total}` : undefined}
+      todayLead={words.series ? "Next" : undefined}
+      playLabel={words.series ? `Play teaching ${day}` : undefined}
       todayTitle={title}
-      todayMeta={`${leftText(now.left)} · ${doneLabel(done.length, total)}`}
+      todayMeta={now.meta ? `${now.meta} · ${doneLabel(done.length, total)}` : doneLabel(done.length, total)}
       onOpen={() => onOpenPath(path.id)}
-      onPlay={() => today && onPlay(today.youtubeId, now.from)}
+      onPlay={() => today && onPlay(today.youtubeId)}
       style={styles.card}
     />
   );
@@ -119,6 +121,8 @@ const FAN_SCALE = 0.66;
  * For someone not on a path: the first path as the concept's navy card
  * ("Start here", its Day 1 to play, who set its order, honestly), then the
  * others as a rail of dark covers with their length, name and promise.
+ * Guided paths only: the teaching series have their own section on the
+ * Paths tab.
  */
 export const StartPathRail = memo(function StartPathRail({
   paths,
@@ -137,12 +141,14 @@ export const StartPathRail = memo(function StartPathRail({
   const width = Math.round(TILE_W * Math.min(1.3, Math.max(1, fontScale)));
   const tiles = useMemo(
     () =>
-      paths.map((path) => ({
+      paths
+        .filter((path) => path.kind !== "series")
+        .map((path) => ({
         path,
-        fan: daysOf(path.id)
-          .slice(0, 3)
-          .map((d) => art(find, d.youtubeId)),
-      })),
+          fan: daysOf(path.id)
+            .slice(0, 3)
+            .map((d) => art(find, d.youtubeId)),
+        })),
     [paths, daysOf, find],
   );
   if (!tiles.length) return null;
@@ -198,14 +204,14 @@ const StartHere = memo(function StartHere({
   const [busy, setBusy] = useState(false);
   const first = days[0];
   const sermon = first ? find(first.youtubeId) : undefined;
-  const timing = first ? dayTiming(first, null) : null;
+  // Day 1's sermon, whole: "1 hr 47 min".
+  const timing = first ? dayTiming({ ...first, sermon }, null) : null;
   const total = days.length || path.dayCount;
   const onPlay = useCallback(async () => {
     if (!first || busy) return;
     setBusy(true);
     try {
-      if ((await start(path.id)) === "started")
-        play(first.youtubeId, first.focusStart, { id: path.id, day: first.day });
+      if ((await start(path.id)) === "started") play(first.youtubeId, { path: { id: path.id, day: first.day } });
     } finally {
       setBusy(false);
     }
@@ -226,7 +232,7 @@ const StartHere = memo(function StartHere({
       todayLead="Day 1"
       playLabel="Start the path with day 1"
       todayTitle={sermon ? headline(sermon) : first.theme}
-      todayMeta={timing.meta}
+      todayMeta={timing.meta || messagesLabel(total)}
       onOpen={() => onOpenPath(path.id)}
       onPlay={onPlay}
       style={styles.card}
@@ -247,7 +253,7 @@ const PathTile = memo(function PathTile({
   width: number;
   onOpen: (id: string) => void;
 }) {
-  const length = `${messagesLabel(path.dayCount)} · ${minutesPerDayLabel(path)}`;
+  const length = messagesLabel(path.dayCount);
   const trust = trustLine(path.status).text;
   const scale = (FAN_SCALE * width) / TILE_W;
   return (

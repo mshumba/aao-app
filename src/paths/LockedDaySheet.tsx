@@ -9,12 +9,14 @@ import { PathSheet } from "./Sheet";
  * What a locked day says when tapped: kindly, why it waits, a way to the
  * day that's open ("Go to Day 3" plays it), and "Open Day 4 anyway" for
  * someone who wants that message now (it opens outside the path, so the
- * order stays the ministry's).
+ * order stays the ministry's). A teaching series says "Teaching 4".
  */
 export const LockedDaySheet = memo(function LockedDaySheet({
   day,
   today,
   enrolled,
+  unit = "Day",
+  noun = "path",
   onClose,
   onGoToday,
   onOpenAnyway,
@@ -24,18 +26,24 @@ export const LockedDaySheet = memo(function LockedDaySheet({
   /** The day that's open now. */
   today: number;
   enrolled: boolean;
+  /** "Day", or "Teaching" in a series. */
+  unit?: string;
+  /** "path" or "series". */
+  noun?: string;
   onClose: () => void;
   onGoToday: () => void;
   onOpenAnyway: (day: number) => void;
 }) {
   const shown = day != null;
   const n = day ?? today + 1;
-  const title = enrolled ? `Day ${n} opens after Day ${n - 1}` : "This path starts with Day 1";
+  const u = unit;
+  const each = u === "Day" ? "Each day" : `Each ${u.toLowerCase()}`;
+  const title = enrolled ? `${u} ${n} opens after ${u} ${n - 1}` : `This ${noun} starts with ${u} 1`;
   const body = !enrolled
-    ? "Each day builds on the one before, so the path begins with Day 1."
+    ? `${each} builds on the one before, so the ${noun} begins with ${u} 1.`
     : n - 1 === today
-      ? `Each day builds on the one before. Finish Day ${today} first, and Day ${n} will be ready for you.`
-      : `Each day builds on the one before. You’re on Day ${today} now; Day ${n} opens once Day ${n - 1} is done.`;
+      ? `${each} builds on the one before. Finish ${u} ${today} first, and ${u} ${n} will be ready for you.`
+      : `${each} builds on the one before. You’re on ${u} ${today} now; ${u} ${n} opens once ${u} ${n - 1} is done.`;
   return (
     <PathSheet visible={shown} onClose={onClose} label={title} testID="locked-day">
       <View style={styles.well}>
@@ -49,14 +57,14 @@ export const LockedDaySheet = memo(function LockedDaySheet({
         <PlayPill
           tone="navy"
           size="md"
-          label={enrolled ? `Go to Day ${today}` : "Start Day 1"}
+          label={enrolled ? `Go to ${u} ${today}` : `Start ${u} 1`}
           onPress={onGoToday}
           style={styles.primary}
           testID="locked-day-go"
         />
         {day != null ? (
           <TextButton
-            label={`Open Day ${day} anyway`}
+            label={`Open ${u} ${day} anyway`}
             hint="Opens this message on its own, outside the path"
             onPress={() => onOpenAnyway(day)}
           />

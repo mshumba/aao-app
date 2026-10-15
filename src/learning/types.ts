@@ -35,9 +35,16 @@ export type Moment = {
 
 export type PathStatus = "draft" | "published";
 
-/** A ministry-ordered series of days. */
+/**
+ * "path": a guided path, one message a day. "series": a teaching series,
+ * the Apostle's teachings in order (its days are teachings).
+ */
+export type PathKind = "path" | "series";
+
+/** A ministry-ordered series of days. Each day plays its whole sermon. */
 export type Path = {
   id: string;
+  kind: PathKind;
   name: string;
   /** The 1-3 word phrase of `name` set in italics (chosen editorially). */
   italic: string;
@@ -46,6 +53,10 @@ export type Path = {
   /** "Why this path": the page's one block of serif prose. */
   why: string;
   needs: string[];
+  /**
+   * The focus segments' average length. Data only: never show it as watch
+   * time (a day plays its whole sermon; use the sermons' lengths).
+   */
   minutesPerDay: number;
   /**
    * 'draft' must never claim "Order set by the ministry"; use TrustLine
@@ -57,12 +68,16 @@ export type Path = {
   dayCount: number;
 };
 
-/** One day of a path: a sermon and a focus segment inside it. */
+/**
+ * One day of a path: a sermon, played in full. The focus segment inside it
+ * is kept as data (for overlays once the ministry hosts its own video); the
+ * app doesn't show it or start there.
+ */
 export type PathDay = {
   pathId: string;
   day: number;
   youtubeId: string;
-  /** Seconds into the video. */
+  /** Seconds into the video. Data only. */
   focusStart: number;
   focusEnd: number;
   /** Our editorial line for the day (not a quote): "Lay aside every weight". */

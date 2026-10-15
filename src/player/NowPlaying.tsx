@@ -17,7 +17,7 @@ import {
   useWindowDimensions,
 } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
-import { STRIP_HEIGHT, TimesRow, Track, useGlide, useStripWidth, type FocusSpan, type Tick } from "../sermon/Track";
+import { STRIP_HEIGHT, TimesRow, Track, useGlide, useStripWidth, type Tick } from "../sermon/Track";
 import { c, font, radius, tabular, textCap, type } from "../theme";
 import { Icon, T, Tap, moveFocus, web } from "../ui";
 import {
@@ -28,14 +28,12 @@ import {
   usePlayerSession,
 } from "./PlayerProvider";
 
-/** A moment or focus on the band, in seconds (the band turns them into ticks). */
+/** Moments on the band, in seconds (the band turns them into ticks). */
 export type BandMarks = {
   /** Moments in playing order: their start times and keys. */
   moments: readonly { key: string; at: number }[];
   /** The moment to draw larger (the search moment, the one playing). */
   activeKey?: string | null;
-  /** A path day's focus. */
-  focus?: { start: number; end: number } | null;
   /** Used to place the marks until the player knows the real length. */
   estimate: number;
 };
@@ -46,9 +44,7 @@ export function bandTicks(marks: BandMarks, duration: number) {
   const ticks: Tick[] = total
     ? marks.moments.map((m) => ({ key: m.key, at: m.at / total, active: m.key === marks.activeKey }))
     : [];
-  const focus: FocusSpan | null =
-    total && marks.focus ? { start: marks.focus.start / total, end: marks.focus.end / total } : null;
-  return { ticks, focus };
+  return { ticks };
 }
 
 /**
@@ -59,7 +55,7 @@ export function bandTicks(marks: BandMarks, duration: number) {
  *
  * Keyboard (web): arrows step like the skip buttons, Home and End jump.
  * Screen readers: adjust by 15 seconds, or jump to the next or previous
- * moment and to a path day's focus.
+ * moment.
  */
 export const LiveBand = memo(function LiveBand({
   marks,
@@ -108,7 +104,7 @@ export const LiveBand = memo(function LiveBand({
   const shown = drag !== null ? drag * p.duration : p.seconds;
   const total = ready ? p.duration : marks.estimate;
   const position = total ? Math.min(1, shown / total) : 0;
-  const { ticks, focus } = bandTicks(marks, p.duration);
+  const { ticks } = bandTicks(marks, p.duration);
   const keys: Record<string, () => void> = {
     ArrowRight: () => p.skip(30),
     ArrowUp: () => p.skip(30),
@@ -125,7 +121,6 @@ export const LiveBand = memo(function LiveBand({
     { name: "decrement" },
     ...(nextMoment != null ? [{ name: "nextMoment", label: "Next moment" }] : []),
     ...(previousMoment != null ? [{ name: "previousMoment", label: "Previous moment" }] : []),
-    ...(marks.focus ? [{ name: "focus", label: "Go to today’s focus" }] : []),
   ];
   return (
     <View>
@@ -151,8 +146,6 @@ export const LiveBand = memo(function LiveBand({
                 return nextMoment != null && p.seek(nextMoment);
               case "previousMoment":
                 return previousMoment != null && p.seek(previousMoment);
-              case "focus":
-                return marks.focus && p.seek(marks.focus.start);
             }
           }}
           {...web({
@@ -170,7 +163,6 @@ export const LiveBand = memo(function LiveBand({
             width={width}
             position={position}
             ticks={ticks}
-            focus={focus}
             dragging={drag !== null}
             glide={glide}
           />

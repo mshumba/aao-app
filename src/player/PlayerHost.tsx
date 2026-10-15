@@ -35,6 +35,7 @@ import {
 import { usePlayback, usePlayerSession } from "./PlayerProvider";
 import { headline } from "../data/display";
 import { canRetry, playerError } from "./types";
+import { useDayDoneNotice } from "./dayDone";
 import { useDockAboveTabs } from "./useDockInset";
 
 /**
@@ -44,6 +45,8 @@ import { useDockAboveTabs } from "./useDockInset";
  */
 export function PlayerHost() {
   const session = usePlayerSession();
+  // A path day finished while it plays (docked or full) says so here.
+  useDayDoneNotice();
   const window = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const aboveTabs = useDockAboveTabs();

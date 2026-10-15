@@ -1,19 +1,21 @@
 import { memo, useEffect } from "react";
 import { StyleSheet, View } from "react-native";
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
-import { Artwork, ItalicTitle, Kicker, PlayPill, Quote, clockText, spokenTime } from "../kit";
+import { Artwork, ItalicTitle, Kicker, PlayPill, Quote, clockText, spokenText, spokenTime } from "../kit";
 import type { Path, PathDayWithSermon } from "../learning";
 import { useReducedMotion } from "../motion";
 import { c, radius, space, tabular, textCap, type } from "../theme";
 import { T, TextButton, web } from "../ui";
+import { pathWords } from "./model";
 import { PathSheet } from "./Sheet";
 
 /**
- * "Day 3 done." (the doc's Day complete sheet), shown when someone comes
- * back to the path page after the sermon page marked the day done: the
- * day's verbatim quote, what tomorrow holds, "Done for today", and "Keep
- * listening from 1:37:02". No streaks, flames or confetti; the new segment
- * of the path fills over 400ms (at once under Reduce Motion).
+ * "Day 3 done." (the doc's Day complete sheet), shown on the path page once
+ * a day is done (its sermon watched, or marked done): the day's verbatim
+ * quote, what tomorrow holds, "Done for today", and "Keep listening" when
+ * there's sermon left. No streaks, flames or confetti; the new segment of
+ * the path fills over 400ms (at once under Reduce Motion). A teaching series
+ * says "Teaching 3 done." and "Next".
  */
 export const DayCompleteSheet = memo(function DayCompleteSheet({
   visible,
@@ -22,7 +24,8 @@ export const DayCompleteSheet = memo(function DayCompleteSheet({
   total,
   done,
   next,
-  nextMinutes,
+  nextMeta,
+  left,
   hydrated,
   onClose,
   onKeepListening,
@@ -35,21 +38,26 @@ export const DayCompleteSheet = memo(function DayCompleteSheet({
   done: readonly number[];
   /** The next day still to do, or undefined when the path is finished. */
   next: PathDayWithSermon | undefined;
-  nextMinutes: number;
+  /** The next day's sermon, whole: "2 hr 16 min" (empty while it isn't known). */
+  nextMeta: string;
+  /** What's left of this day's sermon ("48 min left"), when it was marked done before the end. */
+  left?: string | null;
   hydrated: boolean;
   onClose: () => void;
   onKeepListening: (day: PathDayWithSermon) => void;
   onNextPath: () => void;
 }) {
   if (!day) return null;
+  const words = pathWords(path);
   const finished = !next;
-  const heading = finished ? "Path complete." : `Day ${day.day} done.`;
+  const heading = finished ? (words.series ? "Series complete." : "Path complete.") : `${words.unit} ${day.day} done.`;
+  const spokenHeading = heading.replace(/\.$/, "");
   const nextTitle = next?.sermon?.headline ?? (hydrated ? null : "Loading");
   return (
-    <PathSheet visible={visible} onClose={onClose} label={finished ? "Path complete" : `Day ${day.day} done`} testID="day-complete">
+    <PathSheet visible={visible} onClose={onClose} label={spokenHeading} testID="day-complete">
       <View style={styles.head}>
         <Kicker numberOfLines={2} style={styles.center}>
-          {finished ? `${path.name}` : `Day ${day.day} of ${total} · ${day.theme}`}
+          {finished ? `${path.name}` : `${words.unit} ${day.day} of ${total} · ${day.theme}`}
         </Kicker>
         <ItalicTitle
           text={heading}
@@ -61,7 +69,7 @@ export const DayCompleteSheet = memo(function DayCompleteSheet({
         />
         <FillingProgress total={total} done={done} fresh={day.day} />
         <T style={[type.metaSmall, tabular, styles.count]}>
-          {finished ? `All ${total} days done` : `${done.length} of ${total} done`}
+          {finished ? `All ${total} ${words.series ? "teachings" : "days"} done` : `${done.length} of ${total} done`}
         </T>
       </View>
 
@@ -80,20 +88,22 @@ export const DayCompleteSheet = memo(function DayCompleteSheet({
         <View
           style={styles.next}
           accessible
-          accessibilityLabel={`Tomorrow: day ${next.day}. ${next.theme}. ${nextTitle ?? ""}. ${nextMinutes} minutes.`}
+          accessibilityLabel={`${words.series ? "Next" : "Tomorrow"}: ${words.unit.toLowerCase()} ${next.day}. ${next.theme}. ${nextTitle ?? ""}.${nextMeta ? ` ${spokenText(nextMeta)}.` : ""}`}
         >
           <Artwork art={next.sermon ?? { id: next.youtubeId }} width={64} radius={6} />
           <View style={styles.nextText}>
-            <Kicker tone="muted">{`Tomorrow · Day ${next.day}`}</Kicker>
+            <Kicker tone="muted">{`${words.series ? "Next" : "Tomorrow"} · ${words.unit} ${next.day}`}</Kicker>
             <T style={[type.cardTitle, { marginTop: 2 }]} numberOfLines={2}>
               {nextTitle ?? next.theme}
             </T>
-            <T style={[type.meta, tabular, styles.muted]}>{`${next.theme} · ${nextMinutes} min`}</T>
+            <T style={[type.meta, tabular, styles.muted]}>{nextMeta ? `${next.theme} · ${nextMeta}` : next.theme}</T>
           </View>
         </View>
       ) : (
         <T style={[type.body, styles.finishedLine]}>
-          {`You’ve walked every day of ${path.name}. Take what stayed with you into this week.`}
+          {words.series
+            ? `You’ve heard every teaching of ${path.name}. Take what stayed with you into this week.`
+            : `You’ve walked every day of ${path.name}. Take what stayed with you into this week.`}
         </T>
       )}
 
@@ -122,11 +132,13 @@ export const DayCompleteSheet = memo(function DayCompleteSheet({
               style={styles.primary}
               testID="day-complete-close"
             />
-            <TextButton
-              label={`Keep listening from ${clockText(day.focusEnd)}`}
-              hint={`Plays on from ${spokenTime(day.focusEnd)}`}
-              onPress={() => onKeepListening(day)}
-            />
+            {left ? (
+              <TextButton
+                label={`Keep listening · ${left}`}
+                hint="Plays on from where you left off"
+                onPress={() => onKeepListening(day)}
+              />
+            ) : null}
           </>
         )}
       </View>

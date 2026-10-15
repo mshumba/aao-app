@@ -6,14 +6,19 @@ export const SAVE_EVERY = 15_000;
 /** Less than this in, a sermon starts from the beginning again. */
 export const MIN_RESUME = 15;
 
+/** Watched this much of a sermon, it counts as finished. */
+export const FINISHED_AT = 0.95;
+
 /**
- * Near enough the end to count as watched: the last 30 seconds, or the last
- * 2% of a long sermon (about four minutes of a three-hour one), which is
- * usually the closing prayer and announcements.
+ * Near enough the end to count as watched: 95% of it (what's left of a
+ * long sermon is usually the closing prayer and announcements), or the last
+ * 30 seconds of a short one. One rule everywhere: a finished sermon leaves
+ * Continue watching, starts from the beginning next time, and completes the
+ * path day it's played as.
  */
 export function isFinished(position: number, duration: number) {
   if (!duration) return false;
-  return duration - position <= Math.max(30, duration * 0.02);
+  return position >= duration * FINISHED_AT || duration - position <= 30;
 }
 
 /** Where a sermon should start for this viewer, in whole seconds. */

@@ -13,16 +13,15 @@ export const GLIDE_MS = 600;
 
 /** A moment's mark on the track, as a fraction of the sermon. */
 export type Tick = { key: string; at: number; active?: boolean };
-/** A path day's focus, as fractions of the sermon. */
-export type FocusSpan = { start: number; end: number };
 
 const clamp = (f: number) => Math.min(1, Math.max(0, Number.isFinite(f) ? f : 0));
 
 /**
  * The stage's progress line, from the approved concept: a 4pt white-22%
  * rail edge to edge under the video, the played part in white, moment
- * ticks (4×12, ringed in the stage colour so they read on the fill), a
- * path day's focus in gold with end brackets, and a 16pt white thumb.
+ * ticks (4×12, ringed in the stage colour so they read on the fill) and a
+ * 16pt white thumb. A path day plays its whole sermon, so nothing marks a
+ * part of it.
  * Decorative: the strip around it carries the slider semantics.
  *
  * `glide` moves the thumb to a new place over 600ms (a jump to a moment);
@@ -32,7 +31,6 @@ export const Track = memo(function Track({
   width,
   position,
   ticks,
-  focus,
   dragging = false,
   glide = false,
   played = true,
@@ -41,21 +39,16 @@ export const Track = memo(function Track({
   /** 0 to 1, or null for no thumb (nothing played yet). */
   position: number | null;
   ticks: readonly Tick[];
-  focus?: FocusSpan | null;
   dragging?: boolean;
   glide?: boolean;
   /**
    * The white fill means "watched": false before play when the thumb only
-   * marks where Play will start (a moment, a path day's focus).
+   * marks where Play will start (a moment, a shared time).
    */
   played?: boolean;
 }) {
   const reduced = useReducedMotion();
   const x = position == null ? 0 : clamp(position) * width;
-  const fs = focus ? clamp(focus.start) * width : 0;
-  const fw = focus ? Math.max(2, (clamp(focus.end) - clamp(focus.start)) * width) : 0;
-  // Today's segment fills in gold as it plays, over the white.
-  const goldWidth = focus && played && position != null ? Math.min(Math.max(x - fs, 0), fw) : 0;
   const travel = glide && !reduced && !dragging ? GLIDE_MS : 0;
   const motion = {
     transitionDuration: travel,
@@ -71,19 +64,6 @@ export const Track = memo(function Track({
       <View style={styles.rail} />
       {played ? (
         <Animated.View style={[styles.fill, { width: x, transitionProperty: "width", ...motion }]} />
-      ) : null}
-      {focus ? (
-        <>
-          {/* The focus over the fill, so it stays gold once it's been watched. */}
-          <View style={[styles.focus, { left: fs, width: fw }]} />
-          {goldWidth > 0 ? (
-            <Animated.View
-              style={[styles.focusPlayed, { left: fs, width: goldWidth, transitionProperty: "width", ...motion }]}
-            />
-          ) : null}
-          <View style={[styles.bracket, { left: clamp(focus.start) * width - 1 }]} />
-          <View style={[styles.bracket, { left: clamp(focus.end) * width - 1 }]} />
-        </>
       ) : null}
       {ticks.map((tick) => (
         <View
@@ -147,7 +127,7 @@ export function useGlide(key: number) {
 /**
  * The line under the track: elapsed on the left, remaining on the right
  * (tabular, white 74%), and context in the centre (the status, "From your
- * search", a path day's focus). Only the centre's own controls take
+ * search", how many moments are marked). Only the centre's own controls take
  * touches; elsewhere a tap falls through to the strip above it.
  */
 export function TimesRow({
@@ -229,27 +209,6 @@ const styles = StyleSheet.create({
     top: CENTRE - 2,
     height: 4,
     backgroundColor: c.onMediaRail,
-  },
-  // Today's focus: soft gold on the rail, solid gold as far as it's played.
-  focus: {
-    position: "absolute",
-    top: CENTRE - 2,
-    height: 4,
-    backgroundColor: "rgba(184,149,74,0.45)",
-  },
-  focusPlayed: {
-    position: "absolute",
-    top: CENTRE - 2,
-    height: 4,
-    backgroundColor: c.goldOnDark,
-  },
-  bracket: {
-    position: "absolute",
-    top: CENTRE - 6,
-    width: 2,
-    height: 12,
-    borderRadius: 1,
-    backgroundColor: c.goldOnDark,
   },
   fill: {
     position: "absolute",

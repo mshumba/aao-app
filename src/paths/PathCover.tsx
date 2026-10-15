@@ -1,10 +1,11 @@
 import { memo } from "react";
 import { StyleSheet, View, useWindowDimensions, type LayoutChangeEvent } from "react-native";
 import { CardFan, ItalicTitle, Kicker, PathProgress, Wash, fanSize, spokenText, type ArtSource } from "../kit";
-import { messagesLabel, minutesPerDayLabel, type Path } from "../learning";
+import type { Path } from "../learning";
+import { totalTimeLabel } from "../learning/format";
 import { c, textCap, type } from "../theme";
 import { web } from "../ui";
-import { breaksBeforeItalic } from "./model";
+import { breaksBeforeItalic, pathWords } from "./model";
 
 /** How far the ivory panel rides up over the cover's bottom edge. */
 export const COVER_OVERLAP = 20;
@@ -22,9 +23,11 @@ export function coverFanHeight(width: number) {
 /**
  * The path page's dark cover (concept screen 03): navy light over near
  * black, a fan of the path's sermons (today's in front), "GUIDED PATH · 7
- * MESSAGES", the name in serif with its italic phrase, and the days as
- * segments with "Day 3 of 7 · About 16 min a day". It runs under the status
- * bar; the back and share buttons float above it (the screen draws them).
+ * MESSAGES" ("TEACHING SERIES · 12 TEACHINGS"), the name in serif with its
+ * italic phrase, and the days as segments with "Day 3 of 7 · About 18 hours
+ * in all" (the sermons, whole, once their lengths are known). It runs under
+ * the status bar; the back and share buttons float above it (the screen
+ * draws them).
  */
 export const PathCover = memo(function PathCover({
   path,
@@ -34,6 +37,7 @@ export const PathCover = memo(function PathCover({
   today,
   partial,
   enrolled,
+  length,
   topInset,
   onLayout,
   onTitleBottom,
@@ -44,9 +48,11 @@ export const PathCover = memo(function PathCover({
   done: readonly number[];
   /** Today's day number, or null once every day is done. */
   today: number | null;
-  /** 0 to 1 through today's focus. */
+  /** 0 to 1 through today's sermon. */
   partial: number;
   enrolled: boolean;
+  /** The sermons' length together (seconds), or null while it isn't known. */
+  length?: number | null;
   topInset: number;
   onLayout?: (e: LayoutChangeEvent) => void;
   /** Where the title's last line ends, from the cover's top (for the pinned band). */
@@ -54,16 +60,25 @@ export const PathCover = memo(function PathCover({
 }) {
   const { width } = useWindowDimensions();
   const scale = fanScale(width);
-  const perDay = minutesPerDayLabel(path);
+  const words = pathWords(path);
+  const days = words.series ? "teachings" : "days";
+  const all = length ? totalTimeLabel(length) : null;
+  const allSpoken = all ? ` ${spokenText(all)}.` : "";
   // Before starting, the kicker already counts the messages: just the time.
   const caption = !enrolled
-    ? { left: perDay, centered: true }
-    : { left: today == null ? "Finished" : `Day ${today} of ${total}`, right: perDay, centered: true };
+    ? all
+      ? { left: all, centered: true }
+      : undefined
+    : {
+        left: today == null ? "Finished" : `${words.unit} ${today} of ${total}`,
+        right: all ?? undefined,
+        centered: true,
+      };
   const spoken = !enrolled
-    ? `${total} days, not started. ${spokenText(perDay)}.`
+    ? `${total} ${days}, not started.${allSpoken}`
     : today == null
-      ? `Finished, all ${total} days done.`
-      : `Day ${today} of ${total}. ${done.length} done. ${spokenText(perDay)}.`;
+      ? `Finished, all ${total} ${days} done.`
+      : `${words.unit} ${today} of ${total}. ${done.length} done.${allSpoken}`;
 
   return (
     <View style={[styles.cover, { paddingTop: topInset + 34 }]} onLayout={onLayout} testID="path-cover">
@@ -77,7 +92,7 @@ export const PathCover = memo(function PathCover({
             : undefined
         }
       >
-        <Kicker tone="onMedia">{`Guided path · ${messagesLabel(path.dayCount || total)}`}</Kicker>
+        <Kicker tone="onMedia">{`${words.kind} · ${words.count(path.dayCount || total)}`}</Kicker>
         <ItalicTitle
           text={path.name}
           italic={path.italic}

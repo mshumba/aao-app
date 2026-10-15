@@ -1,5 +1,5 @@
 import { authHeaders, fetchWithTimeout, restBase } from "./session";
-import type { Moment, Need, Path, PathDay, PathStatus } from "./types";
+import type { Moment, Need, Path, PathDay, PathKind, PathStatus } from "./types";
 
 /**
  * Supabase tables over REST, the same way the catalogue reads (see
@@ -67,6 +67,7 @@ type MomentRow = {
 };
 type PathRow = {
   id: string;
+  kind: PathKind | null;
   name: string;
   italic: string;
   promise: string;
@@ -111,10 +112,13 @@ export async function fetchMoments(youtubeId: string): Promise<Moment[]> {
   }));
 }
 
-/** Every path (drafts included; the app labels them) and all their days. */
+/**
+ * Every path and teaching series (drafts included; the app labels them)
+ * and all their days.
+ */
 export async function fetchPaths(): Promise<{ paths: Path[]; days: PathDay[] }> {
   const [pathRows, dayRows] = await Promise.all([
-    table<PathRow>("paths?select=id,name,italic,promise,why,needs,minutes_per_day,status,sort&order=sort.asc,id.asc"),
+    table<PathRow>("paths?select=id,kind,name,italic,promise,why,needs,minutes_per_day,status,sort&order=sort.asc,id.asc"),
     table<DayRow>(
       "path_days?select=path_id,day,youtube_id,focus_start,focus_end,theme,key_at,key_title,key_quote&order=path_id.asc,day.asc",
     ),
@@ -135,6 +139,7 @@ export async function fetchPaths(): Promise<{ paths: Path[]; days: PathDay[] }> 
   const paths: Path[] = pathRows
     .map((r) => ({
       id: r.id,
+      kind: r.kind === "series" ? ("series" as const) : ("path" as const),
       name: r.name,
       italic: r.italic,
       promise: r.promise,

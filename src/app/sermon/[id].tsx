@@ -38,7 +38,6 @@ import {
   clockText,
   leftText,
   parseDuration,
-  spokenText,
   spokenTime,
 } from "../../kit";
 import { useMoments } from "../../learning";
@@ -61,11 +60,11 @@ import {
   watchRequested,
 } from "../../navigation";
 import { SaveButton, ShareButton, WatchPill } from "../../sermon/Actions";
-import { FocusCaption, MarkedCaption, SearchPill, StaticBand } from "../../sermon/Band";
+import { MarkedCaption, SearchPill, StaticBand } from "../../sermon/Band";
 import { MomentsSection } from "../../sermon/Moments";
 import { MoreMenu, SeriesRow, type MenuItem } from "../../sermon/MoreMenu";
 import { readSermonParams, type SermonParams } from "../../sermon/params";
-import { DayDoneWatcher, PathDayRow, useOpenPath, usePathDay, type PathDayContext } from "../../sermon/PathDay";
+import { PathDayRow, useOpenPath, usePathDay } from "../../sermon/PathDay";
 import { ErrorSlot, Poster, StageBar } from "../../sermon/Stage";
 import { c, radius, space, textCap, type } from "../../theme";
 import { TopicNotice, TopicTags } from "../../topics";
@@ -296,7 +295,22 @@ function NowPlayingScreen({ sermon, link }: { sermon: Sermon; link: SermonParams
   // Where Watch would pick up for a signed-in viewer.
   const saved = account.user ? account.progressFor(sermon.id) : null;
   const resumeAt = resumePoint(saved);
-  const startAt = startFor(link.t, pathDay, resumeAt);
+  // A place the link asks for (a moment, a shared time). Otherwise the
+  // player decides: where a member left off, or the beginning. A path day
+  // is the whole sermon, so it asks for no place of its own.
+  const startAt = link.t;
+
+  // Playing as a day of a path: the app-wide player keeps that, so the day
+  // is marked done when the sermon has been watched, even after this page
+  // has closed and the sermon plays on docked.
+  const { setPathDay } = session;
+  const dayKey = pathDay ? `${pathDay.path.id}:${pathDay.day.day}` : null;
+  useEffect(() => {
+    if (!current || !pathDay) return;
+    setPathDay({ pathId: pathDay.path.id, day: pathDay.day.day, sermonId: sermon.id });
+    // pathDay is rebuilt as progress changes; the day it names is what counts.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [current, dayKey, sermon.id, setPathDay]);
 
   // What a guest asked for, kept through signing up: where to start, and
   // the path day it is (so the path starts with the new account).
@@ -353,17 +367,12 @@ function NowPlayingScreen({ sermon, link }: { sermon: Sermon; link: SermonParams
     return {
       moments: list,
       activeKey: t != null ? (list.find((m) => Math.abs(m.at - t) <= 10)?.key ?? null) : null,
-      focus: pathDay ? { start: pathDay.day.focusStart, end: pathDay.day.focusEnd } : null,
       estimate,
     };
-  }, [moments, link.from, link.t, pathDay, estimate]);
+  }, [moments, link.from, link.t, estimate]);
 
   const marked = moments.length ? <MarkedCaption count={moments.length} /> : null;
-  const centerExtra = searchPill && link.q ? (
-    <SearchPill q={link.q} />
-  ) : pathDay ? (
-    <FocusCaption day={pathDay.day.day} start={pathDay.day.focusStart} end={pathDay.day.focusEnd} />
-  ) : null;
+  const centerExtra = searchPill && link.q ? <SearchPill q={link.q} /> : null;
 
   const shared = !account.user && account.guestWatch === "shared" && account.hasPass(sermon.id);
   const kicker = shared
@@ -470,9 +479,6 @@ function NowPlayingScreen({ sermon, link }: { sermon: Sermon; link: SermonParams
                 <StaticBand
                   marks={marks}
                   position={startAt != null ? startAt / (estimate || 1) : resumeAt && saved ? fraction(saved) : null}
-                  // A path day starting at its focus: the gold start bracket
-                  // shows where, so no thumb covers it.
-                  hideThumb={!!pathDay?.explicit && startAt === pathDay.day.focusStart}
                   arrive={startAt != null}
                   center={centerExtra ?? marked}
                 />
@@ -509,7 +515,6 @@ function NowPlayingScreen({ sermon, link }: { sermon: Sermon; link: SermonParams
                           resumeAt={resumeAt}
                           watched={saved && resumeAt ? fraction(saved) : 0}
                           left={saved ? saved.durationSeconds - resumeAt : 0}
-                          pathDay={pathDay?.explicit ? pathDay : null}
                           guest={!gate.canWatch(sermon.id)}
                           onPress={watch}
                         />
@@ -623,7 +628,6 @@ function NowPlayingScreen({ sermon, link }: { sermon: Sermon; link: SermonParams
           }}
         />
       ) : null}
-      {pathDay ? <DayDoneWatcher ctx={pathDay} sermonId={sermon.id} /> : null}
       <MoreMenu
         visible={menu}
         onClose={() => setMenu(false)}
@@ -633,20 +637,6 @@ function NowPlayingScreen({ sermon, link }: { sermon: Sermon; link: SermonParams
       />
     </View>
   );
-}
-
-/**
- * Where Play starts when the link asks for a place: its time, else a path
- * day's focus (or your place inside it). Null lets the player decide (where
- * a member left off, or the beginning).
- */
-function startFor(t: number | null, pathDay: PathDayContext | null, resumeAt: number) {
-  if (t != null) return t;
-  if (pathDay?.explicit) {
-    const { focusStart, focusEnd } = pathDay.day;
-    return resumeAt >= focusStart && resumeAt < focusEnd ? resumeAt : focusStart;
-  }
-  return null;
 }
 
 /**
@@ -671,8 +661,9 @@ function seriesFan(series: Sermon[], sermon: Sermon) {
 
 /**
  * The stage's call to play before the player loads. It says where it starts
- * and how long: "Watch · 1 hr 53 min", "Resume · 1 hr 16 min left" (with how
- * far in), "Play from 34:12", "Play Day 3 · 16-min focus".
+ * and how long, always of the whole sermon (a path day included): "Watch ·
+ * 1 hr 53 min", "Resume · 1 hr 16 min left" (with how far in), "Play from
+ * 34:12".
  */
 function WatchButton({
   sermon,
@@ -680,7 +671,6 @@ function WatchButton({
   resumeAt,
   watched,
   left,
-  pathDay,
   guest,
   onPress,
 }: {
@@ -689,38 +679,12 @@ function WatchButton({
   resumeAt: number;
   watched: number;
   left: number;
-  pathDay: PathDayContext | null;
   guest: boolean;
   onPress: () => void;
 }) {
   // A guest is asked for a free account first; the sermon starts once they
   // have one.
   const ask = guest ? "Asks you to create a free account first" : undefined;
-  if (pathDay && startAt != null) {
-    const { day, focusStart, focusEnd } = pathDay.day;
-    const minutes = Math.max(1, Math.round((focusEnd - focusStart) / 60));
-    if (startAt <= focusStart + 15)
-      return (
-        <WatchPill
-          label={`Play Day ${day}`}
-          detail={`${minutes}-min focus`}
-          accessibilityLabel={`Play day ${day}`}
-          hint={ask ?? `A ${minutes}-minute focus from ${spokenTime(focusStart)}`}
-          onPress={onPress}
-        />
-      );
-    if (startAt < focusEnd)
-      return (
-        <WatchPill
-          label={`Resume Day ${day}`}
-          detail={`${leftText(focusEnd - startAt).replace(" left", "")} to go`}
-          accessibilityLabel={`Resume day ${day} at ${clock(startAt)}`}
-          hint={ask ?? `${spokenText(leftText(focusEnd - startAt))} in today’s focus`}
-          progress={(startAt - focusStart) / (focusEnd - focusStart)}
-          onPress={onPress}
-        />
-      );
-  }
   if (startAt != null)
     return (
       <WatchPill

@@ -24,11 +24,13 @@ export type DayItem = {
   locked?: boolean;
   /** Today's artwork. */
   art?: ArtSource | null;
-  /** Today: "48 min left" or "16-min focus from 1:21:14". */
+  /** Today: "48 min left", or the sermon's whole length ("2 hr 16 min"). */
   meta?: string;
-  /** Today: 0 to 1 through the focus segment. */
+  /** Today: 0 to 1 through the sermon. */
   progress?: number;
   keyMoment?: { at: number; title: string };
+  /** Today, on a path you're on: a quiet "Mark Day 3 done" under the card. */
+  markDone?: { label: string; hint?: string; onPress: () => void };
   /** The title is still loading: a sand bar holds its line. */
   pending?: boolean;
   /** The whole row in words, read as one element. */
@@ -50,7 +52,8 @@ const DayRow = memo(function DayRow({
   /** The line down to the next day: navy after a done day, else the track. */
   connector: "none" | "done" | "track";
 }) {
-  const { day, kicker, title, state, locked, pending, art, meta, progress = 0, keyMoment, label, hint, onPress, onKeyMoment } = item;
+  const { day, kicker, title, state, locked, pending, art, meta, progress = 0, keyMoment, markDone, label, hint, onPress, onKeyMoment } =
+    item;
   const { width, fontScale } = useWindowDimensions();
   const big = fontScale >= 1.3;
   const thumb = width < 360 ? 80 : 98;
@@ -102,53 +105,71 @@ const DayRow = memo(function DayRow({
       <View style={[styles.row, styles.rowToday]} testID={`path-day-${day}`}>
         {line}
         {node}
-        <View style={styles.card}>
-          <Tap
-            accessibilityRole="button"
-            accessibilityLabel={label}
-            accessibilityHint={hint}
-            onPress={onPress}
-            disabled={!onPress}
-            feedback="scaleLarge"
-          >
-            <View style={[styles.cardRow, big && styles.cardStack]}>
-              <Artwork art={art} width={big ? undefined : thumb} radius={10} priority="high" />
-              <View style={styles.cardText}>
-                <T
-                  style={[type.overline, styles.kickerTight, { color: c.gold }]}
-                  maxFontSizeMultiplier={textCap.section}
-                >
-                  {kicker}
-                </T>
-                {titleText ?? <T style={[type.cardTitle, styles.title]}>{title}</T>}
-                {meta ? <T style={[type.meta, styles.muted, tabular, styles.meta]}>{meta}</T> : null}
-              </View>
-            </View>
-            {/* How far through today's focus; nothing to show before it's begun. */}
-            {progress > 0 ? (
-              <View style={styles.bar}>
-                <View style={[styles.barFill, { width: `${Math.min(1, progress) * 100}%` }]} />
-              </View>
-            ) : null}
-          </Tap>
-          {keyMoment ? (
+        <View style={styles.todayColumn}>
+          <View style={styles.card}>
             <Tap
               accessibilityRole="button"
-              accessibilityLabel={`Key moment at ${spokenTime(keyMoment.at)}. ${keyMoment.title}`}
-              accessibilityHint="Plays from the key moment"
-              onPress={onKeyMoment}
-              disabled={!onKeyMoment}
-              feedback="dim"
-              hitSlop={{ top: 4, bottom: 4 }}
-              style={styles.key}
-              testID={`path-day-${day}-key`}
+              accessibilityLabel={label}
+              accessibilityHint={hint}
+              onPress={onPress}
+              disabled={!onPress}
+              feedback="scaleLarge"
             >
-              <Spark size={14} />
-              <T style={[type.meta, styles.muted, { flex: 1 }]} numberOfLines={2}>
-                {"Key moment\u2002"}
-                <Text style={styles.keyTime}>{clockText(keyMoment.at)}</Text>
-                {"\u2002· "}
-                {keyMoment.title}
+              <View style={[styles.cardRow, big && styles.cardStack]}>
+                <Artwork art={art} width={big ? undefined : thumb} radius={10} priority="high" />
+                <View style={styles.cardText}>
+                  <T
+                    style={[type.overline, styles.kickerTight, { color: c.gold }]}
+                    maxFontSizeMultiplier={textCap.section}
+                  >
+                    {kicker}
+                  </T>
+                  {titleText ?? <T style={[type.cardTitle, styles.title]}>{title}</T>}
+                  {meta ? <T style={[type.meta, styles.muted, tabular, styles.meta]}>{meta}</T> : null}
+                </View>
+              </View>
+              {/* How far through today's sermon; nothing to show before it's begun. */}
+              {progress > 0 ? (
+                <View style={styles.bar}>
+                  <View style={[styles.barFill, { width: `${Math.min(1, progress) * 100}%` }]} />
+                </View>
+              ) : null}
+            </Tap>
+            {keyMoment ? (
+              <Tap
+                accessibilityRole="button"
+                accessibilityLabel={`Key moment at ${spokenTime(keyMoment.at)}. ${keyMoment.title}`}
+                accessibilityHint="Plays from the key moment"
+                onPress={onKeyMoment}
+                disabled={!onKeyMoment}
+                feedback="dim"
+                hitSlop={{ top: 4, bottom: 4 }}
+                style={styles.key}
+                testID={`path-day-${day}-key`}
+              >
+                <Spark size={14} />
+                <T style={[type.meta, styles.muted, { flex: 1 }]} numberOfLines={2}>
+                  {"Key moment\u2002"}
+                  <Text style={styles.keyTime}>{clockText(keyMoment.at)}</Text>
+                  {"\u2002· "}
+                  {keyMoment.title}
+                </T>
+              </Tap>
+            ) : null}
+          </View>
+          {markDone ? (
+            <Tap
+              accessibilityRole="button"
+              accessibilityLabel={markDone.label}
+              accessibilityHint={markDone.hint}
+              onPress={markDone.onPress}
+              feedback="dim"
+              style={styles.mark}
+              testID={`path-day-${day}-mark-done`}
+            >
+              <Icon name="checkmark-circle-outline" size={17} color={c.muted} />
+              <T style={[type.meta, styles.markText]} maxFontSizeMultiplier={textCap.chip}>
+                {markDone.label}
               </T>
             </Tap>
           ) : null}
@@ -246,9 +267,8 @@ const styles = StyleSheet.create({
   meta: { marginTop: 2 },
   kickerTight: { letterSpacing: 1.2 },
   muted: { color: c.muted },
+  todayColumn: { flex: 1, minWidth: 0 },
   card: {
-    flex: 1,
-    minWidth: 0,
     backgroundColor: c.surface,
     borderRadius: radius.r18,
     padding: 10,
@@ -274,4 +294,15 @@ const styles = StyleSheet.create({
     marginBottom: -10,
   },
   keyTime: { fontFamily: font.bold, color: c.accent, ...tabular },
+  // Quiet: a muted line under today's card, 44pt to touch.
+  mark: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-start",
+    gap: 6,
+    minHeight: 44,
+    paddingHorizontal: 6,
+    marginLeft: 4,
+  },
+  markText: { color: c.muted },
 });

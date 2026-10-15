@@ -1,5 +1,5 @@
 import * as Haptics from "expo-haptics";
-import { useFocusEffect, useIsFocused, useLocalSearchParams } from "expo-router";
+import { router, useFocusEffect, useIsFocused, useLocalSearchParams } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AccessibilityInfo, Platform, StyleSheet, View, useWindowDimensions } from "react-native";
@@ -25,6 +25,10 @@ import {
   dayTiming,
   dayTitle,
   fanFor,
+  isSingleTeaching,
+  pathLength,
+  pathWords,
+  sermonHref,
   stateOf,
 } from "../../paths/model";
 import { toPathsTab, usePlayDay } from "../../paths/navigation";
@@ -46,17 +50,20 @@ const WHY_LONG = 170;
 const WHY_LINES = 4;
 
 /**
- * A guided path (concept screen 03): the dark cover with its fan, name and
- * progress; an ivory panel with "Why this path", the honest trust line and
- * the day timeline (done, today lifted, later days locked); and the navy
- * call to action, "Continue Day 3 · 48 min left" or "Start Day 1 · 16 min".
- * Coming back after the sermon page marked a day done shows "Day 3 done."
+ * A guided path or teaching series (concept screen 03): the dark cover with
+ * its fan, name and progress; an ivory panel with "Why this path", the
+ * honest trust line and the day timeline (done, today lifted with a quiet
+ * "Mark Day 3 done", later days locked); and the navy call to action,
+ * "Continue Day 3 · 48 min left" or "Start Day 1 · 2 hr 16 min". Every day
+ * plays its whole sermon, from where the viewer left off. Once a day is done
+ * (watched, or marked done) the page shows "Day 3 done." A series counts
+ * teachings instead of days; one of a single teaching opens that teaching.
  */
 export default function PathScreen() {
   const params = useLocalSearchParams<{ id: string | string[] }>();
   const id = firstParam(params.id);
   const { path, days, loading, missing } = usePath(id);
-  const { progressFor, start, loading: progressLoading, ready } = useEnrollment();
+  const { progressFor, start, complete, loading: progressLoading, ready } = useEnrollment();
   const account = useAccount();
   const { hydrated, settled } = useCatalogue();
   const go = useGo();
@@ -76,36 +83,49 @@ export default function PathScreen() {
   const enrolled = !!mine;
   const done = mine?.done ?? EMPTY;
   const total = days.length || path?.dayCount || 0;
+  const words = pathWords(path ?? { kind: "path" });
   // Today: the first day not done (Day 1 before starting); null once all are.
   const today = enrolled ? nextDay(total, done) : total ? 1 : null;
   const todayDay = today != null ? days.find((d) => d.day === today) : undefined;
-  const watch = todayDay && account.user ? account.progressFor(todayDay.youtubeId) : null;
-  const timing = todayDay ? dayTiming(todayDay, watch) : null;
+  const watchOf = useCallback(
+    (youtubeId: string) => (account.user ? account.progressFor(youtubeId) : null),
+    [account],
+  );
+  const timing = todayDay ? dayTiming(todayDay, watchOf(todayDay.youtubeId)) : null;
   const fan = fanFor(days, today ?? 1);
+  const length = useMemo(() => pathLength(days), [days]);
+
+  // A teaching series of one teaching has no page: open the teaching.
+  const single = !!path && isSingleTeaching(path, total) && !!days[0];
+  const singleId = single ? days[0].youtubeId : null;
+  useEffect(() => {
+    if (singleId && focused) router.replace(sermonHref(singleId));
+  }, [singleId, focused]);
 
   // ---- Playing ------------------------------------------------------------------------
 
+  // The whole sermon, from where the viewer left off; `at` for a key moment.
   const playDay = useCallback(
-    (day: PathDayWithSermon, at: number) => {
-      if (path) play(day.youtubeId, at, { id: path.id, day: day.day });
+    (day: PathDayWithSermon, at?: number) => {
+      if (path) play(day.youtubeId, { path: { id: path.id, day: day.day }, at });
     },
     [path, play],
   );
 
   const [starting, setStarting] = useState(false);
   const primary = useCallback(async () => {
-    if (!path || !todayDay || !timing) return;
-    if (enrolled) return playDay(todayDay, timing.resumeAt);
+    if (!path || !todayDay) return;
+    if (enrolled) return playDay(todayDay);
     setStarting(true);
     try {
       // Guests go through the sign-up sheet first; after signing up, the
       // path starts and Day 1 plays (useEnrollment).
       const result = await start(path.id);
-      if (result === "started") playDay(todayDay, todayDay.focusStart);
+      if (result === "started") playDay(todayDay);
     } finally {
       setStarting(false);
     }
-  }, [path, todayDay, timing, enrolled, playDay, start]);
+  }, [path, todayDay, enrolled, playDay, start]);
 
   // ---- Locked days -------------------------------------------------------------------
 
@@ -141,7 +161,9 @@ export default function PathScreen() {
         setCompleted(day);
         if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
         AccessibilityInfo.announceForAccessibility(
-          nextDay(total, now) == null ? "Path complete" : `Day ${day} done`,
+          nextDay(total, now) == null
+            ? `${words.series ? "Series" : "Path"} complete`
+            : `${words.unit} ${day} done`,
         );
       }
       markSeen(owner, path.id, now);
@@ -149,7 +171,7 @@ export default function PathScreen() {
     return () => {
       alive = false;
     };
-  }, [focused, path, progressLoading, doneKey, owner, total]);
+  }, [focused, path, progressLoading, doneKey, owner, total, words.series, words.unit]);
 
   // ---- Scroll: the pinned band ----------------------------------------------------------
 
@@ -179,13 +201,16 @@ export default function PathScreen() {
     // days show their theme, so the path reads as a journey. Before a path
     // is started, nothing is locked.
     const nextOpen = enrolled && today != null ? today + 1 : null;
+    const { unit } = words;
+    const lower = unit.toLowerCase();
     return days.map((d) => {
       const state = stateOf(d.day, done, today);
       const isLocked = state === "upcoming" && d.day === nextOpen;
       const { text: title, pending } = dayTitle(d, settled);
-      const kicker = dayKicker(d.day, state, d.theme, { enrolled, locked: isLocked });
+      const kicker = dayKicker(d.day, state, d.theme, { enrolled, locked: isLocked, unit });
       if (state === "today" && timing) {
         const key = d.keyTitle && d.keyAt > 0 ? { at: d.keyAt, title: d.keyTitle } : undefined;
+        const now = words.series ? "next" : "today";
         return {
           day: d.day,
           kicker,
@@ -196,14 +221,19 @@ export default function PathScreen() {
           meta: timing.meta,
           progress: timing.partial,
           keyMoment: key,
-          label: `Day ${d.day}, ${enrolled ? "today" : "start here"}. ${d.theme}. ${title}. ${timing.spokenMeta}.`,
-          hint: enrolled ? "Plays today’s day" : "Starts the path with Day 1",
+          label: `${unit} ${d.day}, ${enrolled ? now : "start here"}. ${d.theme}. ${title}.${timing.spokenMeta ? ` ${timing.spokenMeta}.` : ""}`,
+          hint: enrolled ? `Plays ${words.series ? "the next teaching" : "today’s day"}` : `Starts the ${words.noun} with ${unit} 1`,
           onPress: primary,
           onKeyMoment: key
-            ? () =>
-                enrolled
-                  ? playDay(d, d.keyAt)
-                  : play(d.youtubeId, d.keyAt)
+            ? () => (enrolled ? playDay(d, d.keyAt) : play(d.youtubeId, { at: d.keyAt }))
+            : undefined,
+          // "Mark Day 3 done": the sheet below says so, as when the sermon is watched.
+          markDone: enrolled
+            ? {
+                label: `Mark ${unit} ${d.day} done`,
+                hint: `Counts ${lower} ${d.day} as done`,
+                onPress: () => complete(path.id, d.day),
+              }
             : undefined,
         };
       }
@@ -214,9 +244,9 @@ export default function PathScreen() {
           title,
           pending,
           state,
-          label: `Day ${d.day}. ${d.theme}. ${title}. Done.`,
-          hint: "Plays this day again",
-          onPress: () => playDay(d, d.focusStart),
+          label: `${unit} ${d.day}. ${d.theme}. ${title}. Done.`,
+          hint: `Plays this ${lower} again`,
+          onPress: () => playDay(d),
         };
       return {
         day: d.day,
@@ -226,19 +256,20 @@ export default function PathScreen() {
         state,
         locked: isLocked,
         label: isLocked
-          ? `Day ${d.day}. Opens after day ${d.day - 1}. ${title}.`
-          : `Day ${d.day}. ${d.theme}. ${title}. Coming up.`,
-        hint: "Says when this day opens",
+          ? `${unit} ${d.day}. Opens after ${lower} ${d.day - 1}. ${title}.`
+          : `${unit} ${d.day}. ${d.theme}. ${title}. Coming up.`,
+        hint: `Says when this ${lower} opens`,
         onPress: () => setLocked(d.day),
       };
     });
-  }, [path, days, done, today, settled, enrolled, timing, primary, playDay, play, setLocked]);
+  }, [path, days, done, today, settled, enrolled, timing, primary, playDay, play, setLocked, words, complete]);
 
   // ---- States --------------------------------------------------------------------------
 
   // Until the viewer's progress is read, the page can't say which day is
-  // today: it never offers Day 1 to someone on Day 3, even for a moment.
-  if (!path || !ready) {
+  // today: it never offers Day 1 to someone on Day 3, even for a moment. A
+  // single teaching holds here while it opens.
+  if (!path || !ready || single) {
     return (
       <View style={styles.screen}>
         {focused ? <StatusBar style={missing ? "dark" : "light"} /> : null}
@@ -277,12 +308,14 @@ export default function PathScreen() {
   const completedDay = completed != null ? days.find((d) => d.day === completed) : undefined;
   const nextAfter = next != null ? days.find((d) => d.day === next) : undefined;
   const finished = enrolled && today == null;
+  const completedWatch = completedDay ? watchOf(completedDay.youtubeId) : null;
+  const completedLeft = completedDay ? dayTiming(completedDay, completedWatch) : null;
   const cta = finished
     ? { label: "Choose your next path", detail: undefined, icon: "albums-outline" as const, onPress: toPathsTab }
     : todayDay && timing
       ? {
-          label: `${enrolled && (timing.started || done.length > 0) ? "Continue" : "Start"} Day ${todayDay.day}`,
-          detail: timing.detail,
+          label: `${enrolled && (timing.started || done.length > 0) ? "Continue" : "Start"} ${words.unit} ${todayDay.day}`,
+          detail: timing.detail || undefined,
           icon: "play" as const,
           onPress: primary,
         }
@@ -328,13 +361,14 @@ export default function PathScreen() {
           today={enrolled ? today : null}
           partial={timing?.partial ?? 0}
           enrolled={enrolled}
+          length={length}
           topInset={top}
           onTitleBottom={setTitleBottom}
         />
         <View style={styles.panel}>
           <View style={styles.column}>
             <View style={styles.whyRow}>
-              <Kicker>Why this path</Kicker>
+              <Kicker>{`Why this ${words.noun}`}</Kicker>
               <TrustLine status={path.status} />
             </View>
             {path.why ? (
@@ -370,7 +404,13 @@ export default function PathScreen() {
             onPress={() => {
               if (!starting) void cta.onPress();
             }}
-            hint={finished ? "Opens the Paths tab" : enrolled ? "Plays today’s day" : "Starts the path and plays Day 1"}
+            hint={
+              finished
+                ? "Opens the Paths tab"
+                : enrolled
+                  ? `Plays ${words.series ? "the next teaching" : "today’s day"}`
+                  : `Starts the ${words.noun} and plays ${words.unit} 1`
+            }
           />
         </View>
       ) : null}
@@ -379,6 +419,8 @@ export default function PathScreen() {
         day={locked}
         today={today ?? 1}
         enrolled={enrolled}
+        unit={words.unit}
+        noun={words.noun}
         onClose={() => setLocked(null)}
         onGoToday={() => {
           setLocked(null);
@@ -386,8 +428,9 @@ export default function PathScreen() {
         }}
         onOpenAnyway={(n) => {
           setLocked(null);
+          // The message on its own, outside the path.
           const d = days.find((x) => x.day === n);
-          if (d) play(d.youtubeId, d.focusStart);
+          if (d) play(d.youtubeId);
         }}
       />
       <DayCompleteSheet
@@ -397,12 +440,13 @@ export default function PathScreen() {
         total={total}
         done={done}
         next={nextAfter}
-        nextMinutes={nextAfter ? dayTiming(nextAfter, null).minutes : 0}
+        nextMeta={nextAfter ? dayTiming(nextAfter, null).meta : ""}
+        left={completedLeft?.started ? completedLeft.meta : null}
         hydrated={hydrated}
         onClose={() => setCompleted(null)}
         onKeepListening={(d) => {
           setCompleted(null);
-          play(d.youtubeId, d.focusEnd);
+          playDay(d);
         }}
         onNextPath={() => {
           setCompleted(null);

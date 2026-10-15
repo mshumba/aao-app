@@ -9,6 +9,8 @@
  * Apostle's transcripts (supabase/seed/paths.sql) but are attached to these
  * sample sermons only for testing: they are NOT what was said in them.
  * One path is published and one is a draft, so both honesty states show.
+ * Two teaching series follow the paths (kind "series"): one of four
+ * teachings (the live ones have 6 or 12) and one of a single teaching.
  */
 import { sampleRecords } from "../data/sermons";
 import { inDistress } from "../search/care";
@@ -39,10 +41,13 @@ export const fixtureNeeds: Need[] = [
 
 const HABIT = "breaking-free-from-habitual-sin";
 const WAIT = "learning-to-wait-on-god";
+const SPIRIT = "knowing-the-holy-spirit";
+const FACE = "seeking-the-face-of-god";
 
 export const fixturePaths: Path[] = [
   {
     id: HABIT,
+    kind: "path",
     name: "Breaking free from habitual sin",
     italic: "habitual sin",
     promise: "Seven days from the grip of a repeated sin to the freedom grace gives.",
@@ -56,6 +61,7 @@ export const fixturePaths: Path[] = [
   },
   {
     id: WAIT,
+    kind: "path",
     name: "Learning to wait on God",
     italic: "wait on God",
     promise: "Five days on staying faithful when God's promise seems slow.",
@@ -65,6 +71,32 @@ export const fixturePaths: Path[] = [
     status: "draft",
     sort: 2,
     dayCount: 5,
+  },
+  {
+    id: SPIRIT,
+    kind: "series",
+    name: "Knowing the Holy Spirit",
+    italic: "Holy Spirit",
+    promise: "The Apostle's teachings on the person of the Holy Spirit, in the order they were given.",
+    why: "Who the Holy Spirit is, how he speaks and how he leads: four teachings, each one whole, in the order the ministry set.",
+    needs: [],
+    minutesPerDay: 19,
+    status: "published",
+    sort: 101,
+    dayCount: 4,
+  },
+  {
+    id: FACE,
+    kind: "series",
+    name: "Seeking the face of God",
+    italic: "face of God",
+    promise: "One teaching on seeking God for who he is, not for what he gives.",
+    why: "A single teaching, whole: what it means to seek God's face.",
+    needs: [],
+    minutesPerDay: 27,
+    status: "published",
+    sort: 105,
+    dayCount: 1,
   },
 ];
 
@@ -112,6 +144,16 @@ export const fixtureDays: PathDay[] = [
     "Wine gets better with time; milk gets bad with time. So the question is, are you milk or are you wine?"),
   day(WAIT, 5, PRAY, 6380, 7170, "Keep the condition while you wait", 6878, "Keep the condition",
     "The proof that you believe in a conditional promise is that you are busy fulfilling the condition."),
+  day(SPIRIT, 1, PRAY, 9000, 9900, "Prayer is fellowship", 9120, "Prayer is who we are",
+    "Prayer is who we are and not what we do."),
+  day(SPIRIT, 2, DAY_ONE, 5100, 5900, "The voice within", 5230, "The voice within",
+    "That voice is not without. That voice is within."),
+  day(SPIRIT, 3, DAY_TWO, 4100, 4900, "Victory begins inside", 4158, "Win in your soul",
+    "If you win in your soul you will win on the ground; if you lose in your soul you will lose on the ground."),
+  day(SPIRIT, 4, FINALE, 7300, 8100, "Bring it to prayer", 7410, "Anxiety into prayer",
+    "Anything that is supposed to make you anxious is the same thing that should draw you to prayer."),
+  day(FACE, 1, FINALE, 700, 1400, "Seek him for himself", 784, "Beautiful in its time",
+    "God doesn't live in time, but he will use time to test your soul."),
 ];
 
 const moment = (

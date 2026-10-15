@@ -1,9 +1,10 @@
 import { memo } from "react";
 import { StyleSheet, View, type StyleProp, type ViewStyle } from "react-native";
 import { CardFan, ItalicTitle, Kicker, PathProgress, TrustLine, Wash, spokenText, type ArtSource } from "../kit";
-import { messagesLabel, minutesPerDayLabel, trustLine, type Path } from "../learning";
+import { trustLine, type Path } from "../learning";
 import { c, font, radius, tabular, textCap, type } from "../theme";
 import { Icon, T, Tap, web } from "../ui";
+import { isSingleTeaching, pathWords } from "./model";
 
 export type ListProgress =
   | { kind: "none" }
@@ -12,7 +13,7 @@ export type ListProgress =
 
 /**
  * A path on the Paths tab: a small copy of the path page's dark cover (its
- * fan under navy light, "7 MESSAGES · ABOUT 16 MIN A DAY" and the name in
+ * fan under navy light, "7 MESSAGES" or "12 TEACHINGS" and the name in
  * white serif), so opening it feels like stepping into it; then on ivory the
  * one-line promise, who set its order (a draft says so) and your progress
  * once you've started it. One element to assistive tech.
@@ -37,19 +38,21 @@ export const PathListCard = memo(function PathListCard({
   style?: StyleProp<ViewStyle>;
 }) {
   const scale = Math.max(0.6, Math.min(0.8, (width - 40) / 340));
-  const kicker = `${messagesLabel(total)} · ${minutesPerDayLabel(path)}`;
+  const words = pathWords(path);
+  const kicker = words.count(total);
   const draft = path.status !== "published";
+  const single = isSingleTeaching(path, total);
   const status =
     progress.kind === "on"
-      ? `Day ${progress.day} of ${total}, ${progress.done.length} done`
+      ? `${words.unit} ${progress.day} of ${total}, ${progress.done.length} done`
       : progress.kind === "finished"
         ? "Finished"
         : null;
-  // One label, in words: "Breaking free from habitual sin. 7 messages. About
-  // 16 minutes a day. Draft, awaiting ministry review. <promise>."
+  // One label, in words: "Breaking free from habitual sin. 7 messages.
+  // Draft, awaiting ministry review. <promise>."
   const label = [
     path.name,
-    spokenText(kicker.replace(" · ", ". ")),
+    spokenText(kicker),
     draft ? trustLine(path.status).text.replace(" · ", ", ") : null,
     path.promise,
     status,
@@ -63,7 +66,7 @@ export const PathListCard = memo(function PathListCard({
     <Tap
       accessibilityRole="button"
       accessibilityLabel={label}
-      accessibilityHint="Opens the path"
+      accessibilityHint={single ? "Opens the teaching" : `Opens the ${words.noun}`}
       onPress={onPress}
       feedback="scaleLarge"
       style={style}
@@ -94,7 +97,7 @@ export const PathListCard = memo(function PathListCard({
             tone="onLight"
             thickness={3}
             caption={{
-              left: `Day ${progress.day} of ${total}`,
+              left: `${words.unit} ${progress.day} of ${total}`,
               right: `${progress.done.length} done · ${Math.max(0, total - progress.done.length)} to go`,
             }}
             style={styles.progress}

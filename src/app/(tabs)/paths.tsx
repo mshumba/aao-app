@@ -20,8 +20,6 @@ import {
 } from "../../kit";
 import {
   doneLabel,
-  messagesLabel,
-  minutesPerDayLabel,
   nextDay,
   trustLine,
   useEnrollment,
@@ -29,9 +27,10 @@ import {
   type Path,
   type PathDayWithSermon,
 } from "../../learning";
+import { totalTimeLabel } from "../../learning/format";
 import { useGo, usePageTitle } from "../../navigation";
-import { dayTiming, fanFor, pathHref } from "../../paths/model";
-import { usePlayDay } from "../../paths/navigation";
+import { dayTiming, fanFor, isSingleTeaching, pathHref, pathLength, pathWords } from "../../paths/model";
+import { useOpenTeaching, usePlayDay } from "../../paths/navigation";
 import { PathListCard, type ListProgress } from "../../paths/PathListCard";
 import { useDockInset } from "../../player/useDockInset";
 import { c, radius, space, textCap, type } from "../../theme";
@@ -51,26 +50,34 @@ type Featured = {
   day: number;
   done: readonly number[];
   partial: number;
-  /** Where Play starts. */
-  at: number;
   /** "Continue Day 3", "Start Day 1". */
   action: string;
-  /** "8 min left", "16 min". */
+  /** "48 min left", "2 hr 16 min": today's sermon, whole. */
   detail: string;
+  /** "About 18 hours in all", once every sermon's length is known. */
+  length: string | null;
 };
+
+/** A row of the list: a path's card, or the heading of the teaching series. */
+type Row =
+  | { kind: "card"; path: Path; total: number; progress: ListProgress; fan: ArtSource[]; days: PathDayWithSermon[] }
+  | { kind: "heading"; title: string; count: string };
 
 /**
  * The Paths tab. A dark masthead under the status bar, built like a path's
  * own cover: "Paths", "Guided journeys, *one message a day*", then the path
  * you're on (or the first to start) with its fan, name, progress and a
- * white "Continue Day 3" that plays today. On an ivory panel rising over it,
- * every other path as a small dark cover. Drafts say so; the ministry's
- * name is only claimed for a published path.
+ * white "Continue Day 3" that plays today's sermon, whole. On an ivory panel
+ * rising over it, every other path as a small dark cover, then the teaching
+ * series in a section of their own ("12 teachings"; one of a single
+ * teaching opens that teaching). Drafts say so; the ministry's name is only
+ * claimed for a published path.
  */
 export default function PathsTab() {
   usePageTitle("Paths");
   const go = useGo();
   const play = usePlayDay();
+  const openTeaching = useOpenTeaching();
   const account = useAccount();
   const focused = useIsFocused();
   const insets = useSafeAreaInsets();
@@ -97,12 +104,14 @@ export default function PathsTab() {
     [account],
   );
 
-  // The masthead's path: the one you're on, else the first not finished.
+  // The masthead's path: the one you're on, else the first guided path
+  // not finished (a teaching series is chosen from its own section).
   const featured = useMemo<Featured | null>(() => {
     if (active) {
       const { path, day, done, total, days, today } = active;
       const timing = today ? dayTiming(today, watchOf(today.youtubeId)) : null;
       const started = !!timing?.started || done.length > 0;
+      const length = pathLength(days);
       return {
         path,
         days,
@@ -112,12 +121,13 @@ export default function PathsTab() {
         day,
         done,
         partial: timing?.partial ?? 0,
-        at: timing?.resumeAt ?? today?.focusStart ?? 0,
-        action: `${started ? "Continue" : "Start"} Day ${day}`,
+        action: `${started ? "Continue" : "Start"} ${pathWords(path).unit} ${day}`,
         detail: timing?.detail ?? "",
+        length: length ? totalTimeLabel(length) : null,
       };
     }
     const path = paths.find((p) => {
+      if (p.kind === "series") return false;
       const mine = progressFor(p.id);
       return !mine || (!mine.finishedAt && nextDay(daysOf(p.id).length || p.dayCount, mine.done) != null);
     });
@@ -125,7 +135,7 @@ export default function PathsTab() {
     const days = joined.get(path.id) ?? [];
     const first = days[0];
     if (!first) return null;
-    const timing = dayTiming(first, null);
+    const length = pathLength(days);
     return {
       path,
       days,
@@ -135,42 +145,60 @@ export default function PathsTab() {
       day: 1,
       done: [],
       partial: 0,
-      at: first.focusStart,
       action: "Start Day 1",
-      detail: timing.detail,
+      detail: dayTiming(first, watchOf(first.youtubeId)).detail,
+      length: length ? totalTimeLabel(length) : null,
     };
   }, [active, paths, joined, progressFor, daysOf, watchOf]);
 
-  const list = useMemo(
-    () =>
-      paths
-        .filter((p) => p.id !== featured?.path.id)
-        .map((path) => {
-          const days = joined.get(path.id) ?? [];
-          const total = days.length || path.dayCount;
-          const mine = progressFor(path.id);
-          let progress: ListProgress = { kind: "none" };
-          let front = 1;
-          if (mine) {
-            const day = nextDay(total, mine.done);
-            if (day == null || mine.finishedAt) progress = { kind: "finished" };
-            else {
-              const today = days.find((d) => d.day === day);
-              progress = {
-                kind: "on",
-                day,
-                done: mine.done,
-                partial: today ? dayTiming(today, watchOf(today.youtubeId)).partial : 0,
-              };
-              front = day;
-            }
-          }
-          return { path, total, progress, fan: fanFor(days, front) };
-        }),
-    [paths, featured?.path.id, joined, progressFor, watchOf],
-  );
+  // Guided paths, then the teaching series under their own heading.
+  const list = useMemo<Row[]>(() => {
+    const card = (path: Path): Row => {
+      const days = joined.get(path.id) ?? [];
+      const total = days.length || path.dayCount;
+      const mine = progressFor(path.id);
+      let progress: ListProgress = { kind: "none" };
+      let front = 1;
+      if (mine) {
+        const day = nextDay(total, mine.done);
+        if (day == null || mine.finishedAt) progress = { kind: "finished" };
+        else {
+          const today = days.find((d) => d.day === day);
+          progress = {
+            kind: "on",
+            day,
+            done: mine.done,
+            partial: today ? dayTiming(today, watchOf(today.youtubeId)).partial : 0,
+          };
+          front = day;
+        }
+      }
+      return { kind: "card", path, total, progress, fan: fanFor(days, front), days };
+    };
+    const rest = paths.filter((p) => p.id !== featured?.path.id);
+    const guided = rest.filter((p) => p.kind !== "series").map(card);
+    const series = rest.filter((p) => p.kind === "series").map(card);
+    return series.length
+      ? [
+          ...guided,
+          { kind: "heading", title: "Teaching series", count: `${series.length} series` },
+          ...series,
+        ]
+      : guided;
+  }, [paths, featured?.path.id, joined, progressFor, watchOf]);
+  const guidedCount = list.findIndex((row) => row.kind === "heading");
+  const morePaths = guidedCount === -1 ? list.length : guidedCount;
 
   const open = useCallback((id: string) => go.push(pathHref(id)), [go]);
+  // A series of one teaching opens that teaching; any other path its page.
+  const openRow = useCallback(
+    (row: Extract<Row, { kind: "card" }>) => {
+      const only = row.days[0];
+      if (isSingleTeaching(row.path, row.total) && only) openTeaching(only.youtubeId);
+      else open(row.path.id);
+    },
+    [open, openTeaching],
+  );
 
   // Starting the featured path: a guest is asked for a free account first
   // (signing up starts it and plays Day 1).
@@ -179,11 +207,11 @@ export default function PathsTab() {
     if (!featured || starting) return;
     const today = featured.days.find((d) => d.day === featured.day);
     if (!today) return open(featured.path.id);
-    if (featured.mine) return play(today.youtubeId, featured.at, { id: featured.path.id, day: featured.day });
+    const day = { id: featured.path.id, day: today.day };
+    if (featured.mine) return play(today.youtubeId, { path: day });
     setStarting(true);
     try {
-      if ((await start(featured.path.id)) === "started")
-        play(today.youtubeId, today.focusStart, { id: featured.path.id, day: today.day });
+      if ((await start(featured.path.id)) === "started") play(today.youtubeId, { path: day });
     } finally {
       setStarting(false);
     }
@@ -199,10 +227,10 @@ export default function PathsTab() {
       />
       <View style={[styles.panel, { width: "100%" }]}>
         <View style={styles.column}>
-          {list.length ? (
+          {morePaths ? (
             <SectionHeader
-              title={featured?.mine ? "More paths" : featured ? "More paths" : "Choose a path"}
-              count={`${list.length} ${list.length === 1 ? "path" : "paths"}`}
+              title={featured ? "More paths" : "Choose a path"}
+              count={`${morePaths} ${morePaths === 1 ? "path" : "paths"}`}
               style={styles.section}
             />
           ) : null}
@@ -229,20 +257,25 @@ export default function PathsTab() {
     </View>
   );
 
-  const renderItem: ListRenderItem<(typeof list)[number]> = useCallback(
-    ({ item }) => (
-      <View style={styles.column}>
-        <PathListCard
-          path={item.path}
-          fan={item.fan}
-          total={item.total}
-          width={cardWidth}
-          progress={item.progress}
-          onPress={() => open(item.path.id)}
-        />
-      </View>
-    ),
-    [cardWidth, open],
+  const renderItem: ListRenderItem<Row> = useCallback(
+    ({ item }) =>
+      item.kind === "heading" ? (
+        <View style={styles.column}>
+          <SectionHeader title={item.title} count={item.count} style={styles.seriesSection} />
+        </View>
+      ) : (
+        <View style={styles.column}>
+          <PathListCard
+            path={item.path}
+            fan={item.fan}
+            total={item.total}
+            width={cardWidth}
+            progress={item.progress}
+            onPress={() => openRow(item)}
+          />
+        </View>
+      ),
+    [cardWidth, openRow],
   );
 
   return (
@@ -251,7 +284,7 @@ export default function PathsTab() {
       <FlatList
         testID="paths-list"
         data={list}
-        keyExtractor={(item) => item.path.id}
+        keyExtractor={(item) => (item.kind === "card" ? item.path.id : `heading-${item.title}`)}
         renderItem={renderItem}
         ListHeaderComponent={header}
         ItemSeparatorComponent={Separator}
@@ -264,7 +297,9 @@ export default function PathsTab() {
   );
 }
 
-const Separator = () => <View style={{ height: 28 }} />;
+// No gap under the series' heading: its own margin sets it.
+const Separator = ({ leadingItem }: { leadingItem?: Row }) =>
+  leadingItem?.kind === "heading" ? null : <View style={{ height: 28 }} />;
 
 /**
  * The tab's dark top, as a path's cover: the page's name, then the path
@@ -284,15 +319,16 @@ const Masthead = memo(function Masthead({
   const { width } = useWindowDimensions();
   const scale = Math.min(0.8, (Math.min(width, MAX_WIDTH) - 48) / 340);
   const f = featured;
+  const words = pathWords(f?.path ?? { kind: "path" });
   const kicker = f
     ? f.mine
-      ? `Your path · ${nowrap(`Day ${f.day} of ${f.total}`)}`
-      : `Start here · ${messagesLabel(f.total)}`
+      ? `Your ${words.noun} · ${nowrap(`${words.unit} ${f.day} of ${f.total}`)}`
+      : `Start here · ${words.count(f.total)}`
     : "";
   const spoken = f
     ? f.mine
-      ? `Your path. Day ${f.day} of ${f.total}. ${f.path.name}. ${doneLabel(f.done.length, f.total)}.`
-      : `Start here. ${messagesLabel(f.total)}. ${f.path.name}. ${trustLine(f.path.status).text.replace(" · ", ", ")}. ${spokenText(minutesPerDayLabel(f.path))}.`
+      ? `Your ${words.noun}. ${words.unit} ${f.day} of ${f.total}. ${f.path.name}. ${doneLabel(f.done.length, f.total)}.`
+      : `Start here. ${words.count(f.total)}. ${f.path.name}. ${trustLine(f.path.status).text.replace(" · ", ", ")}.${f.length ? ` ${spokenText(f.length)}.` : ""}`
     : "";
   return (
     <View style={[styles.mast, { paddingTop: top + 18 }]} {...web({ dataSet: { dark: "true" } })}>
@@ -314,7 +350,7 @@ const Masthead = memo(function Masthead({
             testID={f.mine ? "paths-active" : "paths-featured"}
             accessibilityRole="button"
             accessibilityLabel={spoken}
-            accessibilityHint="Opens the path"
+            accessibilityHint={`Opens the ${words.noun}`}
             onPress={() => onOpen(f.path.id)}
             feedback="scaleLarge"
             style={styles.featuredTap}
@@ -339,8 +375,10 @@ const Masthead = memo(function Masthead({
             tone="onDark"
             caption={
               f.mine
-                ? { left: `Day ${f.day} of ${f.total}`, right: doneLabel(f.done.length, f.total), centered: true }
-                : { left: minutesPerDayLabel(f.path), centered: true }
+                ? { left: `${words.unit} ${f.day} of ${f.total}`, right: doneLabel(f.done.length, f.total), centered: true }
+                : f.length
+                  ? { left: f.length, centered: true }
+                  : undefined
             }
             style={styles.progress}
           />
@@ -351,7 +389,7 @@ const Masthead = memo(function Masthead({
             label={f.action}
             detail={f.detail || undefined}
             accessibilityLabel={`${f.action}${f.detail ? `, ${spokenText(spokenKicker(f.detail))}` : ""}. ${f.path.name}`}
-            hint={f.mine ? "Plays today’s day" : "Starts the path and plays Day 1"}
+            hint={f.mine ? `Plays ${words.series ? "the next teaching" : "today’s day"}` : "Starts the path and plays Day 1"}
             onPress={onPlay}
             style={styles.play}
           />
@@ -403,6 +441,8 @@ const styles = StyleSheet.create({
     paddingTop: 4,
   },
   section: { marginTop: space.xl, marginBottom: space.lg },
+  // After a card's 28pt separator: a section's 40pt gap in all.
+  seriesSection: { marginTop: space.section - 28, marginBottom: space.lg },
   placeholders: { gap: 28, marginTop: space.xl },
   ghostArt: { height: 196, borderRadius: radius.r22, backgroundColor: c.feature },
   ghostLine: { height: 12, borderRadius: 6, backgroundColor: c.feature },

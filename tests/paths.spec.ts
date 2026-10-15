@@ -6,6 +6,7 @@ import {
   WAIT,
   expect,
   fakeYouTube,
+  playhead,
   seedPathProgress,
   seedWatchProgress,
   shown,
@@ -17,9 +18,10 @@ import {
 
 // Guided paths, one message a day, from the local fixtures
 // (src/learning/fixtures.ts): "Breaking free from habitual sin" (published,
-// 7 days; Day 1 is Apostolic Shift: Day One, focus 20:10–36:20; Day 3 is
-// Day Two Morning, focus 49:10–1:06:50) and "Learning to wait on God" (a
-// 5-day draft).
+// 7 days; Day 1 is Apostolic Shift: Day One, 1 hr 47 min; Day 3 is Day Two
+// Morning, 2 hr 49 min) and "Learning to wait on God" (a 5-day draft). A day
+// plays its whole sermon: it resumes where the viewer left off, else starts
+// at the beginning, and it's done once 95% of it has been watched.
 
 const ORDER_SET = "Order set by the ministry";
 const DRAFT = "Draft · awaiting ministry review";
@@ -32,22 +34,43 @@ function day(page: Page, n: number) {
   return shown(page.getByTestId(`path-day-${n}`)).first();
 }
 
+/**
+ * A place in Day Two Morning (Days 3 and 7) 15 seconds short of 95% watched
+ * (9685s), about 3 seconds of playing at the fake clock's 5x.
+ */
+const NEARLY_WATCHED = 9670;
+
+function placeInDayTwo(positionSeconds: number) {
+  return {
+    sermonId: SERMON.dayTwo,
+    positionSeconds,
+    durationSeconds: LENGTH[SERMON.dayTwo],
+    finished: false,
+    updatedAt: "2026-10-14T09:00:00.000Z",
+  };
+}
+
 test("the Paths tab lists every path, and a draft says it's a draft", async ({ page }) => {
   await page.goto("/");
   await tab(page, "Paths").click();
   await expect(page.getByRole("heading", { level: 1, name: "Paths" })).toBeVisible();
   await expect(page).toHaveURL(/\/paths$/);
   // The first path to start leads, as the tab's masthead; the rest follow.
+  // Its length is the sermons' own, whole: never the focus minutes a day.
   const habit = page.getByTestId("paths-featured");
   await expect(habit).toHaveAccessibleName(
-    "Start here. 7 messages. Breaking free from habitual sin. Order set by the ministry. About 16 minutes a day.",
+    "Start here. 7 messages. Breaking free from habitual sin. Order set by the ministry. About 18 hours in all.",
   );
   await expect(habit).not.toContainText("Draft");
-  await expect(page.getByTestId("paths-play")).toHaveAccessibleName("Start Day 1, 16 minutes. Breaking free from habitual sin");
+  await expect(page.getByTestId("paths-play")).toHaveAccessibleName(
+    "Start Day 1, 1 hour 47 minutes. Breaking free from habitual sin",
+  );
   await expect(shown(page.getByText("1 path", { exact: true }))).toBeVisible();
   const wait = page.getByTestId(`path-card-${WAIT}`);
-  await expect(wait).toHaveAccessibleName(/^Learning to wait on God\. 5 messages\. About 14 minutes a day\. Draft, awaiting ministry review\./);
+  await expect(wait).toHaveAccessibleName(/^Learning to wait on God\. 5 messages\. Draft, awaiting ministry review\./);
+  await expect(wait).toContainText("5 messages");
   await expect(wait).toContainText("Draft");
+  await expect(page.getByText(/min a day/)).toHaveCount(0);
   await wait.click();
   await expect(page).toHaveURL(new RegExp(`/path/${WAIT}$`));
 });
@@ -81,19 +104,23 @@ test("a path not yet started opens on Day 1, and shows the days ahead", async ({
   await page.goto(`/path/${HABIT}`);
   await expect(page).toHaveTitle("Breaking free from habitual sin · AAO");
   await expect(day(page, 1)).toContainText("Day 1 · Start here");
-  await expect(day(page, 1)).toContainText("16-min focus from 20:10");
+  await expect(day(page, 1)).toContainText("1 hr 47 min");
+  await expect(day(page, 1)).not.toContainText("focus");
   await expect(
     page.getByRole("button", {
-      name: "Day 1, start here. Lay aside every weight. Apostolic Shift: Day One. 16-minute focus from 20 minutes 10 seconds.",
+      name: "Day 1, start here. Lay aside every weight. Apostolic Shift: Day One. 1 hour 47 minutes.",
       exact: true,
     }),
   ).toBeVisible();
+  // Nothing to mark done before the path has started.
+  await expect(page.getByTestId("path-day-1-mark-done")).toHaveCount(0);
+  await expect(page.getByTestId("path-cover")).toContainText("About 18 hours in all");
   // Nothing is locked before the path starts: each day shows its theme.
   for (const n of [2, 3, 4, 5, 6, 7]) {
     await expect(day(page, n)).not.toContainText("Opens after");
     await expect(day(page, n)).toHaveAccessibleName(new RegExp(`^Day ${n}\\. .+\\. Coming up\\.$`));
   }
-  await expect(cta(page)).toHaveAccessibleName("Start Day 1, 16 minutes");
+  await expect(cta(page)).toHaveAccessibleName("Start Day 1, 1 hour 47 minutes");
   // A locked day explains itself kindly, and the way in is Day 1.
   await day(page, 4).click();
   const sheet = page.getByRole("dialog", { name: "This path starts with Day 1" });
@@ -105,22 +132,26 @@ test("a path not yet started opens on Day 1, and shows the days ahead", async ({
   await expect(sheet).toHaveCount(0);
 });
 
-test("starting a path plays Day 1 from its focus, and Home follows the path", async ({
+test("starting a path plays Day 1, whole, from the beginning, and Home follows the path", async ({
   page,
 }) => {
   await fakeYouTube(page, { duration: LENGTH[SERMON.dayOne] });
   await page.goto(`/path/${HABIT}`);
   await cta(page).click();
-  await expect(page).toHaveURL(
-    new RegExp(`/sermon/${SERMON.dayOne}\\?t=1210&path=${HABIT}&day=1$`),
-  );
+  // No jump to a focus: the sermon starts at the beginning.
+  await expect(page).toHaveURL(new RegExp(`/sermon/${SERMON.dayOne}\\?path=${HABIT}&day=1$`));
   await expect(page.getByTestId("playback-status")).toHaveText("Playing");
-  expect((await ytLog(page)).starts).toEqual([1210]);
+  expect((await ytLog(page)).starts).toEqual([0]);
   const stored = await storedPathProgress(page);
   expect(Object.keys(stored!.enrollments)).toEqual([HABIT]);
   expect(stored!.done[HABIT]).toEqual([]);
-  // The sermon page knows it's Day 1 of the path, with the focus marked.
-  await expect(page.getByLabel("Day 1 focus, from 20 minutes 10 seconds to 36 minutes 20 seconds")).toBeVisible();
+  // The sermon page knows it's Day 1 of the path; nothing marks a focus.
+  await expect(page.getByLabel(/focus/i)).toHaveCount(0);
+  await expect(page.getByText(/focus/i)).toHaveCount(0);
+  await expect(page.getByRole("slider", { name: "Playback position" })).toHaveAttribute(
+    "aria-valuemax",
+    String(LENGTH[SERMON.dayOne]),
+  );
   await expect(page.getByTestId("part-of-path")).toHaveAccessibleName(
     "Part of your path. Day 1 of 7. Breaking free from habitual sin. 0 of 7 done.",
   );
@@ -151,20 +182,20 @@ test.describe("part way through a path", () => {
     await seedPathProgress(page, { [HABIT]: [1, 2] });
   });
 
-  test("Continue plays today's day from its focus", async ({ page }) => {
+  test("Continue plays today's sermon, whole, from the beginning", async ({ page }) => {
     await fakeYouTube(page, { duration: LENGTH[SERMON.dayTwo] });
     await page.goto(`/path/${HABIT}`);
     await expect(day(page, 1)).toHaveAccessibleName(/^Day 1\. .*\. Done\.$/);
     await expect(day(page, 2)).toHaveAccessibleName(/^Day 2\. .*\. Done\.$/);
     await expect(day(page, 3)).toContainText("Day 3 · Today");
+    await expect(day(page, 3)).toContainText("2 hr 49 min");
     await expect(day(page, 4)).toContainText("Day 4 · Opens after Day 3");
-    await expect(cta(page)).toHaveAccessibleName("Continue Day 3, 18 minutes");
+    await expect(cta(page)).toHaveAccessibleName("Continue Day 3, 2 hours 49 minutes");
     await cta(page).click();
-    await expect(page).toHaveURL(
-      new RegExp(`/sermon/${SERMON.dayTwo}\\?t=2950&path=${HABIT}&day=3$`),
-    );
+    await expect(page).toHaveURL(new RegExp(`/sermon/${SERMON.dayTwo}\\?path=${HABIT}&day=3$`));
     await expect(page.getByTestId("playback-status")).toHaveText("Playing");
-    expect((await ytLog(page)).starts).toEqual([2950]);
+    expect((await ytLog(page)).starts).toEqual([0]);
+    await expect(page.getByText(/focus|today’s teaching/i)).toHaveCount(0);
   });
 
   test("today's key moment plays from that moment", async ({ page }) => {
@@ -187,7 +218,7 @@ test.describe("part way through a path", () => {
     const later = page.getByRole("dialog", { name: "Day 5 opens after Day 4" });
     await expect(later).toContainText("You’re on Day 3 now; Day 5 opens once Day 4 is done.");
     await later.getByRole("button", { name: "Go to Day 3", exact: true }).click();
-    await expect(page).toHaveURL(new RegExp(`/sermon/${SERMON.dayTwo}\\?t=2950&path=${HABIT}&day=3$`));
+    await expect(page).toHaveURL(new RegExp(`/sermon/${SERMON.dayTwo}\\?path=${HABIT}&day=3$`));
     await expect(page.getByTestId("playback-status")).toHaveText("Playing");
   });
 
@@ -196,65 +227,49 @@ test.describe("part way through a path", () => {
     await page.goto(`/path/${HABIT}`);
     await day(page, 5).click();
     await page.getByRole("button", { name: "Open Day 5 anyway", exact: true }).click();
-    // Day 5's sermon plays from Day 5's focus, but not as Day 5 of the path:
-    // no focus to finish, and nothing marked done. (The sermon is also Day 1,
-    // but playing from 1:05:00 it isn't shown as Day 1 either.)
-    await expect(page).toHaveURL(new RegExp(`/sermon/${SERMON.dayOne}\\?t=3900$`));
+    // Day 5's sermon plays on its own, not as a day of the path: nothing to
+    // mark done. (The sermon is also Day 1, done already: not that either.)
+    await expect(page).toHaveURL(new RegExp(`/sermon/${SERMON.dayOne}$`));
     await expect(page.getByTestId("playback-status")).toHaveText("Playing");
-    expect((await ytLog(page)).starts).toEqual([3900]);
-    await expect(page.getByLabel(/^Day 5 focus/)).toHaveCount(0);
-    await expect(page.getByLabel(/^Day 1 focus/)).toHaveCount(0);
+    expect((await ytLog(page)).starts).toEqual([0]);
     await expect(page.getByTestId("part-of-path")).toHaveCount(0);
     expect((await storedPathProgress(page))?.done[HABIT]).toEqual([1, 2]);
   });
 
-  test("a place inside today's focus is where Continue picks up", async ({ page }) => {
-    await seedWatchProgress(page, [
-      {
-        sermonId: SERMON.dayTwo,
-        positionSeconds: 3500,
-        durationSeconds: LENGTH[SERMON.dayTwo],
-        finished: false,
-        updatedAt: "2026-10-14T09:00:00.000Z",
-      },
-    ]);
+  test("Continue resumes today's sermon where the viewer left off", async ({ page }) => {
+    // 7300s into the 10195s sermon: 48 minutes of the whole sermon left.
+    await seedWatchProgress(page, [placeInDayTwo(7300)]);
+    await fakeYouTube(page, { duration: LENGTH[SERMON.dayTwo] });
+    await page.goto(`/path/${HABIT}`);
+    await expect(cta(page)).toHaveAccessibleName("Continue Day 3, 48 minutes left");
+    await expect(day(page, 3)).toContainText("48 min left");
+    await cta(page).click();
+    await expect(page).toHaveURL(new RegExp(`/sermon/${SERMON.dayTwo}\\?path=${HABIT}&day=3$`));
+    await expect(page.getByTestId("playback-status")).toHaveText("Playing");
+    expect((await ytLog(page)).starts).toEqual([7300]);
+  });
+
+  test("watching today's sermon to 95% marks the day done", async ({ page }) => {
+    await seedWatchProgress(page, [placeInDayTwo(NEARLY_WATCHED)]);
     await fakeYouTube(page, { duration: LENGTH[SERMON.dayTwo] });
     await page.goto(`/path/${HABIT}`);
     await expect(cta(page)).toHaveAccessibleName("Continue Day 3, 9 minutes left");
-    await expect(day(page, 3)).toContainText("9 min left");
     await cta(page).click();
-    await expect(page).toHaveURL(new RegExp(`\\?t=3500&path=${HABIT}&day=3$`));
     await expect(page.getByTestId("playback-status")).toHaveText("Playing");
-    expect((await ytLog(page)).starts).toEqual([3500]);
-  });
-
-  test("reaching the end of today's focus marks the day done", async ({ page }) => {
-    // 15 seconds before the focus ends (the fake clock runs 5x).
-    await seedWatchProgress(page, [
-      {
-        sermonId: SERMON.dayTwo,
-        positionSeconds: 3995,
-        durationSeconds: LENGTH[SERMON.dayTwo],
-        finished: false,
-        updatedAt: "2026-10-14T09:00:00.000Z",
-      },
-    ]);
-    await fakeYouTube(page, { duration: LENGTH[SERMON.dayTwo] });
-    await page.goto(`/path/${HABIT}`);
-    await expect(cta(page)).toHaveAccessibleName(/^Continue Day 3, .* left$/);
-    await cta(page).click();
-    await expect(page).toHaveURL(new RegExp(`\\?t=3995&path=${HABIT}&day=3$`));
-    await expect(page.getByTestId("playback-status")).toHaveText("Playing");
-    const card = page.getByTestId("day-done");
-    await expect(card).toBeVisible({ timeout: 15_000 });
-    await expect(card).toContainText("Day 3 done");
-    await expect(card.getByRole("heading", { name: "That’s today’s teaching" })).toBeVisible();
+    expect((await ytLog(page)).starts).toEqual([NEARLY_WATCHED]);
+    // Quietly: a toast, no card over the sermon, and the sermon plays on.
+    await expect(page.getByTestId("toast")).toContainText("Day 3 done", { timeout: 15_000 });
     await expect.poll(async () => (await storedPathProgress(page))?.done[HABIT]).toEqual([1, 2, 3]);
-    // Finish stops the sermon and goes back to the path, which celebrates
-    // quietly: the day's key quote and what's next.
-    await card.getByRole("button", { name: "Finish Day 3", exact: true }).click();
+    await expect(page.getByTestId("day-done")).toHaveCount(0);
+    await expect(page.getByTestId("playback-status")).toHaveText("Playing");
+    await expect(page.getByTestId("part-of-path")).toHaveAccessibleName(
+      "Part of your path. Day 3 of 7. Breaking free from habitual sin. 3 of 7 done.",
+    );
+    await expect(page.getByTestId("part-of-path-mark-done")).toHaveCount(0);
+    // Back on the path, the day complete sheet: the day's key quote and
+    // what's next, its length the whole sermon's.
+    await page.getByRole("button", { name: "Back", exact: true }).click();
     await expect(page).toHaveURL(new RegExp(`/path/${HABIT}$`));
-    await expect(page.getByTestId("player-dock")).toHaveCount(0);
     const sheet = page.getByRole("dialog", { name: "Day 3 done" });
     await expect(sheet).toBeVisible();
     await expect(sheet).toContainText("3 of 7 done");
@@ -262,16 +277,88 @@ test.describe("part way through a path", () => {
       "“Bad actions are incubated through the outlet of the mind until they find expression in the womb of the heart.”",
     );
     await expect(sheet).toContainText("Tomorrow · Day 4");
+    await expect(sheet).toContainText("Find the flesh's booster stations · 3 hr 35 min");
+    // Watched to the end, there's nothing left to keep listening to.
+    await expect(sheet.getByRole("button", { name: /^Keep listening/ })).toHaveCount(0);
     await sheet.getByRole("button", { name: "Done for today", exact: true }).click();
     await expect(sheet).toHaveCount(0);
     await expect(day(page, 3)).toHaveAccessibleName(/^Day 3\. .*\. Done\.$/);
     await expect(day(page, 4)).toContainText("Day 4 · Today");
-    await expect(cta(page)).toHaveAccessibleName(/^Continue Day 4, /);
+    await expect(cta(page)).toHaveAccessibleName("Continue Day 4, 3 hours 35 minutes");
     // The sheet isn't shown again for the same day.
     await page.reload();
     await expect(day(page, 4)).toContainText("Day 4 · Today");
     await page.waitForTimeout(500);
     await expect(page.getByRole("dialog", { name: "Day 3 done" })).toHaveCount(0);
+  });
+
+  test("a day finishes while its sermon plays on docked, with its page closed", async ({ page }) => {
+    // A little more room: the sermon page closes before 95% is reached.
+    await seedWatchProgress(page, [placeInDayTwo(NEARLY_WATCHED - 25)]);
+    await fakeYouTube(page, { duration: LENGTH[SERMON.dayTwo] });
+    await page.goto(`/path/${HABIT}`);
+    // Tapped at once, before the account's saved places have loaded: the
+    // sermon still picks up there once they arrive.
+    await cta(page).click();
+    await expect(page.getByTestId("playback-status")).toHaveText("Playing");
+    await expect.poll(() => playhead(page)).toBeGreaterThanOrEqual(NEARLY_WATCHED - 25);
+    await page.getByRole("button", { name: "Back", exact: true }).click();
+    await page.waitForTimeout(400);
+    await page.getByTestId("path-back").click();
+    await expect(page.getByTestId("your-path")).toBeVisible();
+    await expect(page.getByTestId("player-dock")).toBeVisible();
+    expect((await storedPathProgress(page))?.done[HABIT]).toEqual([1, 2]);
+    // Still playing in the dock, the sermon reaches 95%: the day is done.
+    await expect(page.getByTestId("toast")).toContainText("Day 3 done", { timeout: 20_000 });
+    await expect.poll(async () => (await storedPathProgress(page))?.done[HABIT]).toEqual([1, 2, 3]);
+    await expect(page.getByTestId("player-dock")).toBeVisible();
+    await expect(
+      page.getByTestId("your-path").getByRole("button", {
+        name: "Your path. Day 4 of 7. Breaking free from habitual sin. 3 of 7 done.",
+        exact: true,
+      }),
+    ).toBeVisible();
+  });
+
+  test("Mark Day 3 done on the path page shows the day complete sheet", async ({ page }) => {
+    await seedWatchProgress(page, [placeInDayTwo(7300)]);
+    await fakeYouTube(page, { duration: LENGTH[SERMON.dayTwo] });
+    await page.goto(`/path/${HABIT}`);
+    const mark = page.getByRole("button", { name: "Mark Day 3 done", exact: true });
+    await expect(mark).toBeVisible();
+    // Only today's day can be marked.
+    await expect(page.getByTestId("path-day-4-mark-done")).toHaveCount(0);
+    await mark.click();
+    await expect.poll(async () => (await storedPathProgress(page))?.done[HABIT]).toEqual([1, 2, 3]);
+    const sheet = page.getByRole("dialog", { name: "Day 3 done" });
+    await expect(sheet).toBeVisible();
+    await expect(sheet).toContainText("3 of 7 done");
+    // Marked done part way through: the rest of the sermon is a tap away.
+    await sheet.getByRole("button", { name: "Keep listening · 48 min left", exact: true }).click();
+    await expect(page).toHaveURL(new RegExp(`/sermon/${SERMON.dayTwo}\\?path=${HABIT}&day=3$`));
+    await expect(page.getByTestId("playback-status")).toHaveText("Playing");
+    expect((await ytLog(page)).starts).toEqual([7300]);
+    // A day already done has nothing to mark.
+    await expect(page.getByTestId("part-of-path-mark-done")).toHaveCount(0);
+  });
+
+  test("Mark Day 3 done on the sermon page", async ({ page }) => {
+    await page.goto(`/sermon/${SERMON.dayTwo}?path=${HABIT}&day=3`);
+    const row = page.getByTestId("part-of-path");
+    await expect(row).toHaveAccessibleName(
+      "Part of your path. Day 3 of 7. Breaking free from habitual sin. 2 of 7 done.",
+    );
+    await page.getByRole("button", { name: "Mark Day 3 done", exact: true }).click();
+    await expect(page.getByTestId("toast")).toContainText("Day 3 done");
+    await expect.poll(async () => (await storedPathProgress(page))?.done[HABIT]).toEqual([1, 2, 3]);
+    await expect(row).toHaveAccessibleName(
+      "Part of your path. Day 3 of 7. Breaking free from habitual sin. 3 of 7 done.",
+    );
+    await expect(page.getByTestId("part-of-path-mark-done")).toHaveCount(0);
+    // The path shows it with the day complete sheet.
+    await row.click();
+    await expect(page).toHaveURL(new RegExp(`/path/${HABIT}$`));
+    await expect(page.getByRole("dialog", { name: "Day 3 done" })).toBeVisible();
   });
 });
 
@@ -292,37 +379,29 @@ test("the path page never offers Day 1 to someone on Day 3, even while loading",
     );
   });
   await page.goto(`/path/${HABIT}`);
-  await expect(cta(page)).toHaveAccessibleName("Continue Day 3, 18 minutes");
+  await expect(cta(page)).toHaveAccessibleName("Continue Day 3, 2 hours 49 minutes");
   const labels = await page.evaluate(
     () => (window as unknown as { __ctaLabels: string[] }).__ctaLabels,
   );
-  expect(labels).toEqual(["Continue Day 3, 18 minutes"]);
+  expect(labels).toEqual(["Continue Day 3, 2 hours 49 minutes"]);
 });
 
 test("finishing the last day completes the path", async ({ page }) => {
   await seedPathProgress(page, { [HABIT]: [1, 2, 3, 4, 5, 6] });
-  // Day 7 is Day Two Morning, focus 2:06:40–2:22:20: 15 seconds to go.
-  await seedWatchProgress(page, [
-    {
-      sermonId: SERMON.dayTwo,
-      positionSeconds: 8525,
-      durationSeconds: LENGTH[SERMON.dayTwo],
-      finished: false,
-      updatedAt: "2026-10-14T09:00:00.000Z",
-    },
-  ]);
+  // Day 7 is Day Two Morning again, 15 seconds short of 95% watched.
+  await seedWatchProgress(page, [placeInDayTwo(NEARLY_WATCHED)]);
   await fakeYouTube(page, { duration: LENGTH[SERMON.dayTwo] });
   await page.goto(`/path/${HABIT}`);
-  await expect(cta(page)).toHaveAccessibleName("Continue Day 7, Under a minute left");
+  await expect(cta(page)).toHaveAccessibleName("Continue Day 7, 9 minutes left");
   await cta(page).click();
-  const card = page.getByTestId("day-done");
-  await expect(card).toBeVisible({ timeout: 15_000 });
-  await expect(card).toContainText("Day 7 done");
+  await expect(page.getByTestId("toast")).toContainText("Breaking free from habitual sin complete", {
+    timeout: 15_000,
+  });
   await expect
     .poll(async () => (await storedPathProgress(page))?.enrollments[HABIT].finishedAt)
     .toEqual(expect.any(String));
   expect((await storedPathProgress(page))?.done[HABIT]).toEqual([1, 2, 3, 4, 5, 6, 7]);
-  await card.getByRole("button", { name: "Finish Day 7", exact: true }).click();
+  await page.getByRole("button", { name: "Back", exact: true }).click();
   const sheet = page.getByRole("dialog", { name: "Path complete" });
   await expect(sheet).toBeVisible();
   await expect(sheet.getByRole("heading", { name: "Path complete." })).toBeVisible();
@@ -354,10 +433,10 @@ test.describe("as a guest", () => {
     await cta(page).click();
     const heading = page.getByRole("heading", { name: "Create a free account to start this path" });
     await expect(heading).toBeVisible();
-    // The sheet names the path and its pace.
+    // The sheet names the path and its length.
     const sheet = page.getByRole("dialog");
     await expect(sheet.getByText("Breaking free from habitual sin")).toBeVisible();
-    await expect(sheet.getByText("7 days · About 16 min a day", { exact: true })).toBeVisible();
+    await expect(sheet).toContainText("7 days");
     expect((await ytLog(page)).created).toBe(0);
     expect((await storedPathProgress(page, "guest"))?.enrollments ?? {}).toEqual({});
 
@@ -375,14 +454,15 @@ test.describe("as a guest", () => {
     expect((await storedPathProgress(page, "guest"))?.enrollments ?? {}).toEqual({});
   });
 
-  test("after signing up, Day 1 plays from its focus", async ({ page }) => {
-    // The sign-up carries the start time, the path and the day through.
+  test("after signing up, Day 1 plays, whole, from the beginning", async ({ page }) => {
+    // The sign-up carries the path and the day through, and no focus time.
     await fakeYouTube(page, { duration: LENGTH[SERMON.dayOne] });
     await page.goto(`/path/${HABIT}`);
     await cta(page).click();
     await page.getByTestId("continue-google").click();
     await expect(page.getByTestId("playback-status")).toHaveText("Playing");
-    expect((await ytLog(page)).starts).toEqual([1210]);
+    await expect(page).toHaveURL(new RegExp(`/sermon/${SERMON.dayOne}\\?path=${HABIT}&day=1$`));
+    expect((await ytLog(page)).starts).toEqual([0]);
   });
 
   test("closing the sign-up sheet abandons starting the path", async ({ page }) => {

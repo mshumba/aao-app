@@ -35,3 +35,16 @@ export async function markSeen(owner: string, pathId: string, days: readonly num
   all[owner] = { ...all[owner], [pathId]: { days: [...days], at: Date.now() } };
   await writeJSON(KEY, all);
 }
+
+/**
+ * A day was just done on this device (its sermon watched, or marked done)
+ * before this path's page was ever open here: note the days done before
+ * it, so the page's first visit still says "Day 3 done." Days done long
+ * ago, or on another device, never get the sheet.
+ */
+export async function noteDayDone(owner: string, pathId: string, before: readonly number[]) {
+  const all = await load();
+  if (all[owner]?.[pathId]) return;
+  all[owner] = { ...all[owner], [pathId]: { days: [...before], at: Date.now() } };
+  await writeJSON(KEY, all);
+}

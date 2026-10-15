@@ -8,12 +8,14 @@ import {
   useState,
   type PropsWithChildren,
 } from "react";
-import { AppState } from "react-native";
+import { AppState, Platform } from "react-native";
 import { useAccount } from "../auth/AccountProvider";
 import { useGate } from "../auth/gate";
 import { registerPathStarter } from "../auth/intent";
 import { useCatalogue } from "../catalogue/CatalogueProvider";
 import { readJSON, writeJSON } from "../lib/storage";
+import { noteDayDone } from "../paths/seen";
+import { CompleteDayContext } from "./completeDay";
 import { fixtureDays, fixtureMoments, fixtureNeeds, fixturePaths } from "./fixtures";
 import {
   activePath,
@@ -22,9 +24,11 @@ import {
   enrollmentOf,
   fromRemote,
   joinDays,
+  nextDay,
   type ProgressOp,
   type ProgressState,
 } from "./progress";
+import { createProgressSync, type ProgressSync } from "./progressSync";
 import {
   deleteDayDone,
   deleteEnrollment,
@@ -37,7 +41,7 @@ import {
   postDayDone,
   postEnrollment,
 } from "./queries";
-import { accessToken, learningMode } from "./session";
+import { accessTokenFor, learningMode } from "./session";
 import type { Moment, Need, Path, PathDay } from "./types";
 
 /**
@@ -57,7 +61,8 @@ import type { Moment, Need, Path, PathDay } from "./types";
 
 const KEYS = {
   needs: "aao.learning.needs.v1",
-  paths: "aao.learning.paths.v1",
+  // v2: paths carry their kind (guided path or teaching series).
+  paths: "aao.learning.paths.v2",
   moments: "aao.learning.moments.v1",
   progress: (owner: string) => `aao.learning.progress.v1.${owner}`,
   recent: (owner: string) => `aao.learning.recent.v1.${owner}`,
@@ -99,6 +104,7 @@ type ProgressValue = {
   /** This viewer's progress is known (read from the device, or the server). */
   read: boolean;
   apply: (ops: ProgressOp[]) => void;
+  complete: (pathId: string, day: number) => boolean;
 };
 type RecentValue = {
   recent: string[];
@@ -268,14 +274,15 @@ export function LearningProvider({ children }: PropsWithChildren) {
   });
   const current = useRef<ProgressSlot>(progress);
   const memberRef = useRef(member);
-  const syncing = useRef(false);
-  const again = useRef(false);
   const lastSync = useRef(0);
-  const retry = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const daysRef = useRef(daysByPath);
 
   useEffect(() => {
     memberRef.current = member;
   }, [member]);
+  useEffect(() => {
+    daysRef.current = daysByPath;
+  }, [daysByPath]);
 
   const commit = useCallback((next: ProgressSlot) => {
     current.current = next;
@@ -283,57 +290,41 @@ export function LearningProvider({ children }: PropsWithChildren) {
     writeJSON(KEYS.progress(next.owner), next.state);
   }, []);
 
-  // A named function inside useMemo, so it can call itself to retry.
-  const sync = useMemo(() => {
-    async function run(forOwner: string, attempt = 0): Promise<void> {
-      if (!memberRef.current || forOwner === "guest") return;
-      if (syncing.current) {
-        again.current = true;
-        return;
-      }
-      syncing.current = true;
-      let rerun = false;
-      try {
-        const token = await accessToken();
-        if (!token) {
-          // The account's client is still restoring or refreshing its
-          // session: try again shortly, showing the device's copy meanwhile.
-          if (attempt < 5) {
-            if (retry.current) clearTimeout(retry.current);
-            retry.current = setTimeout(() => run(forOwner, attempt + 1), 1500 * 2 ** attempt);
-          }
-          if (current.current.owner === forOwner && current.current.loading)
-            commit({ ...current.current, loading: false });
-          return;
-        }
-        const sent = new Set<ProgressOp>();
-        for (const op of current.current.state.pending) {
-          try {
-            await send(token, op);
-            sent.add(op);
-          } catch (error) {
-            // Refused for good (the path was removed): drop it. Otherwise
-            // keep it and everything after it for the next sync.
-            if (isPermanent(error)) sent.add(op);
-            else break;
-          }
-        }
-        const remote = await fetchProgress(token);
-        if (current.current.owner !== forOwner) return;
-        const remaining = current.current.state.pending.filter((op) => !sent.has(op));
-        commit({ owner: forOwner, state: fromRemote(remote, remaining), loading: false, read: true });
-        lastSync.current = Date.now();
-      } catch {
-        if (current.current.owner === forOwner && current.current.loading)
-          commit({ ...current.current, loading: false });
-      } finally {
-        syncing.current = false;
-        rerun = again.current;
-        again.current = false;
-      }
-      if (rerun) await run(forOwner);
-    }
-    return run;
+  // Members' changes go to the server one run at a time, for the account on
+  // the device now; failures retry with backoff (progressSync.ts). Made
+  // before the effects below use it (effects run in order).
+  const sync = useRef<ProgressSync | null>(null);
+  useEffect(() => {
+    const engine = createProgressSync(
+      { token: accessTokenFor, send, fetch: fetchProgress, isPermanent },
+      {
+        owner: () => {
+          const slot = current.current;
+          return memberRef.current && slot.owner !== "guest" ? slot.owner : null;
+        },
+        pending: () => current.current.state.pending,
+        settle: (forOwner, sent, remote) => {
+          const slot = current.current;
+          if (slot.owner !== forOwner) return;
+          const remaining = slot.state.pending.filter((op) => !sent.has(op));
+          if (remote) {
+            commit({ owner: forOwner, state: fromRemote(remote, remaining), loading: false, read: true });
+            lastSync.current = Date.now();
+          } else commit({ ...slot, state: { ...slot.state, pending: remaining } });
+        },
+        // Offline, or the session is still being restored: show the
+        // device's copy meanwhile.
+        failed: (forOwner) => {
+          const slot = current.current;
+          if (slot.owner === forOwner && slot.loading) commit({ ...slot, loading: false });
+        },
+      },
+    );
+    sync.current = engine;
+    return () => {
+      engine.dispose();
+      if (sync.current === engine) sync.current = null;
+    };
   }, [commit]);
 
   const apply = useCallback(
@@ -346,9 +337,30 @@ export function LearningProvider({ children }: PropsWithChildren) {
       });
       if (memberRef.current) state = { ...state, pending: [...was.state.pending, ...ops] };
       commit({ ...was, state });
-      if (memberRef.current) sync(was.owner);
+      if (memberRef.current) sync.current?.request(was.owner);
     },
-    [commit, sync],
+    [commit],
+  );
+
+  // A day is done when its sermon has been watched (the player calls this)
+  // or the viewer says so: only the next day due on a path they're on, so
+  // finishing a sermon never skips ahead or re-marks a day.
+  const complete = useCallback(
+    (pathId: string, day: number) => {
+      const slot = current.current;
+      if (!slot.read || !slot.state.enrollments[pathId]) return false;
+      const total = daysRef.current.get(pathId)?.length ?? 0;
+      const done = slot.state.done[pathId] ?? [];
+      if (!total || nextDay(total, done) !== day) return false;
+      const at = new Date().toISOString();
+      const ops: ProgressOp[] = [{ kind: "done", pathId, day, at }];
+      if (done.length + 1 >= total) ops.push({ kind: "finish", pathId, at });
+      // So the path's page says "Day 3 done." even if it was never open here.
+      void noteDayDone(slot.owner, pathId, done);
+      apply(ops);
+      return true;
+    },
+    [apply],
   );
 
   // A path a guest asked to start before creating this account: the
@@ -374,6 +386,9 @@ export function LearningProvider({ children }: PropsWithChildren) {
 
   useEffect(() => {
     let alive = true;
+    // The previous account's sync (in flight or waiting to retry) ends
+    // here; its late answer is never shown to this one.
+    sync.current?.reset();
     // Until this account's copy is read, nothing of another account shows
     // (see `shown` below).
     current.current = { owner, state: emptyProgress, loading: true };
@@ -387,23 +402,32 @@ export function LearningProvider({ children }: PropsWithChildren) {
         read: true,
       });
       readFor.current = owner;
-      if (member) sync(owner);
+      if (member) sync.current?.request(owner);
       runQueued();
     });
     return () => {
       alive = false;
-      if (retry.current) clearTimeout(retry.current);
     };
-  }, [owner, member, commit, sync, runQueued]);
+  }, [owner, member, commit, runQueued]);
 
+  // Coming back to the app, or the connection returning (web), sends what's
+  // waiting at once and reads again when the copy is old.
   useEffect(() => {
     if (!member) return;
+    const wake = () => {
+      if (current.current.state.pending.length || Date.now() - lastSync.current > PROGRESS_STALE_MS)
+        sync.current?.wake();
+    };
     const subscription = AppState.addEventListener("change", (next) => {
-      if (next === "active" && Date.now() - lastSync.current > PROGRESS_STALE_MS)
-        sync(current.current.owner);
+      if (next === "active") wake();
     });
-    return () => subscription.remove();
-  }, [member, sync]);
+    const web = Platform.OS === "web" && typeof window !== "undefined" && !!window.addEventListener;
+    if (web) window.addEventListener("online", wake);
+    return () => {
+      subscription.remove();
+      if (web) window.removeEventListener("online", wake);
+    };
+  }, [member]);
 
   // Right after signing in or out, the slot still holds the previous
   // owner's progress for a moment: show this owner's empty state instead.
@@ -415,8 +439,9 @@ export function LearningProvider({ children }: PropsWithChildren) {
       loading: shown?.loading ?? true,
       read: !!shown?.read,
       apply,
+      complete,
     }),
-    [owner, shown, apply],
+    [owner, shown, apply, complete],
   );
 
   // ---- Recent searches ---------------------------------------------------------------
@@ -457,7 +482,9 @@ export function LearningProvider({ children }: PropsWithChildren) {
       <PathsContext.Provider value={pathsValue}>
         <MomentsContext.Provider value={momentsValue}>
           <ProgressContext.Provider value={progressValue}>
-            <RecentContext.Provider value={recentValue}>{children}</RecentContext.Provider>
+            <CompleteDayContext.Provider value={complete}>
+              <RecentContext.Provider value={recentValue}>{children}</RecentContext.Provider>
+            </CompleteDayContext.Provider>
           </ProgressContext.Provider>
         </MomentsContext.Provider>
       </PathsContext.Provider>
@@ -561,14 +588,13 @@ export function useEnrollment() {
       }
       const first = daysByPath.get(pathId)?.[0];
       // A guest is asked for an account first; signing up then starts the
-      // path and plays Day 1 from its focus (the intent carries both).
-      // Closing the sheet drops it, so nothing starts later.
+      // path and plays Day 1, whole, from the beginning (the intent carries
+      // both). Closing the sheet drops it, so nothing starts later.
       if (
         !first ||
         gate.require({
           kind: "watch",
           sermonId: first.youtubeId,
-          at: first.focusStart,
           path: { id: pathId, day: first.day },
         })
       ) {
@@ -613,6 +639,11 @@ export function useEnrollment() {
     start,
     markDone,
     unmarkDone,
+    /**
+     * Marks the next day due on a path the viewer is on as done ("Mark Day
+     * 3 done"), as watching its sermon would; false when it isn't due.
+     */
+    complete: progress.complete,
     leave,
     loading: progress.loading || paths.loading,
     /** Progress is known for this viewer (it may still be syncing). */
