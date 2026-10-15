@@ -15,7 +15,7 @@
 begin;
 
 insert into public.paths (id, name, italic, promise, why, needs, minutes_per_day, status, sort) values
-  ('breaking-free-from-habitual-sin', 'Breaking free from habitual sin', 'habitual sin',
+  ('breaking-free-from-habitual-sin', 'Breaking free from habitual sin', 'habitual',
    'Six days from the grip of a repeated sin to the freedom grace gives.',
    'For the believer who keeps returning to the same sin and is tired of starting over. The path begins with how temptation actually works, grounds you in the truth that you are dead to sin, then builds practical disciplines for the mind and the appetites. It ends at the throne of grace, for the days you fall.',
    array['same-sin']::text[], 16, 'draft', 1),
