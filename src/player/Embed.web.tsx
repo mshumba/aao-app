@@ -107,22 +107,31 @@ export default function Embed({
             rel: 0,
             origin: window.location.origin,
           },
+          // A player replaced by a new attempt (a retry, or a restart at the
+          // account's saved place) can still report late. It must stay silent:
+          // its "ready" would be taken as the new player's, and the new one
+          // would then be told to play before it can.
           events: {
             onReady: () => {
+              if (disposed) return;
               ready.current = true;
               callback.current({ type: "ready", duration: duration() });
             },
-            onError: (e: { data: number }) =>
-              callback.current({ type: "error", code: e.data }),
-            onStateChange: (e: { data: number }) =>
+            onError: (e: { data: number }) => {
+              if (!disposed) callback.current({ type: "error", code: e.data });
+            },
+            onStateChange: (e: { data: number }) => {
+              if (disposed) return;
               callback.current({
                 type: "state",
                 state: e.data,
                 seconds: player.current?.getCurrentTime(),
                 duration: duration(),
-              }),
-            onPlaybackRateChange: (e: { data: number }) =>
-              callback.current({ type: "rate", rate: e.data }),
+              });
+            },
+            onPlaybackRateChange: (e: { data: number }) => {
+              if (!disposed) callback.current({ type: "rate", rate: e.data });
+            },
           },
         });
         timer = setInterval(() => {

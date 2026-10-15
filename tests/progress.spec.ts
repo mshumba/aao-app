@@ -296,6 +296,19 @@ test.describe("as a guest", () => {
       .toBeGreaterThanOrEqual(250);
   });
 
+  test("signing in to watch still plays when the player is slow to load", async ({ page }) => {
+    // A slow player is still loading when the account's place arrives, so the
+    // sermon restarts there; the first player's late "ready" must not count.
+    const apple = "aao.local.data.v1.local:apple.viewer@example.com";
+    await seedProgress(page, seeded, apple);
+    await fakeYouTube(page, { readyAfter: 900 });
+    await page.goto("/sermon/H9sRbSUt0YE");
+    await page.getByRole("button", { name: "Watch sermon", exact: true }).click();
+    await page.getByTestId("continue-apple").click();
+    await expect(page.getByTestId("playback-status")).toHaveText("Playing", { timeout: 15000 });
+    await expect(page.getByTestId("resume-note")).toHaveText(/Resuming at 4:10/);
+  });
+
   test("Continue watching is hidden, even with an account's progress on the device", async ({
     page,
   }) => {
