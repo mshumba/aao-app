@@ -58,7 +58,7 @@ test("a draft path for this says it's a draft; a published one doesn't", async (
 
   await search(page, NEED);
   await expect(page.getByTestId("search-path")).toHaveAccessibleName(
-    "A path for this. Breaking free from habitual sin. 7 messages. About 16 minutes a day",
+    "A path for this. Breaking free from habitual sin. 7 messages",
   );
   await expect(page.getByTestId("search-path")).not.toContainText("Draft");
 });

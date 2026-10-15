@@ -20,6 +20,7 @@ export {
   dayOfLabel,
   doneLabel,
   messagesLabel,
+  teachingsLabel,
   minutesPerDayLabel,
   searchSermonArt,
   searchSermonMeta,

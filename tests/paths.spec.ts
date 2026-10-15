@@ -436,7 +436,7 @@ test.describe("as a guest", () => {
     // The sheet names the path and its length.
     const sheet = page.getByRole("dialog");
     await expect(sheet.getByText("Breaking free from habitual sin")).toBeVisible();
-    await expect(sheet).toContainText("7 days");
+    await expect(sheet).toContainText("7 messages");
     expect((await ytLog(page)).created).toBe(0);
     expect((await storedPathProgress(page, "guest"))?.enrollments ?? {}).toEqual({});
 

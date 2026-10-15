@@ -21,7 +21,6 @@ import { searchSermons, type Sermon } from "../data/sermons";
 import { ChipRow, ItalicTitle, Kicker, NeedChip, PathCardNavy, SearchField, Strong, type ArtSource } from "../kit";
 import {
   messagesLabel,
-  minutesPerDayLabel,
   nextDay,
   useEnrollment,
   useNeeds,
@@ -127,25 +126,21 @@ const same = (a: string, b: string) => a.trim().toLocaleLowerCase() === b.trim()
 const careAnnouncement = `${careText.title} ${careText.body}`;
 
 /**
- * A compact path card's line: "7 messages · About 16 min a day", or where
- * you are once you've started. A path awaiting the ministry's review says
- * "Draft" first, in place of the minutes, so the line still fits on one.
+ * A compact path card's line: "7 messages", or where you are once you've
+ * started. A path awaiting the ministry's review says "Draft" first. A day
+ * plays its whole sermon, so there's no "minutes a day" to promise.
  */
 function pathMeta(
   total: number,
   status: PathStatus | undefined,
   mine: { done: number[]; finishedAt: string | null } | null | undefined,
-  perDay: string | null,
 ) {
-  const draft = status === "draft";
   const where = mine?.finishedAt
     ? "Finished"
     : mine
       ? `You're on Day ${nextDay(total, mine.done) ?? total}`
-      : draft
-        ? null
-        : perDay;
-  return [draft ? "Draft" : null, messagesLabel(total), where].filter(Boolean).join(" · ");
+      : null;
+  return [status === "draft" ? "Draft" : null, messagesLabel(total), where].filter(Boolean).join(" · ");
 }
 
 export function SearchScreen() {
@@ -457,7 +452,7 @@ function SearchView({ initialQuery, unknownTopic }: { initialQuery: string; unkn
     const total = known?.dayCount || pathDays.length || found.days;
     const progress = progressFor(found.id);
     const today = progress ? (nextDay(total, progress.done) ?? total) : 1;
-    const meta = pathMeta(total, found.status ?? known?.status, progress, known ? minutesPerDayLabel(known) : null);
+    const meta = pathMeta(total, found.status ?? known?.status, progress);
     const front = pathDays[today - 1] ?? pathDays[0];
     const behind = pathDays[today - 2] ?? pathDays[today] ?? pathDays[1];
     const fan = [front, behind]
@@ -470,10 +465,13 @@ function SearchView({ initialQuery, unknownTopic }: { initialQuery: string; unkn
   // editor's order, saying where you are on any you've started.
   const emptyPaths = useMemo<PathCard[]>(
     () =>
-      paths.slice(0, EMPTY_PATHS).map((path) => {
+      paths
+        .filter((path) => path.kind !== "series")
+        .slice(0, EMPTY_PATHS)
+        .map((path) => {
         const days = daysOf(path.id);
         const total = path.dayCount || days.length;
-        const meta = pathMeta(total, path.status, progressFor(path.id), minutesPerDayLabel(path));
+        const meta = pathMeta(total, path.status, progressFor(path.id));
         const fan = days.slice(0, 2).map((d) => ({ id: d.youtubeId }) as ArtSource);
         return { id: path.id, name: path.name, meta, fan, kicker: "Guided path" };
       }),

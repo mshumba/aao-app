@@ -92,7 +92,7 @@ test("a need on Home finds moments in his words, and the path for it", async ({
   // "A path for this" opens the path.
   const path = page.getByTestId("search-path");
   await expect(path).toHaveAccessibleName(
-    "A path for this. Breaking free from habitual sin. 7 messages. About 16 minutes a day",
+    "A path for this. Breaking free from habitual sin. 7 messages",
   );
   await path.click();
   await expect(page).toHaveURL(new RegExp(`/path/${HABIT}$`));

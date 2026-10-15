@@ -38,7 +38,7 @@ import {
   type DayRowProps,
 } from "../kit";
 import { fixtureDays, fixtureNeeds, fixturePaths, fixtureProgress } from "../learning/fixtures";
-import { minutesPerDayLabel, useSearch, type SearchMoment } from "../learning";
+import { messagesLabel, useSearch, type SearchMoment } from "../learning";
 import { usePageTitle } from "../navigation";
 import { c, radius, textCap, type } from "../theme";
 import { Heading, T } from "../ui";
@@ -260,7 +260,7 @@ function Gallery() {
             current={today}
             partial={partial}
             tone="onDark"
-            caption={{ left: `Day ${today} of ${habit.dayCount}`, right: minutesPerDayLabel(habit), centered: true }}
+            caption={{ left: `Day ${today} of ${habit.dayCount}`, right: messagesLabel(habit.dayCount), centered: true }}
             style={styles.coverProgress}
           />
         </View>
@@ -270,7 +270,7 @@ function Gallery() {
             <TrustLine status={habit.status} />
           </View>
           <ItalicTitle text={habit.why} italic="grace" style={[type.prose, { marginTop: 6 }]} />
-          <TrustLine status={draft.status} extra={minutesPerDayLabel(draft)} style={{ marginTop: 12 }} />
+          <TrustLine status={draft.status} extra={messagesLabel(draft.dayCount)} style={{ marginTop: 12 }} />
           <DayTimeline days={days} style={{ marginTop: 14 }} />
         </View>
 

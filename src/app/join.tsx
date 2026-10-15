@@ -31,7 +31,7 @@ import { eventLine, headline } from "../data/display";
 import { useCatalogue } from "../catalogue/CatalogueProvider";
 import type { Sermon } from "../data/sermons";
 import { Artwork, CardFan, ItalicTitle, spokenText } from "../kit";
-import { minutesPerDayLabel, usePath } from "../learning";
+import { messagesLabel, teachingsLabel, usePath } from "../learning";
 import { useReducedMotion } from "../motion";
 import { firstParam, useGo, usePageTitle } from "../navigation";
 import { motion } from "../onboarding/parts";
@@ -316,12 +316,12 @@ function pathOf(intent: ReturnType<typeof peekPendingIntent>) {
   return intent?.kind === "watch" && intent.path ? intent.path.id : null;
 }
 
-/** The path being started: a small fan of its first days, its name and its pace. */
+/** The path being started: a small fan of its first days, its name and its length. */
 function PathContext({ id }: { id: string }) {
   const { path, days } = usePath(id);
   if (!path) return <View style={{ flex: 1 }} />;
   const total = days.length || path.dayCount;
-  const meta = `${total} days · ${minutesPerDayLabel(path)}`;
+  const meta = path.kind === "series" ? teachingsLabel(total) : messagesLabel(total);
   const fan = days.slice(0, 2).map((d) => d.sermon ?? { id: d.youtubeId });
   return (
     <View
