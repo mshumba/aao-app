@@ -5,6 +5,7 @@ import { Artwork, PlayPill, Quote, QuotePlaceholder, RoundButton, spokenText } f
 import { searchSermonMeta, type SearchMoment } from "../learning";
 import { c, font, radius, shadows, tabular } from "../theme";
 import { SermonTitle, T, Tap } from "../ui";
+import { breathe } from "./Loader";
 
 /**
  * One moment that speaks to the question, as concept screen 02 draws it: a
@@ -48,12 +49,9 @@ export const ResultCard = memo(function ResultCard({
   const [arrives] = useState(() => moment.quote == null);
 
   return (
-    // Results replace the placeholders with a short fade (opacity only, so
-    // it holds under Reduce Motion too).
-    <Animated.View
-      testID="moment-result"
-      style={[styles.card, { animationName: fadeIn, animationDuration: 200, animationFillMode: "backwards" }]}
-    >
+    // The list brings results in as one (reveal.tsx): a card doesn't
+    // animate itself, so one scrolled away and back doesn't play it again.
+    <View testID="moment-result" style={styles.card}>
       {continued ? (
         <Tap
           accessibilityRole="button"
@@ -110,17 +108,23 @@ export const ResultCard = memo(function ResultCard({
           onPress={() => onToggleSave(moment)}
         />
       </View>
-    </Animated.View>
+    </View>
   );
 });
 
 /**
  * Where a result will be while search runs: the card's exact geometry in
- * static sand, so nothing moves when the results arrive. No shimmer.
+ * sand, so nothing moves when the results arrive. It breathes (opacity
+ * only, so under Reduce Motion too); no shimmer.
  */
 export const ResultPlaceholder = memo(function ResultPlaceholder() {
   return (
-    <View style={styles.card} accessible={false} importantForAccessibility="no-hide-descendants">
+    <Animated.View
+      testID="result-placeholder"
+      style={[styles.card, breathe]}
+      accessible={false}
+      importantForAccessibility="no-hide-descendants"
+    >
       <View style={styles.top}>
         <View style={styles.artBlock} />
         <View style={[styles.topText, { gap: 7 }]}>
@@ -134,7 +138,7 @@ export const ResultPlaceholder = memo(function ResultPlaceholder() {
         <View style={styles.pillBlock} />
         <View style={styles.circleBlock} />
       </View>
-    </View>
+    </Animated.View>
   );
 });
 

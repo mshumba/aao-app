@@ -114,8 +114,17 @@ export type SearchResponse = {
   query: string;
   /** What search took the question to mean, and three related needs. */
   understood: { theme: string; related: string[] };
-  /** A path that answers this need, if one exists. */
-  path: { id: string; name: string; italic: string; days: number } | null;
+  /**
+   * A path that answers this need, if one exists. `status` comes from search
+   * v14 on; a draft is labelled as one.
+   */
+  path: { id: string; name: string; italic: string; days: number; status?: PathStatus } | null;
+  /**
+   * The person may be in distress (they said they want to die or to harm
+   * themselves): the moments are comforting teaching, never a search of the
+   * words as typed, and the screen offers help first. Search v14 on.
+   */
+  care?: boolean;
   /** At most 14. */
   moments: SearchMoment[];
   /** At most 10, with how many matching moments each holds. */

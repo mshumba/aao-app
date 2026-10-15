@@ -21,7 +21,7 @@ import { Heading, Icon, SermonTitle, T, Tap, TextButton, nowrap, type IconName }
 // ---- Section heading ----------------------------------------------------------------
 
 /**
- * A serif section title (22/28, as concept screen 02 sets "Moments that
+ * A serif section title (21/27, as concept screen 02 sets "Moments that
  * speak to this") with a muted count or a text action on its baseline.
  */
 export const ListHeading = memo(function ListHeading({
@@ -424,14 +424,15 @@ export function MoreButton({ label, onPress }: { label: string; onPress: () => v
 }
 
 /**
- * Read once by screen readers when the results change; invisible. iOS
- * announces it (VoiceOver has no live regions); web and Android use a
- * polite live region.
+ * The search's one live region, invisible: what the loader says search is
+ * doing, then what it found (the care card's words first when it shows).
+ * Read politely by screen readers as it changes. iOS announces it (VoiceOver
+ * has no live regions); web and Android use a polite live region.
  */
 export function LiveStatus({ text }: { text: string }) {
   if (Platform.OS === "ios") return null;
   return (
-    <T accessibilityLiveRegion="polite" style={styles.hidden}>
+    <T testID="search-status" accessibilityLiveRegion="polite" style={styles.hidden}>
       {text}
     </T>
   );
@@ -451,7 +452,7 @@ const styles = StyleSheet.create({
     marginTop: 22,
     marginBottom: 12,
   },
-  headingTitle: { ...type.section, fontSize: 22, lineHeight: 28, color: c.text, flexShrink: 0, maxWidth: "100%" },
+  headingTitle: { ...type.section, fontSize: 21, lineHeight: 27, color: c.text, flexShrink: 0, maxWidth: "100%" },
   countWrap: { marginLeft: "auto" },
   headingAction: { marginVertical: -14 },
   // The count keeps to one line; the title wraps instead.

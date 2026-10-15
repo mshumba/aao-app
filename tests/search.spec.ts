@@ -65,7 +65,7 @@ test("a need on Home finds moments in his words, and the path for it", async ({
   await expect(field(page)).toHaveValue(NEED);
   // What search understood, in plain words, with its count.
   await expect(
-    shown(page.getByText("Finding moments about breaking a habit of sin", { exact: true })),
+    shown(page.getByText("Moments about breaking a habit of sin", { exact: true })),
   ).toBeVisible();
   await expect(results(page)).toHaveCount(6);
   // "6 found" is seen; screen readers hear "6 moments found".
@@ -189,7 +189,7 @@ test("a related need searches again for that need", async ({ page }) => {
   // The chip's short name runs its need's full question.
   await expect(field(page)).toHaveValue("I'm being tempted");
   await expect(
-    shown(page.getByText("Finding moments about resisting temptation", { exact: true })),
+    shown(page.getByText("Moments about resisting temptation", { exact: true })),
   ).toBeVisible();
   await expect(results(page).first()).toContainText(
     "“Temptation is idiosyncratic; temptation is particular to you.”",

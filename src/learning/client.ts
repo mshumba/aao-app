@@ -1,3 +1,4 @@
+import { Platform } from "react-native";
 import { fakeQuotes, fakeSearch } from "./fixtures";
 import { authHeaders, fetchWithTimeout, functionsBase, learningMode } from "./session";
 import { LearningError, type QuoteResult, type SearchResponse } from "./types";
@@ -12,6 +13,18 @@ import { LearningError, type QuoteResult, type SearchResponse } from "./types";
 
 const SEARCH_TIMEOUT = 20_000;
 const QUOTES_TIMEOUT = 25_000;
+
+/**
+ * Both functions run in the database's region. Left to choose, Supabase runs
+ * them nearest the caller, and from far away (Nigeria) every database call
+ * then crosses an ocean: cached answers were 3-4 times slower. The native app
+ * asks with the x-region header. A browser would first ask the function
+ * whether it may send that header, and the functions' CORS list doesn't name
+ * it, so the web asks with Supabase's forceFunctionRegion parameter instead.
+ */
+const REGION = "us-east-1";
+const regionHeaders: Record<string, string> = Platform.OS === "web" ? {} : { "x-region": REGION };
+const regionQuery = Platform.OS === "web" ? `?forceFunctionRegion=${REGION}` : "";
 
 /** Turns a failed request into a typed error the screens can explain. */
 async function failure(response: Response): Promise<LearningError> {
@@ -42,9 +55,9 @@ function thrown(error: unknown, signal?: AbortSignal): LearningError {
 async function post<T>(name: string, body: unknown, timeoutMs: number, signal?: AbortSignal): Promise<T> {
   let response: Response;
   try {
-    response = await fetchWithTimeout(`${functionsBase}/${name}`, {
+    response = await fetchWithTimeout(`${functionsBase}/${name}${regionQuery}`, {
       method: "POST",
-      headers: { ...(await authHeaders()), "Content-Type": "application/json" },
+      headers: { ...(await authHeaders()), ...regionHeaders, "Content-Type": "application/json" },
       body: JSON.stringify(body),
       signal,
       timeoutMs,
@@ -63,7 +76,8 @@ async function post<T>(name: string, body: unknown, timeoutMs: number, signal?: 
 /**
  * Moments (and sermons, and a path) that speak to a question, 1-200
  * characters. Throws LearningError: offline, rate_limited (with retryAfter),
- * unavailable, bad_query, or aborted when `signal` fires.
+ * unavailable, bad_query, or aborted when `signal` fires. `care` is always a
+ * boolean here (false from a search that predates it).
  */
 export async function search(q: string, signal?: AbortSignal): Promise<SearchResponse> {
   const query = q.trim();
@@ -76,6 +90,7 @@ export async function search(q: string, signal?: AbortSignal): Promise<SearchRes
     understood: data.understood ?? { theme: query, related: [] },
     sermons: data.sermons ?? [],
     path: data.path ?? null,
+    care: data.care === true,
   };
 }
 

@@ -11,6 +11,7 @@
  * One path is published and one is a draft, so both honesty states show.
  */
 import { sampleRecords } from "../data/sermons";
+import { inDistress } from "../search/care";
 import {
   LearningError,
   type Moment,
@@ -183,11 +184,13 @@ function overlap(a: Set<string>, b: Set<string>) {
 /** The moment whose quote search "hasn't extracted yet", so quotes() fills it. */
 const DEFERRED_SLOT = 2;
 
-function wait(ms: number, signal?: AbortSignal) {
+function wait(ms: number, signal?: AbortSignal, onAbort?: () => void) {
   return new Promise<void>((resolve, reject) => {
     if (signal?.aborted) return reject(new LearningError("aborted"));
     const timer = setTimeout(resolve, ms);
     signal?.addEventListener("abort", () => {
+      onAbort?.();
+      if (searchFake().ignoreAbort) return;
       clearTimeout(timer);
       reject(new LearningError("aborted"));
     });
@@ -197,34 +200,79 @@ function wait(ms: number, signal?: AbortSignal) {
 /**
  * Development builds only: how the stand-in search should fail, so the
  * calm states (offline, too many searches, unavailable, nothing found) can
- * be seen and tested. Set `globalThis.__aaoSearchFault`; null answers.
+ * be seen and tested, or answer with sermons but no moments in them
+ * ("sermons_only"). Set `globalThis.__aaoSearchFault`; null answers.
  */
-type SearchFault = "offline" | "rate_limited" | "unavailable" | "empty";
+type SearchFault = "offline" | "rate_limited" | "unavailable" | "empty" | "sermons_only";
 function searchFault(): SearchFault | null {
   // (Unit tests run this file outside the app, where __DEV__ isn't defined.)
   if (typeof __DEV__ === "undefined" || !__DEV__) return null;
   return (globalThis as { __aaoSearchFault?: SearchFault | null }).__aaoSearchFault ?? null;
 }
 
+/**
+ * Development builds only, for the loader and care tests: set
+ * `globalThis.__aaoSearchFake`.
+ * - delay: how long search takes, in ms (350 by default), for every question
+ *   or per question (lower case);
+ * - ignoreAbort: answer even after the app cancelled the request, as a
+ *   network reply already on its way does;
+ * - care: what the search says about distress, overriding the stand-in's
+ *   own reading (false: an answer without the flag).
+ * Each search is logged on `globalThis.__aaoSearchLog` as answered or aborted.
+ */
+type SearchFake = { delay?: number | Record<string, number>; ignoreAbort?: boolean; care?: boolean };
+function searchFake(): SearchFake {
+  if (typeof __DEV__ === "undefined" || !__DEV__) return {};
+  return (globalThis as { __aaoSearchFake?: SearchFake }).__aaoSearchFake ?? {};
+}
+function logSearch(q: string, outcome: "answered" | "aborted" | "failed") {
+  if (typeof __DEV__ === "undefined" || !__DEV__) return;
+  const g = globalThis as { __aaoSearchLog?: { q: string; outcome: string }[] };
+  (g.__aaoSearchLog ??= []).push({ q, outcome });
+}
+function delayFor(query: string) {
+  const { delay } = searchFake();
+  if (typeof delay === "number") return delay;
+  return delay?.[query.toLowerCase()] ?? 350;
+}
+
+/**
+ * What the search function's model also reads as distress although the
+ * plain wordings (search/care.ts) don't match, so the flag alone can be seen.
+ */
+const MODEL_CARE = /\b(hopeless|can'?t go on|give up on life)\b/i;
+/** The search function's theme for someone in distress (CARE_THEME). */
+const CARE_THEME = "finding hope and comfort in God";
+/** Comforting teaching, never a search of the words as typed. */
+const CARE_NEEDS = ["waiting", "anxiety", "fear"];
+
 /** Deterministic stand-in for the "search" Edge Function. */
 export async function fakeSearch(q: string, signal?: AbortSignal): Promise<SearchResponse> {
   const query = q.trim();
   if (!query || query.length > 200) throw new LearningError("bad_query");
-  await wait(350, signal);
+  const tookMs = delayFor(query);
+  await wait(tookMs, signal, () => logSearch(query, "aborted"));
   const fault = searchFault();
-  if (fault === "rate_limited") throw new LearningError("rate_limited", undefined, 60);
-  if (fault === "offline" || fault === "unavailable") throw new LearningError(fault);
+  const care = searchFake().care ?? (inDistress(query) || MODEL_CARE.test(query));
+  if (fault === "rate_limited" || fault === "offline" || fault === "unavailable") {
+    logSearch(query, "failed");
+    throw new LearningError(fault, undefined, fault === "rate_limited" ? 60 : undefined);
+  }
+  logSearch(query, "answered");
   if (fault === "empty")
     return {
       query,
       understood: { theme: query.toLowerCase(), related: [] },
       path: null,
+      care,
       moments: [],
       sermons: [],
       total: { moments: 0, sermons: 0 },
       cached: false,
-      tookMs: 350,
+      tookMs,
     };
+  if (care) return careAnswer(query, tookMs);
   const asked = words(query);
   const ranked = [...fixtureNeeds]
     .map((need) => ({ need, n: overlap(asked, words(`${need.label} ${need.short} ${need.theme}`)) }))
@@ -246,30 +294,68 @@ export async function fakeSearch(q: string, signal?: AbortSignal): Promise<Searc
     }))
     .sort((a, b) => b.s - a.s)
     .slice(0, 6);
-  const moments: SearchMoment[] = scored.map(({ m, s }, i) => ({
+  const moments: SearchMoment[] = scored.map(({ m, s }, i) =>
+    toSearchMoment(m, Math.round(Math.min(1, s / 3) * 100) / 100, i === DEFERRED_SLOT ? null : m.quote),
+  );
+
+  const sermons = sermonsOf(moments);
+  const only = fault === "sermons_only";
+  return {
+    query,
+    understood: { theme, related },
+    path: path
+      ? { id: path.id, name: path.name, italic: path.italic, days: path.dayCount, status: path.status }
+      : null,
+    care: false,
+    moments: only ? [] : moments,
+    sermons,
+    total: { moments: only ? 0 : moments.length, sermons: sermons.length },
+    cached: false,
+    tookMs,
+  };
+}
+
+function toSearchMoment(m: Moment, score: number, quote: string | null = m.quote): SearchMoment {
+  return {
     id: m.id,
     youtubeId: m.youtubeId,
     at: m.at,
     end: m.end,
-    quote: i === DEFERRED_SLOT ? null : m.quote,
+    quote,
     excerpt: m.quote.toLowerCase().replace(/[^a-z0-9' ]+/g, " "),
-    score: Math.round(Math.min(1, s / 3) * 100) / 100,
+    score,
     sermon: searchSermon(m.youtubeId),
-  }));
+  };
+}
 
+function sermonsOf(moments: SearchMoment[]) {
   const counts = new Map<string, number>();
   moments.forEach((m) => counts.set(m.youtubeId, (counts.get(m.youtubeId) ?? 0) + 1));
-  const sermons = [...counts.entries()].map(([id, n]) => ({ ...searchSermon(id), moments: n }));
+  return [...counts.entries()].map(([id, n]) => ({ ...searchSermon(id), moments: n }));
+}
 
+/**
+ * Someone in distress, as the search function answers them: comforting
+ * teaching, no path, and needs about fear and waiting to try next.
+ */
+function careAnswer(query: string, tookMs: number): SearchResponse {
+  const moments = fixtureMoments
+    .filter((m) => m.needId && CARE_NEEDS.includes(m.needId))
+    .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
+    .slice(0, 4)
+    .map((m) => toSearchMoment(m, m.score ?? 0));
+  const sermons = sermonsOf(moments);
+  const related = fixtureNeeds.filter((n) => CARE_NEEDS.includes(n.id)).map((n) => n.short);
   return {
     query,
-    understood: { theme, related },
-    path: path ? { id: path.id, name: path.name, italic: path.italic, days: path.dayCount } : null,
+    understood: { theme: CARE_THEME, related },
+    path: null,
+    care: true,
     moments,
     sermons,
     total: { moments: moments.length, sermons: sermons.length },
     cached: false,
-    tookMs: 350,
+    tookMs,
   };
 }
 

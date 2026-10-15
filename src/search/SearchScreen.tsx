@@ -18,7 +18,7 @@ import { useGate } from "../auth/gate";
 import { useCatalogue } from "../catalogue/CatalogueProvider";
 import { getCategory } from "../data/categories";
 import { searchSermons, type Sermon } from "../data/sermons";
-import { ChipRow, ItalicTitle, Kicker, NeedChip, PathCardNavy, SearchField, Strong, Wash, type ArtSource } from "../kit";
+import { ChipRow, ItalicTitle, Kicker, NeedChip, PathCardNavy, SearchField, Strong, type ArtSource } from "../kit";
 import {
   messagesLabel,
   minutesPerDayLabel,
@@ -31,13 +31,14 @@ import {
   useSearch,
   type LearningError,
   type Need,
+  type PathStatus,
   type SearchMoment,
   type SearchSermon,
 } from "../learning";
 import { useReducedMotion } from "../motion";
 import { firstParam, requestWatch, takeSearchFocus, useGo, usePageTitle } from "../navigation";
 import { useDockInset } from "../player/useDockInset";
-import { c, radius, textCap, type } from "../theme";
+import { c, textCap, type } from "../theme";
 import { useToast } from "../toast";
 import { sermonCount } from "../topics";
 import { dockScrollPadding, web } from "../ui";
@@ -53,7 +54,11 @@ import {
   SuggestRow,
   TopicCards,
 } from "./parts";
+import { careText, inDistress } from "./care";
+import { CareCalm, CareCard } from "./CareCard";
+import { FAN_MAX, SearchLoader, loaderText, warmArt, type LoaderStep } from "./Loader";
 import { ResultCard, ResultPlaceholder } from "./ResultCard";
+import { Reveal, RevealProvider, useResultsReveal } from "./reveal";
 
 /**
  * "What are you going through?" (approved concept, screen 02).
@@ -63,11 +68,15 @@ import { ResultCard, ResultPlaceholder } from "./ResultCard";
  * - Typing: "Search for “…”", needs that match, and sermon titles from the
  *   catalogue as you type. Nothing is sent until you press search or tap a
  *   need: meaning search runs on submit only.
- * - Searching: "Finding moments about …" over calm static placeholders.
- * - Results: what search understood, related needs, "A path for this",
- *   the moments (his verbatim words, each playing from its minute), then
- *   the sermons they're in. Title matches stay listed for title-like
- *   questions.
+ * - Searching: nothing for the first 400ms (a quick answer never flashes a
+ *   loader), then shuffling artwork over one honest line saying what search
+ *   is doing, above breathing sand placeholders (Loader.tsx).
+ * - Results: "Moments about …", related needs, "A path for this" (a draft
+ *   says so), the moments (his verbatim words, each playing from its
+ *   minute), then the sermons they're in, all rising in as one. Title
+ *   matches stay listed for title-like questions.
+ * - Someone who may be in distress (search says so, or their words plainly
+ *   do) sees a calm card first, and never raw matches for their words.
  * - Errors are calm and say what still works.
  */
 
@@ -79,15 +88,17 @@ const PAGE = 30;
 const CLOUD = 12;
 /** Guided paths offered on the empty screen. */
 const EMPTY_PATHS = 3;
-/** After this long, the searching line says it's still going. */
-const SLOW_MS = 2000;
-const VERY_SLOW_MS = 8000;
+/** A search answered sooner than this never shows the loader. */
+const LOADER_AFTER_MS = 400;
+/** When the loader's line moves on (ms since the search began). */
+const SEARCHING_MS = 1400;
+const CHOOSING_MS = 3200;
+const SLOW_MS = 8000;
 
 type Mode = "empty" | "typing" | "results";
 
-type Item =
+type Row =
   | { key: string; kind: "cloud"; needs: Need[] }
-  | { key: string; kind: "pathPlaceholder" }
   | { key: string; kind: "heading"; title: string; count?: string; spoken?: string; countTestID?: string; clear?: boolean }
   | { key: string; kind: "recent"; q: string; first: boolean }
   | { key: string; kind: "topics" }
@@ -101,13 +112,41 @@ type Item =
   | { key: string; kind: "path"; card: PathCard }
   | { key: string; kind: "moment"; moment: SearchMoment; pending: boolean; saved: boolean; continued: boolean }
   | { key: string; kind: "placeholder" }
-  | { key: string; kind: "relatedPlaceholder" }
   | { key: string; kind: "state"; state: "offline" | "rate_limited" | "unavailable" | "empty"; q: string }
+  | { key: string; kind: "care"; retry: boolean }
   | { key: string; kind: "note"; text: string };
+
+/** A row of a result set rises in with the rest (`reveal` staggers a moment card). */
+type Item = Row & { reveal?: number };
 
 type PathCard = { id: string; name: string; meta: string; fan: ArtSource[]; kicker?: string };
 
 const same = (a: string, b: string) => a.trim().toLocaleLowerCase() === b.trim().toLocaleLowerCase();
+
+/** What a screen reader hears first when the care card shows. */
+const careAnnouncement = `${careText.title} ${careText.body}`;
+
+/**
+ * A compact path card's line: "7 messages · About 16 min a day", or where
+ * you are once you've started. A path awaiting the ministry's review says
+ * "Draft" first, in place of the minutes, so the line still fits on one.
+ */
+function pathMeta(
+  total: number,
+  status: PathStatus | undefined,
+  mine: { done: number[]; finishedAt: string | null } | null | undefined,
+  perDay: string | null,
+) {
+  const draft = status === "draft";
+  const where = mine?.finishedAt
+    ? "Finished"
+    : mine
+      ? `You're on Day ${nextDay(total, mine.done) ?? total}`
+      : draft
+        ? null
+        : perDay;
+  return [draft ? "Draft" : null, messagesLabel(total), where].filter(Boolean).join(" · ");
+}
 
 export function SearchScreen() {
   const params = useLocalSearchParams<{ q?: string | string[]; category?: string | string[] }>();
@@ -163,6 +202,13 @@ function SearchView({ initialQuery, unknownTopic }: { initialQuery: string; unkn
   const input = useRef<TextInput>(null);
   const list = useRef<FlatList<Item>>(null);
 
+  // The loader's fan: the newest sermons, fetched into the image cache now
+  // (Home has usually shown them already), so it never waits on the network.
+  const fanArt = useMemo(() => sermons.slice(0, FAN_MAX), [sermons]);
+  useEffect(() => {
+    warmArt(fanArt);
+  }, [fanArt]);
+
   // On the web the field is announced as a search box. (The kit's field asks
   // for type="search", which react-native-web drops; a role keeps the
   // browser's own clear button out of the way of ours.)
@@ -181,8 +227,16 @@ function SearchView({ initialQuery, unknownTopic }: { initialQuery: string; unkn
 
   const trimmed = query.trim();
   const mode: Mode = !trimmed ? "empty" : submitted && same(trimmed, submitted) ? "results" : "typing";
+  // A new question, or none (the field cleared), cancels the search before.
   const result = useSearch(mode === "results" ? submitted : null);
   const asked = mode === "results" ? submitted! : "";
+  // Searching again after an error counts as a new search.
+  const [tries, setTries] = useState(0);
+  const searchRetry = result.retry;
+  const retry = useCallback(() => {
+    setTries((n) => n + 1);
+    searchRetry();
+  }, [searchRetry]);
 
   // Title matches update as you type, without holding up the keystroke.
   const typed = useDeferredValue(trimmed);
@@ -205,7 +259,8 @@ function SearchView({ initialQuery, unknownTopic }: { initialQuery: string; unkn
       setQuery(value);
       setSubmitted(value);
       setShowTopicNotice(false);
-      addRecent(value);
+      // Words said in distress aren't kept on the device to be seen again.
+      if (!inDistress(value)) addRecent(value);
       if (Platform.OS !== "web") Keyboard.dismiss();
       list.current?.scrollToOffset({ offset: 0, animated: !reduced });
     },
@@ -288,67 +343,108 @@ function SearchView({ initialQuery, unknownTopic }: { initialQuery: string; unkn
     [],
   );
 
-  // ---- How long the search has been running ---------------------------------------------
-
-  const [slow, setSlow] = useState({ key: "", level: 0 });
-  const loadingKey = result.status === "loading" ? asked.toLocaleLowerCase() : "";
-  useEffect(() => {
-    if (!loadingKey) return;
-    const a = setTimeout(() => setSlow({ key: loadingKey, level: 1 }), SLOW_MS);
-    const b = setTimeout(() => setSlow({ key: loadingKey, level: 2 }), VERY_SLOW_MS);
-    return () => {
-      clearTimeout(a);
-      clearTimeout(b);
-    };
-  }, [loadingKey]);
-  const slowLevel = slow.key === loadingKey ? slow.level : 0;
-
   // ---- What we understood ----------------------------------------------------------------
 
   const data = mode === "results" && result.status === "success" ? result.data : null;
+  // A need is understood before search answers; anything else once it has.
+  const needTheme = mode === "results" ? needFor(asked)?.theme : undefined;
   // The person's own words stay as they typed them ("Apostolic", not "apostolic").
-  const understood = data?.understood.theme || needFor(asked)?.theme;
+  const understood = data?.understood.theme || needTheme;
   const theme = understood && same(understood, asked) ? asked : understood;
-  const foundAny = !!data && (data.moments.length > 0 || data.sermons.length > 0);
 
+  // Someone who may be in distress: search says so, or their words plainly
+  // do (in case search can't answer, or answers without saying).
+  const distress = mode === "results" && inDistress(asked);
+  const care = distress || data?.care === true;
+
+  // ---- While search works ----------------------------------------------------------------
+
+  // Nothing for the first 400ms, then the loader, its line moving on with
+  // what search is doing. A retry is a new search.
+  const loadingKey = result.status === "loading" ? `${asked.toLocaleLowerCase()}#${tries}` : "";
+  const [loading, setLoading] = useState<{ key: string; step: LoaderStep }>({ key: "", step: 0 });
+  useEffect(() => {
+    if (!loadingKey) return;
+    const at = (ms: number, step: LoaderStep) => setTimeout(() => setLoading({ key: loadingKey, step }), ms);
+    const timers = needTheme
+      ? [at(LOADER_AFTER_MS, 1)]
+      : [at(LOADER_AFTER_MS, 0), at(SEARCHING_MS, 1)];
+    timers.push(at(CHOOSING_MS, 2), at(SLOW_MS, 3));
+    return () => timers.forEach(clearTimeout);
+  }, [loadingKey, needTheme]);
+  const loaderStep = loadingKey && loading.key === loadingKey ? loading.step : null;
+
+  // ---- What was found --------------------------------------------------------------------
+
+  // Sermon titles that match (a title-like question), never for someone in distress.
+  const showTitles = !care && !(mode === "typing" && inDistress(trimmed));
+  const momentsFound = data?.moments.length ?? 0;
+  // Sermons search found, and the title matches listed beside them.
+  const sermonsFound = data
+    ? new Set([...data.sermons.map((x) => x.youtubeId), ...(showTitles ? titles.map((x) => x.id) : [])]).size
+    : 0;
+
+  // (For someone in distress, only search's own reading: never their words back.)
   const helper =
-    mode !== "results" ? undefined : foundAny ? (
+    !data || (care && !data.care) ? undefined : momentsFound ? (
       <>
-        Finding moments about <Strong>{theme || asked}</Strong>
+        Moments about <Strong>{theme || asked}</Strong>
       </>
-    ) : result.status === "loading" ? (
-      slowLevel === 2 ? (
-        "Taking longer than usual. Still searching…"
-      ) : slowLevel === 1 ? (
-        "Still searching every message…"
-      ) : theme ? (
-        <>
-          Finding moments about <Strong>{theme}</Strong>…
-        </>
-      ) : (
-        "Finding moments…"
-      )
+    ) : data.sermons.length ? (
+      <>
+        Sermons about <Strong>{theme || asked}</Strong>
+      </>
     ) : undefined;
 
-  const status =
+  const outcome =
     mode !== "results"
       ? ""
       : result.status === "loading"
-        ? "Finding moments"
+        ? loaderStep === null
+          ? ""
+          : loaderText(loaderStep, sermons.length, needTheme)
         : data
-          ? data.moments.length
-            ? `${data.moments.length} moment${data.moments.length === 1 ? "" : "s"} found`
-            : `Nothing found for ${asked} yet`
+          ? momentsFound
+            ? `${momentsFound} moment${momentsFound === 1 ? "" : "s"} found`
+            : sermonsFound
+              ? `${sermonCount(sermonsFound)} found`
+              : care
+                ? careText.empty
+                : `Nothing found for ${asked} yet`
           : result.status === "error"
-            ? errorTitle(result.error)
+            ? care
+              ? careText.failed
+              : errorTitle(result.error)
             : "";
+  // Someone in distress hears the care card first: as soon as they search
+  // (their words said it), and again before what was found.
+  const status = !care
+    ? outcome
+    : result.status === "loading"
+      ? loaderStep === null
+        ? careAnnouncement
+        : outcome
+      : `${careAnnouncement} ${outcome}`.trim();
 
-  // VoiceOver has no live regions: announce the outcome once it's in.
+  // VoiceOver has no live regions: announce what the live region says, the
+  // loader's steps queued behind whatever is being read.
   useEffect(() => {
-    if (Platform.OS !== "ios" || !status || status === "Finding moments") return;
-    const timer = setTimeout(() => AccessibilityInfo.announceForAccessibility(status), 400);
+    if (Platform.OS !== "ios" || !status) return;
+    const timer = setTimeout(
+      () => AccessibilityInfo.announceForAccessibilityWithOptions(status, { queue: result.status === "loading" }),
+      400,
+    );
     return () => clearTimeout(timer);
-  }, [status]);
+  }, [status, result.status]);
+
+  // ---- Results arriving ------------------------------------------------------------------
+
+  // Each new result set rises in once, with a selection tick.
+  const landed = data ? `${asked.toLocaleLowerCase()}#${tries}` : "";
+  const reveal = useResultsReveal(landed, reduced);
+  useEffect(() => {
+    if (landed && Platform.OS !== "web") Haptics.selectionAsync().catch(() => {});
+  }, [landed]);
 
   // ---- The list --------------------------------------------------------------------------
 
@@ -361,14 +457,7 @@ function SearchView({ initialQuery, unknownTopic }: { initialQuery: string; unkn
     const total = known?.dayCount || pathDays.length || found.days;
     const progress = progressFor(found.id);
     const today = progress ? (nextDay(total, progress.done) ?? total) : 1;
-    const meta =
-      progress && !progress.finishedAt
-        ? `${messagesLabel(total)} · You're on Day ${today}`
-        : progress?.finishedAt
-          ? `${messagesLabel(total)} · Finished`
-          : known
-            ? `${messagesLabel(total)} · ${minutesPerDayLabel(known)}`
-            : messagesLabel(total);
+    const meta = pathMeta(total, found.status ?? known?.status, progress, known ? minutesPerDayLabel(known) : null);
     const front = pathDays[today - 1] ?? pathDays[0];
     const behind = pathDays[today - 2] ?? pathDays[today] ?? pathDays[1];
     const fan = [front, behind]
@@ -384,12 +473,7 @@ function SearchView({ initialQuery, unknownTopic }: { initialQuery: string; unkn
       paths.slice(0, EMPTY_PATHS).map((path) => {
         const days = daysOf(path.id);
         const total = path.dayCount || days.length;
-        const mine = progressFor(path.id);
-        const meta = mine?.finishedAt
-          ? `${messagesLabel(total)} · Finished`
-          : mine
-            ? `${messagesLabel(total)} · You're on Day ${nextDay(total, mine.done) ?? total}`
-            : `${messagesLabel(total)} · ${minutesPerDayLabel(path)}`;
+        const meta = pathMeta(total, path.status, progressFor(path.id), minutesPerDayLabel(path));
         const fan = days.slice(0, 2).map((d) => ({ id: d.youtubeId }) as ArtSource);
         return { id: path.id, name: path.name, meta, fan, kicker: "Guided path" };
       }),
@@ -397,11 +481,12 @@ function SearchView({ initialQuery, unknownTopic }: { initialQuery: string; unkn
   );
 
   const isSaved = account.isSaved;
+  const loaderShown = loaderStep !== null;
   const items = useMemo<Item[]>(() => {
     const out: Item[] = [];
     const titleKey = `${mode}:${typed.toLocaleLowerCase()}`;
     const titleBlock = (initial: number, heading = "Sermons") => {
-      if (!titles.length) return [] as string[];
+      if (!titles.length || !showTitles) return [] as string[];
       const n = limit.key === titleKey ? limit.n : initial;
       out.push({
         key: "titles-h",
@@ -455,13 +540,10 @@ function SearchView({ initialQuery, unknownTopic }: { initialQuery: string; unkn
       return out;
     }
 
-    // Results.
+    // Results. While search works the loader (in the header) leads; nothing
+    // shows until it does, so a quick answer goes straight to its results.
     if (result.status === "loading") {
-      out.push({ key: "related-ph", kind: "relatedPlaceholder" });
-      // A path is likely for a known need: hold its place so nothing jumps.
-      const need = needFor(asked);
-      if (need && paths.some((p) => p.needs.includes(need.id)))
-        out.push({ key: "path-ph", kind: "pathPlaceholder" });
+      if (!loaderShown) return out;
       titleBlock(RESULT_TITLE_ROWS);
       out.push({ key: "moments-h", kind: "heading", title: "Moments that speak to this" });
       for (let i = 0; i < 3; i++) out.push({ key: `ph-${i}`, kind: "placeholder" });
@@ -469,6 +551,11 @@ function SearchView({ initialQuery, unknownTopic }: { initialQuery: string; unkn
     }
 
     if (result.status === "error") {
+      // Someone in distress gets one calm line, never other needs or titles.
+      if (care) {
+        out.push({ key: "care", kind: "care", retry: true });
+        return out;
+      }
       const code = errorCode(result.error);
       const state = code === "offline" ? "offline" : code === "rate_limited" ? "rate_limited" : "unavailable";
       // A title-like question still has its answer: those sermons lead.
@@ -509,6 +596,7 @@ function SearchView({ initialQuery, unknownTopic }: { initialQuery: string; unkn
           pending: result.pendingQuotes.has(m.id),
           saved: isSaved(m.youtubeId),
           continued: i > 0 && data.moments[i - 1].youtubeId === m.youtubeId,
+          reveal: i,
         }),
       );
     }
@@ -523,15 +611,16 @@ function SearchView({ initialQuery, unknownTopic }: { initialQuery: string; unkn
       found.forEach((sermon, i) => out.push({ key: `f-${sermon.youtubeId}`, kind: "found", sermon, first: i === 0 }));
     }
     if (!data.moments.length && !found.length && !listed.size)
-      out.push({ key: "state", kind: "state", state: "empty", q: asked });
-    return out;
-  }, [mode, typed, trimmed, titles, limit, needs, allNeeds, recent.recent, emptyPaths, result.status, result.error, result.pendingQuotes, data, pathCard, asked, isSaved, needFor, paths]);
+      out.push(care ? { key: "care", kind: "care", retry: false } : { key: "state", kind: "state", state: "empty", q: asked });
+    // The result set rises in as one.
+    return out.map((item) => (item.reveal === undefined ? { ...item, reveal: 0 } : item));
+  }, [mode, typed, trimmed, titles, showTitles, limit, needs, allNeeds, recent.recent, emptyPaths, result.status, result.error, result.pendingQuotes, data, care, loaderShown, pathCard, asked, isSaved, needFor]);
 
   // ---- Rows ------------------------------------------------------------------------------
 
   const fourNeeds = useMemo(() => needs.slice(0, 4), [needs]);
-  const renderItem = useCallback<ListRenderItem<Item>>(
-    ({ item }) => {
+  const renderRow = useCallback(
+    (item: Item) => {
       switch (item.kind) {
         case "cloud":
           return (
@@ -551,12 +640,6 @@ function SearchView({ initialQuery, unknownTopic }: { initialQuery: string; unkn
           );
         case "allNeeds":
           return <MoreButton label={item.label} onPress={() => setAllNeeds(true)} />;
-        case "pathPlaceholder":
-          return (
-            <View style={[styles.path, styles.pathGhost]} accessible={false} importantForAccessibility="no-hide-descendants">
-              <Wash kind="pathCompact" />
-            </View>
-          );
         case "recent":
           return (
             <SuggestRow
@@ -612,14 +695,6 @@ function SearchView({ initialQuery, unknownTopic }: { initialQuery: string; unkn
               ))}
             </ChipRow>
           );
-        case "relatedPlaceholder":
-          return (
-            <View style={[styles.related, styles.chipGhosts]} accessible={false} importantForAccessibility="no-hide-descendants">
-              {[104, 150, 112].map((w) => (
-                <View key={w} style={[styles.chipGhost, { width: w }]} />
-              ))}
-            </View>
-          );
         case "path":
           return (
             <PathCardNavy
@@ -649,6 +724,8 @@ function SearchView({ initialQuery, unknownTopic }: { initialQuery: string; unkn
           return <ResultPlaceholder />;
         case "note":
           return <Note>{item.text}</Note>;
+        case "care":
+          return <CareCalm onRetry={item.retry ? retry : undefined} />;
         case "state":
           return (
             <SearchProblem
@@ -657,12 +734,19 @@ function SearchView({ initialQuery, unknownTopic }: { initialQuery: string; unkn
               error={result.error}
               needs={fourNeeds}
               onNeed={pickNeed}
-              onRetry={result.retry}
+              onRetry={retry}
             />
           );
       }
     },
-    [pickNeed, clearRecent, removeRecent, run, openSermon, pickRelated, openPath, play, openMoment, toggleSave, result.error, result.retry, fourNeeds],
+    [pickNeed, clearRecent, removeRecent, run, openSermon, pickRelated, openPath, play, openMoment, toggleSave, result.error, retry, fourNeeds],
+  );
+  // A result set's rows rise in together (reveal.tsx), never one by one as
+  // the list draws them.
+  const renderItem = useCallback<ListRenderItem<Item>>(
+    ({ item }) =>
+      item.reveal === undefined ? renderRow(item) : <Reveal order={item.reveal}>{renderRow(item)}</Reveal>,
+    [renderRow],
   );
 
   // ---- The page's top: the question and the field ---------------------------------------
@@ -694,32 +778,38 @@ function SearchView({ initialQuery, unknownTopic }: { initialQuery: string; unkn
         active={mode === "results"}
         prompt="Say it in your own words"
         helper={helper}
-        helperIcon={foundAny ? "checkmark" : "sparkles-outline"}
+        helperIcon="checkmark"
         style={styles.field}
       />
+      {care ? <CareCard /> : null}
+      {loaderStep !== null ? (
+        <SearchLoader art={fanArt} step={loaderStep} sermons={sermons.length} theme={needTheme} reduced={reduced} />
+      ) : null}
       <LiveStatus text={status} />
     </View>
   );
 
   return (
     <View style={styles.screen}>
-      <Animated.FlatList
-        ref={list}
-        data={items}
-        renderItem={renderItem}
-        // A late quote or a card arriving eases the cards below into place.
-        itemLayoutAnimation={reduced ? undefined : LinearTransition.duration(200)}
-        keyExtractor={keyOf}
-        ListHeaderComponent={header}
-        keyboardShouldPersistTaps="handled"
-        keyboardDismissMode={Platform.OS === "web" ? "none" : "on-drag"}
-        style={dockScrollPadding(dock)}
-        contentContainerStyle={[styles.content, { paddingBottom: 48 + dock }]}
-        initialNumToRender={12}
-        maxToRenderPerBatch={10}
-        windowSize={9}
-        removeClippedSubviews={Platform.OS === "android"}
-      />
+      <RevealProvider value={reveal}>
+        <Animated.FlatList
+          ref={list}
+          data={items}
+          renderItem={renderItem}
+          // A late quote or a card arriving eases the cards below into place.
+          itemLayoutAnimation={reduced ? undefined : LinearTransition.duration(200)}
+          keyExtractor={keyOf}
+          ListHeaderComponent={header}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode={Platform.OS === "web" ? "none" : "on-drag"}
+          style={dockScrollPadding(dock)}
+          contentContainerStyle={[styles.content, { paddingBottom: 48 + dock }]}
+          initialNumToRender={12}
+          maxToRenderPerBatch={10}
+          windowSize={9}
+          removeClippedSubviews={Platform.OS === "android"}
+        />
+      </RevealProvider>
       {/* Content scrolls under the status bar onto ivory, never under the clock. */}
       <View style={[styles.statusWash, { height: insets.top }]} />
     </View>
@@ -832,13 +922,10 @@ const styles = StyleSheet.create({
   cloud: { marginTop: 18 },
   suggestTop: { marginTop: 10 },
   related: { marginTop: 8 },
-  chipGhosts: { flexDirection: "row", gap: 8, paddingHorizontal: 24, overflow: "hidden" },
-  chipGhost: { height: 36, borderRadius: 18, borderWidth: 1, borderColor: c.border },
   // A little less inner spacing than the kit's default, so a path name of
   // the concept's length ("Breaking free from habitual sin") holds one line.
   path: { marginHorizontal: 20, marginTop: 16, gap: 12, paddingRight: 10 },
   pathList: { marginTop: 0, marginBottom: 10 },
-  pathGhost: { height: 72, borderRadius: radius.r20, backgroundColor: c.media, overflow: "hidden" },
   statusWash: {
     position: "absolute",
     top: 0,

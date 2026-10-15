@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { quotes, search } from "./client";
 import { LearningError, type SearchResponse } from "./types";
 
@@ -7,8 +7,13 @@ import { LearningError, type SearchResponse } from "./types";
  * none) and keeps the result. Moments that come back without a quote get
  * theirs from the quotes function; until it answers their ids are in
  * `pendingQuotes` (show the static placeholder), then the quote appears in
- * `data` (MomentCard crossfades it in). A newer query cancels the older one.
- * The last 12 results are kept for the session, so going back is instant.
+ * `data` (MomentCard crossfades it in). The last 12 results are kept for the
+ * session, so going back is instant.
+ *
+ * Each search is a numbered request. A newer query, or none (the field
+ * cleared), aborts the one before; and an answer that arrives anyway for a
+ * request that is no longer the latest is ignored, so an old question's
+ * results never replace a newer one's.
  */
 
 export type SearchStatus = "idle" | "loading" | "success" | "error";
@@ -41,14 +46,17 @@ export function useSearch(query: string | null | undefined) {
   const [attempt, setAttempt] = useState(0);
   const slot = `${key}#${attempt}`;
   const [state, setState] = useState<Slot>({ ...IDLE, slot: "" });
+  const latest = useRef(0);
 
   useEffect(() => {
+    const id = ++latest.current;
     if (!key) return;
     const controller = new AbortController();
+    const stale = () => controller.signal.aborted || id !== latest.current;
     const known = memory.get(key);
     (known ? Promise.resolve(known) : search(q, controller.signal))
       .then((data) => {
-        if (controller.signal.aborted) return;
+        if (stale()) return;
         remember(key, data);
         const missing = data.moments.filter((m) => m.quote == null).map((m) => m.id);
         setState({
@@ -61,6 +69,7 @@ export function useSearch(query: string | null | undefined) {
         if (!missing.length) return;
         quotes(missing, q, controller.signal)
           .then((found) => {
+            if (stale()) return;
             const next: SearchResponse = {
               ...data,
               moments: data.moments.map((m) => {
@@ -76,13 +85,12 @@ export function useSearch(query: string | null | undefined) {
           })
           .catch(() => {
             // No quote this time: those moments show without one.
-            if (!controller.signal.aborted)
-              setState((was) => (was.slot === slot ? { ...was, pendingQuotes: NONE } : was));
+            if (!stale()) setState((was) => (was.slot === slot ? { ...was, pendingQuotes: NONE } : was));
           });
       })
       .catch((error: unknown) => {
         const typed = error instanceof LearningError ? error : new LearningError("unavailable");
-        if (typed.code === "aborted" || controller.signal.aborted) return;
+        if (typed.code === "aborted" || stale()) return;
         setState({ slot, status: "error", data: null, error: typed, pendingQuotes: NONE });
       });
     return () => controller.abort();
