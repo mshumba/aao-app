@@ -23,7 +23,7 @@ export function corsHeaders(req: Request): Record<string, string> {
   if (origin && originAllowed(origin)) {
     headers["Access-Control-Allow-Origin"] = origin;
     headers["Access-Control-Allow-Methods"] = "POST, OPTIONS";
-    headers["Access-Control-Allow-Headers"] = "authorization, apikey, content-type, x-client-info";
+    headers["Access-Control-Allow-Headers"] = "authorization, apikey, content-type, x-client-info, x-region";
     headers["Access-Control-Expose-Headers"] = "retry-after";
     headers["Access-Control-Max-Age"] = "86400";
   }
