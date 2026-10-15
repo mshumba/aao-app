@@ -55,3 +55,4 @@ Owner: "when someone is in a path they should get the sermon in full and maybe w
 7. [paths] Path page: Day 5 shows faintly under the sticky CTA; end the list cleanly (bottom padding / fade) like the concept.
 8. [pages] Home scrolled: the 94% cream status-bar strip over the dark path card leaves a pale band with a hard edge; fade it or switch the status-bar treatment over dark content.
 9. [search] "Moments that speak to this" is ~5% larger than the concept; and draft paths need the "Draft" marker in Search's guided-paths list too (consistent with the Paths tab).
+10. [search] The backend is live (search v14): responses now include `care` (boolean) and `path.status`. In `src/learning/client.ts`, send the header `x-region: us-east-1` on calls to the search and quotes functions (the database is in us-east-1; a forced far region made cached answers 3–4× slower for Nigeria-based users). Keep the client-side distress fallback anyway.
