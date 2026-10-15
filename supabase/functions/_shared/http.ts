@@ -2,7 +2,8 @@
 // functions.
 
 // Browsers on these origins may call the functions: local development ports,
-// the website, and this project's EAS Hosting deployments: production
+// the website (aaolearning.com, served by Cloudflare Pages as aao-web.pages.dev),
+// and this project's EAS Hosting deployments: production
 // (aao-app.expo.app) plus its preview deployments and aliases
 // (aao-app--<id or alias>.expo.app). Any other *.expo.app site belongs to
 // someone else's project and is refused.
@@ -11,6 +12,8 @@ const ALLOWED_ORIGINS: RegExp[] = [
   /^http:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d{1,5})?$/,
   /^https:\/\/(www\.)?aaolearning\.com$/,
   /^https:\/\/aao-app(--[a-z0-9-]+)?\.expo\.app$/,
+  // The Cloudflare Pages site and its per-deploy preview addresses.
+  /^https:\/\/([a-z0-9]+\.)?aao-web\.pages\.dev$/,
 ];
 
 export function originAllowed(origin: string | null): boolean {
