@@ -34,7 +34,8 @@
     "production": {
       "ios": {
         "appName": "AAO App",
-        "language": "en-US"
+        "language": "en-US",
+        "ascAppId": "6823010745"
       }
     }
   }
