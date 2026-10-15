@@ -125,9 +125,13 @@ test.describe("with saved progress", () => {
         return Math.round((bar!.width / track!.width) * 100);
       })
       .toBe(42);
-    // Above everything else on Home, Featured included.
-    const featured = page.getByRole("button", { name: /^Watch sermon: / });
-    expect((await row.boundingBox())!.y).toBeLessThan((await featured.boundingBox())!.y);
+    // As the concept orders Home: under the hero and the question field,
+    // above the latest sermons.
+    const field = page.getByRole("button", { name: "What are you going through?", exact: true });
+    const latest = shown(page.getByTestId("latest-sermons"));
+    const top = (await row.boundingBox())!.y;
+    expect(top).toBeGreaterThan((await field.boundingBox())!.y);
+    expect(top).toBeLessThan((await latest.boundingBox())!.y);
   });
 
   test("a Continue watching card resumes the sermon where it was left", async ({

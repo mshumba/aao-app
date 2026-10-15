@@ -1,7 +1,8 @@
-import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useIsFocused } from "expo-router";
 import {
+  memo,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -10,22 +11,15 @@ import {
 import {
   AccessibilityInfo,
   ActivityIndicator,
+  Image,
   StyleSheet,
   View,
+  useWindowDimensions,
 } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
-import { font, radius, space } from "../theme";
-import {
-  Icon,
-  T,
-  Tap,
-  TextButton,
-  c,
-  moveFocus,
-  pressedTint,
-  s,
-  web,
-} from "../ui";
+import { STRIP_HEIGHT, TimesRow, Track, useGlide, useStripWidth, type FocusSpan, type Tick } from "../sermon/Track";
+import { c, font, radius, tabular, textCap, type } from "../theme";
+import { Icon, T, Tap, moveFocus, web } from "../ui";
 import {
   asksViewer,
   clock,
@@ -34,84 +28,272 @@ import {
   usePlayerSession,
 } from "./PlayerProvider";
 
+/** A moment or focus on the band, in seconds (the band turns them into ticks). */
+export type BandMarks = {
+  /** Moments in playing order: their start times and keys. */
+  moments: readonly { key: string; at: number }[];
+  /** The moment to draw larger (the search moment, the one playing). */
+  activeKey?: string | null;
+  /** A path day's focus. */
+  focus?: { start: number; end: number } | null;
+  /** Used to place the marks until the player knows the real length. */
+  estimate: number;
+};
+
+/** The marks as fractions of the sermon's length. */
+export function bandTicks(marks: BandMarks, duration: number) {
+  const total = duration > 0 ? duration : marks.estimate;
+  const ticks: Tick[] = total
+    ? marks.moments.map((m) => ({ key: m.key, at: m.at / total, active: m.key === marks.activeKey }))
+    : [];
+  const focus: FocusSpan | null =
+    total && marks.focus ? { start: marks.focus.start / total, end: marks.focus.end / total } : null;
+  return { ticks, focus };
+}
+
 /**
- * Transport for the loaded sermon, shown under the video on its screen.
- * `scroll` is the page's scroll view, which waits while the scrubber is
- * dragged sideways.
+ * The stage's scrubber, following the loaded sermon. Tap or drag sideways
+ * to seek; only the released position is sent to the provider, and while
+ * dragging the times preview the target. A vertical swipe that starts here
+ * scrolls the page instead.
+ *
+ * Keyboard (web): arrows step like the skip buttons, Home and End jump.
+ * Screen readers: adjust by 15 seconds, or jump to the next or previous
+ * moment and to a path day's focus.
  */
-export function NowPlaying({
-  focusTransport = false,
-  scroll,
+export const LiveBand = memo(function LiveBand({
+  marks,
+  glideKey,
+  center,
 }: {
-  /** Watch was just pressed here, so its button has gone. */
-  focusTransport?: boolean;
-  scroll?: RefObject<unknown>;
+  marks: BandMarks;
+  /** Changes when playback jumps to a moment, so the thumb glides there. */
+  glideKey: number;
+  center?: ReactNode;
+}) {
+  const p = usePlayback();
+  const [width, onLayout] = useStripWidth();
+  const [drag, setDrag] = useState<number | null>(null);
+  const glide = useGlide(glideKey);
+  const ready = p.duration > 0;
+  const { seek, duration } = p;
+  // Built again only when the strip or the sermon's length changes, never
+  // with each second of playback (that would re-attach the native handlers
+  // every second). `seek` is new each second, but it only depends on the
+  // length, which is listed.
+  const gesture = useMemo(() => {
+    const at = (x: number) => Math.min(1, Math.max(0, x / width));
+    const seekTo = (fraction: number) => seek(fraction * duration);
+    const pan = Gesture.Pan()
+      .enabled(ready)
+      .activeOffsetX([-8, 8])
+      .failOffsetY([-8, 8])
+      .runOnJS(true)
+      .onStart((e) => setDrag(at(e.x)))
+      .onUpdate((e) => setDrag(at(e.x)))
+      .onEnd((e, success) => {
+        if (success) seekTo(at(e.x));
+      })
+      .onFinalize(() => setDrag(null));
+    const tap = Gesture.Tap()
+      .enabled(ready)
+      .maxDistance(10)
+      .runOnJS(true)
+      .onEnd((e, success) => {
+        if (success) seekTo(at(e.x));
+      });
+    return Gesture.Race(pan, tap);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, width, duration]);
+  const shown = drag !== null ? drag * p.duration : p.seconds;
+  const total = ready ? p.duration : marks.estimate;
+  const position = total ? Math.min(1, shown / total) : 0;
+  const { ticks, focus } = bandTicks(marks, p.duration);
+  const keys: Record<string, () => void> = {
+    ArrowRight: () => p.skip(30),
+    ArrowUp: () => p.skip(30),
+    ArrowLeft: () => p.skip(-15),
+    ArrowDown: () => p.skip(-15),
+    Home: () => p.seek(0),
+    End: () => p.seek(p.duration),
+  };
+  const starts = marks.moments.map((m) => m.at);
+  const nextMoment = starts.find((s) => s > p.seconds + 1);
+  const previousMoment = [...starts].reverse().find((s) => s < p.seconds - 3);
+  const actions = [
+    { name: "increment" },
+    { name: "decrement" },
+    ...(nextMoment != null ? [{ name: "nextMoment", label: "Next moment" }] : []),
+    ...(previousMoment != null ? [{ name: "previousMoment", label: "Previous moment" }] : []),
+    ...(marks.focus ? [{ name: "focus", label: "Go to today’s focus" }] : []),
+  ];
+  return (
+    <View>
+      <GestureDetector gesture={gesture} touchAction="pan-y">
+        <View
+          onLayout={onLayout}
+          style={styles.strip}
+          accessible
+          accessibilityRole="adjustable"
+          accessibilityLabel="Playback position"
+          aria-valuemin={0}
+          aria-valuemax={Math.round(p.duration)}
+          aria-valuenow={Math.round(shown)}
+          aria-valuetext={`${spokenClock(shown)} of ${spokenClock(p.duration)}`}
+          accessibilityActions={actions}
+          onAccessibilityAction={(e) => {
+            switch (e.nativeEvent.actionName) {
+              case "increment":
+                return p.skip(15);
+              case "decrement":
+                return p.skip(-15);
+              case "nextMoment":
+                return nextMoment != null && p.seek(nextMoment);
+              case "previousMoment":
+                return previousMoment != null && p.seek(previousMoment);
+              case "focus":
+                return marks.focus && p.seek(marks.focus.start);
+            }
+          }}
+          {...web({
+            tabIndex: ready ? 0 : -1,
+            onKeyDown: (e: { key: string; preventDefault: () => void }) => {
+              const action = ready ? keys[e.key] : undefined;
+              if (!action) return;
+              e.preventDefault();
+              action();
+            },
+          })}
+          testID="scrubber"
+        >
+          <Track
+            width={width}
+            position={position}
+            ticks={ticks}
+            focus={focus}
+            dragging={drag !== null}
+            glide={glide}
+          />
+        </View>
+      </GestureDetector>
+      <TimesRow
+        left={clock(shown)}
+        leftTestID="elapsed"
+        right={ready ? `−${clock(p.duration - shown)}` : "−:––"}
+        leftLabel={`${spokenClock(shown)} played`}
+        rightLabel={ready ? `${spokenClock(p.duration - shown)} left` : "Length not known yet"}
+        center={center}
+      />
+    </View>
+  );
+});
+
+/**
+ * The centre of the times line while a sermon is loaded: a status that asks
+ * something of the viewer ("Tap play in the video to start") first, then
+ * "Resuming at 4:10 · Start over", then whatever the page puts there
+ * (`fallback`). Every status is announced; playing and paused aren't shown,
+ * since they're plain to see.
+ */
+export function PlayerCenter({
+  toggle,
+  fallback,
+}: {
+  /** Play/Pause, where focus goes after Start over. */
+  toggle: RefObject<View | null>;
+  fallback?: ReactNode;
 }) {
   const session = usePlayerSession();
   const p = usePlayback();
-  const focused = useIsFocused();
-  const toggle = useRef<View>(null);
-  const firstAttempt = useRef(session.attempt);
-  const { attempt } = session;
-  // After Watch or Try again the pressed control disappears. Continue from
-  // Play/Pause rather than dropping focus to the top of the page.
-  useEffect(() => {
-    if (!focused) return;
-    if (focusTransport || attempt !== firstAttempt.current)
-      moveFocus(toggle.current);
-    // Only on the Watch or Try again that loaded the player.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [attempt, focusTransport]);
-  // A failed player shows its message and actions in the video area.
-  if (session.phase === "error") return null;
-  const loading = session.phase === "loading";
-  const playing = p.playing;
-  const speed = (
-    <Tap
-      accessibilityRole="button"
-      accessibilityLabel={`Playback speed ${p.rate} times`}
-      accessibilityHint="Changes the speed"
-      onPress={p.cycleRate}
-      disabled={loading}
-      feedback="highlight"
-      highlightColor={pressedTint}
-      style={styles.speed}
-    >
-      <T style={styles.speedText} maxFontSizeMultiplier={1.6}>
-        {`${p.rate}×`}
-      </T>
-    </Tap>
-  );
+  if (session.phase === "error") return fallback ?? null;
+  const asks = asksViewer(p.status);
+  const resumed = session.resumedFrom > 0 && !asks;
   return (
-    <View style={styles.panel}>
-      {session.resumedFrom > 0 && (
+    <>
+      <T
+        style={[styles.status, !asks && styles.quiet]}
+        numberOfLines={asks ? 2 : 1}
+        accessibilityLiveRegion="polite"
+        testID="playback-status"
+        maxFontSizeMultiplier={textCap.chip}
+      >
+        {p.status}
+      </T>
+      {resumed ? (
         <View style={styles.resume} testID="resume-note">
-          <Icon name="time-outline" size={16} color={c.muted} />
           <T
-            style={s.meta}
+            style={styles.resumeText}
             accessibilityLabel={`Resuming at ${spokenClock(session.resumedFrom)}`}
+            maxFontSizeMultiplier={textCap.chip}
           >
             {`Resuming at ${clock(session.resumedFrom)}`}
           </T>
-          <T style={[s.meta, s.separator]} {...web({ "aria-hidden": true })}>
+          <T style={styles.resumeText} {...web({ "aria-hidden": true })}>
             ·
           </T>
-          <TextButton
-            label="Start over"
-            hint="Plays the sermon from the beginning"
+          <Tap
+            accessibilityRole="button"
+            accessibilityLabel="Start over"
+            accessibilityHint="Plays the sermon from the beginning"
             onPress={() => {
               session.startOver();
               // The note and its button go; carry on from Play/Pause.
               moveFocus(toggle.current);
-              AccessibilityInfo.announceForAccessibility(
-                "Starting from the beginning.",
-              );
+              AccessibilityInfo.announceForAccessibility("Starting from the beginning.");
             }}
-          />
+            feedback="dim"
+            hitSlop={{ top: 10, bottom: 10, left: 6, right: 6 }}
+            style={styles.startOver}
+          >
+            <T style={styles.startOverText} maxFontSizeMultiplier={textCap.chip}>
+              Start over
+            </T>
+          </Tap>
         </View>
-      )}
-      <Scrubber scroll={scroll} center={speed} />
-      <View style={styles.transport}>
+      ) : !asks ? (
+        fallback ?? null
+      ) : null}
+    </>
+  );
+}
+
+/**
+ * The transport on the stage, for the loaded sermon: back 15, a big white
+ * play/pause, forward 30, then the speed and whatever the page adds (Save,
+ * Share). After Watch or Try again the pressed control disappears, so focus
+ * continues from Play/Pause.
+ */
+export function Transport({
+  toggle,
+  focusTransport = false,
+  children,
+}: {
+  toggle: RefObject<View | null>;
+  /** Watch was just pressed here, so its button has gone. */
+  focusTransport?: boolean;
+  /** The round actions after the speed (Save, Share). */
+  children?: ReactNode;
+}) {
+  const session = usePlayerSession();
+  const p = usePlayback();
+  const focused = useIsFocused();
+  const firstAttempt = useRef(session.attempt);
+  const { attempt } = session;
+  useEffect(() => {
+    if (!focused) return;
+    if (focusTransport || attempt !== firstAttempt.current) moveFocus(toggle.current);
+    // Only on the Watch or Try again that loaded the player.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [attempt, focusTransport]);
+  const loading = session.phase === "loading";
+  const playing = p.playing;
+  const { width, fontScale } = useWindowDimensions();
+  // A narrow phone or large text: back · play · forward on one row, the
+  // speed and actions centred on the next (never a broken wrap).
+  const narrow = width < 352 || fontScale >= 1.35;
+  return (
+    <View style={[styles.transport, narrow && styles.transportNarrow]}>
+      <View style={[styles.group, narrow && styles.groupNarrow]}>
         <Skip seconds={-15} disabled={loading} />
         <Tap
           ref={toggle}
@@ -125,24 +307,31 @@ export function NowPlaying({
           testID="now-playing-toggle"
         >
           {loading ? (
-            <ActivityIndicator color={c.onAccent} />
+            <ActivityIndicator color={c.media} />
           ) : (
             <View style={!playing && styles.playNudge}>
-              <Icon name={playing ? "pause" : "play"} color={c.onAccent} size={26} />
+              <Icon name={playing ? "pause" : "play"} color={c.media} size={24} />
             </View>
           )}
         </Tap>
         <Skip seconds={30} disabled={loading} />
       </View>
-      {/* Every status is announced; only the ones that ask something of the
-          viewer are shown, since playing and paused are plain to see. */}
-      <T
-        style={[s.meta, styles.status, !asksViewer(p.status) && styles.quiet]}
-        accessibilityLiveRegion="polite"
-        testID="playback-status"
-      >
-        {p.status}
-      </T>
+      <View style={[styles.acts, narrow && styles.actsNarrow]}>
+        <Tap
+          accessibilityRole="button"
+          accessibilityLabel={`Playback speed ${p.rate} times`}
+          accessibilityHint="Changes the speed"
+          onPress={p.cycleRate}
+          disabled={loading}
+          hitSlop={2}
+          style={styles.speed}
+        >
+          <T style={styles.speedText} maxFontSizeMultiplier={textCap.chip}>
+            {`${p.rate}×`}
+          </T>
+        </Tap>
+        {children}
+      </View>
     </View>
   );
 }
@@ -158,211 +347,96 @@ function Skip({ seconds, disabled }: { seconds: number; disabled: boolean }) {
       disabled={disabled}
       style={styles.skip}
     >
-      {/* Drawn with the number in the arc (Ionicons has no such glyph). */}
-      <MaterialCommunityIcons
-        name={back ? "rewind-15" : "fast-forward-30"}
-        size={30}
-        color={c.text}
+      {/* The concept's glyph: an open arc with an arrowhead and the seconds
+          inside it, turning back (15) or forward (30). */}
+      <Image
+        source={back ? SKIP_BACK : SKIP_FORWARD}
         accessible={false}
         {...web({ "aria-hidden": true })}
+        style={styles.glyph}
+        resizeMode="contain"
       />
     </Tap>
   );
 }
 
-/**
- * Tap or drag sideways to seek. Only the released position is sent to the
- * provider; while dragging, the times preview the target. A vertical swipe
- * that starts here scrolls the page instead, and seeks nothing.
- * Keyboard (web): arrows step like the skip buttons, Home and End jump.
- */
-function Scrubber({
-  scroll,
-  center,
-}: {
-  scroll?: RefObject<unknown>;
-  /** Shown between the elapsed and remaining times (the speed control). */
-  center?: ReactNode;
-}) {
-  const p = usePlayback();
-  const [width, setWidth] = useState(1);
-  const [drag, setDrag] = useState<number | null>(null);
-  const ready = p.duration > 0;
-  const at = (x: number) => Math.min(1, Math.max(0, x / width));
-  const seekTo = (fraction: number) => p.seek(fraction * p.duration);
-  const pan = Gesture.Pan()
-    .enabled(ready)
-    .activeOffsetX([-8, 8])
-    .failOffsetY([-8, 8])
-    .runOnJS(true)
-    .onStart((e) => setDrag(at(e.x)))
-    .onUpdate((e) => setDrag(at(e.x)))
-    .onEnd((e, success) => {
-      if (success) seekTo(at(e.x));
-    })
-    .onFinalize(() => setDrag(null));
-  // The page waits to scroll until a drag here is clearly not sideways.
-  if (scroll) pan.blocksExternalGesture(scroll as never);
-  const tap = Gesture.Tap()
-    .enabled(ready)
-    .maxDistance(10)
-    .runOnJS(true)
-    .onEnd((e, success) => {
-      if (success) seekTo(at(e.x));
-    });
-  const shown = drag !== null ? drag * p.duration : p.seconds;
-  const progress = ready ? Math.min(1, shown / p.duration) : 0;
-  const keys: Record<string, () => void> = {
-    ArrowRight: () => p.skip(30),
-    ArrowUp: () => p.skip(30),
-    ArrowLeft: () => p.skip(-15),
-    ArrowDown: () => p.skip(-15),
-    Home: () => p.seek(0),
-    End: () => p.seek(p.duration),
-  };
-  return (
-    <View>
-      <GestureDetector gesture={Gesture.Race(pan, tap)} touchAction="pan-y">
-      <View
-        onLayout={(e) => setWidth(e.nativeEvent.layout.width || 1)}
-        style={styles.hit}
-        accessible
-        accessibilityRole="adjustable"
-        accessibilityLabel="Playback position"
-        aria-valuemin={0}
-        aria-valuemax={Math.round(p.duration)}
-        aria-valuenow={Math.round(shown)}
-        aria-valuetext={`${spokenClock(shown)} of ${spokenClock(p.duration)}`}
-        accessibilityActions={[{ name: "increment" }, { name: "decrement" }]}
-        onAccessibilityAction={(e) =>
-          p.skip(e.nativeEvent.actionName === "increment" ? 30 : -15)
-        }
-        {...web({
-          tabIndex: ready ? 0 : -1,
-          onKeyDown: (e: { key: string; preventDefault: () => void }) => {
-            const action = ready ? keys[e.key] : undefined;
-            if (!action) return;
-            e.preventDefault();
-            action();
-          },
-        })}
-        testID="scrubber"
-      >
-        <View style={styles.rail}>
-          <View style={[styles.fill, { width: `${progress * 100}%` }]} />
-        </View>
-        <View
-          style={[
-            styles.thumb,
-            { pointerEvents: "none" },
-            drag !== null && styles.thumbActive,
-            { left: `${progress * 100}%` },
-          ]}
-        />
-      </View>
-      </GestureDetector>
-      <View style={styles.times}>
-        <T style={styles.time} testID="elapsed" maxFontSizeMultiplier={1.6}>
-          {clock(shown)}
-        </T>
-        {center}
-        <T style={[styles.time, styles.timeEnd]} maxFontSizeMultiplier={1.6}>
-          {ready ? `-${clock(p.duration - shown)}` : "--:--"}
-        </T>
-      </View>
-    </View>
-  );
-}
+const SKIP_BACK = require("../../assets/icons/skip-back-15.png");
+const SKIP_FORWARD = require("../../assets/icons/skip-forward-30.png");
+
+/** The strip's height, for screens laying out the band before it mounts. */
+export const BAND_STRIP = STRIP_HEIGHT;
 
 const styles = StyleSheet.create({
-  // The scrubber's touch band reaches 6pt further above its track than it
-  // used to; the margin gives that back, so the track stays where it was.
-  panel: { marginTop: space.md - 6, gap: space.xs },
-  // A quiet line above the scrubber; Start over is the one link in it.
+  strip: { height: STRIP_HEIGHT },
+  // Shown in the centre when it asks something of the viewer.
+  status: {
+    ...type.metaSmall,
+    color: c.onMediaSoft,
+    textAlign: "center",
+  },
+  // Announced, not shown, and out of the way of taps on the strip.
+  quiet: {
+    position: "absolute",
+    opacity: 0,
+    pointerEvents: "none",
+  },
   resume: {
     flexDirection: "row",
     flexWrap: "wrap",
     alignItems: "center",
     justifyContent: "center",
-    columnGap: 6,
+    columnGap: 5,
   },
-  // A 44pt band to grab, around a 4pt track.
-  hit: { height: 44, justifyContent: "center" },
-  // A neutral track (a wash of the text colour) under the navy progress, so
-  // it reads on the ivory page and on the sermon's artwork wash alike. Dark
-  // enough (3:1 on ivory and sand) that the length still to play is seen.
-  rail: {
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: "rgba(27, 30, 36, 0.5)",
-    overflow: "hidden",
+  resumeText: { ...type.metaSmall, color: c.onMediaMuted, pointerEvents: "none", ...tabular },
+  startOver: { paddingVertical: 2, borderRadius: radius.sm },
+  startOverText: {
+    ...type.metaSmall,
+    fontFamily: font.bold,
+    color: c.white,
+    textDecorationLine: "underline",
   },
-  fill: { height: 4, backgroundColor: c.accent },
-  // Navy with a white edge, so it stands out from the fill it sits on.
-  thumb: {
-    position: "absolute",
-    top: 15,
-    width: 14,
-    height: 14,
-    marginLeft: -7,
-    borderRadius: 7,
-    backgroundColor: c.accent,
-    borderWidth: 2,
-    borderColor: c.surface,
-    boxShadow: "0 1px 3px rgba(27, 30, 36, 0.3)",
-  },
-  thumbActive: { transform: [{ scale: 1.3 }] },
-  times: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  time: {
-    ...StyleSheet.flatten(s.meta),
-    minWidth: 64,
-    fontVariant: ["tabular-nums"],
-  },
-  timeEnd: { textAlign: "right" },
   transport: {
     flexDirection: "row",
+    flexWrap: "wrap",
     alignItems: "center",
-    justifyContent: "center",
-    gap: space.xl,
+    justifyContent: "space-between",
+    rowGap: 12,
   },
-  speed: {
-    minWidth: 48,
-    minHeight: 48,
-    paddingHorizontal: space.sm,
-    borderRadius: radius.pill,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  // Navy, like a link: the one time readout you can change.
-  speedText: {
-    ...StyleSheet.flatten(s.meta),
-    fontFamily: font.semibold,
-    color: c.accent,
-    fontVariant: ["tabular-nums"],
-  },
-  skip: {
+  // The 28pt skip glyphs sit in 44pt targets; the margin keeps the first
+  // glyph on the text's left edge, as in the concept.
+  group: { flexDirection: "row", alignItems: "center", gap: 14, marginLeft: -8 },
+  skip: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
+  glyph: { width: 28, height: 28, tintColor: c.white },
+  play: {
     width: 56,
     height: 56,
+    borderRadius: 28,
+    backgroundColor: c.white,
     alignItems: "center",
     justifyContent: "center",
-  },
-  play: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: c.accent,
-    alignItems: "center",
-    justifyContent: "center",
-    boxShadow: "0 4px 12px rgba(31, 58, 95, 0.24)",
   },
   // The play triangle's visual centre sits right of its box centre.
   playNudge: { transform: [{ translateX: 2 }] },
-  status: { textAlign: "center" },
-  // Announced, not shown; its line stays, so the page doesn't jump when a
-  // status appears.
-  quiet: { opacity: 0 },
+  acts: { flexDirection: "row", alignItems: "center", gap: 10 },
+  transportNarrow: { flexDirection: "column", alignItems: "center", rowGap: 14 },
+  groupNarrow: { marginLeft: 0, gap: 24 },
+  actsNarrow: { justifyContent: "center" },
+  // A ring only: the one readout here you can change. Grows for "1.25×".
+  speed: {
+    minWidth: 40,
+    height: 40,
+    paddingHorizontal: 6,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.25)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  speedText: {
+    fontFamily: font.extrabold,
+    fontSize: 13,
+    lineHeight: 16,
+    color: c.white,
+    ...tabular,
+  },
 });

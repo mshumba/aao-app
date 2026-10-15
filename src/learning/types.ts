@@ -1,0 +1,178 @@
+import type { Sermon } from "../data/sermons";
+
+/**
+ * The data behind "What are you going through?" and guided paths, in the
+ * app's terms. Table rows (snake_case, from Supabase) are mapped to these in
+ * queries.ts; the Edge Function responses already use these names.
+ */
+
+/** Something a person is going through, phrased the way they would say it. */
+export type Need = {
+  id: string;
+  /** The sentence: "I keep falling into the same sin". Used as the query. */
+  label: string;
+  /** The chip: "The same sin again". */
+  short: string;
+  /** What search understands it as: "breaking a habit of sin". */
+  theme: string;
+  sort: number;
+};
+
+/** A verified moment inside a sermon, with where to start playing. */
+export type Moment = {
+  id: string;
+  youtubeId: string;
+  needId: string | null;
+  /** Seconds: where to start playing (about 3s before the quote). */
+  at: number;
+  end: number;
+  /** A short title for the moment ("Victory over sin"). */
+  title: string;
+  /** A verbatim transcript span. Shown in curly quotes, never edited. */
+  quote: string;
+  score: number | null;
+};
+
+export type PathStatus = "draft" | "published";
+
+/** A ministry-ordered series of days. */
+export type Path = {
+  id: string;
+  name: string;
+  /** The 1-3 word phrase of `name` set in italics (chosen editorially). */
+  italic: string;
+  /** One line: "Six days from the grip of a repeated sin to …". */
+  promise: string;
+  /** "Why this path": the page's one block of serif prose. */
+  why: string;
+  needs: string[];
+  minutesPerDay: number;
+  /**
+   * 'draft' must never claim "Order set by the ministry"; use TrustLine
+   * (src/kit) or `trustLine()` (format.ts), which say so honestly.
+   */
+  status: PathStatus;
+  sort: number;
+  /** How many days the path has (from path_days). */
+  dayCount: number;
+};
+
+/** One day of a path: a sermon and a focus segment inside it. */
+export type PathDay = {
+  pathId: string;
+  day: number;
+  youtubeId: string;
+  /** Seconds into the video. */
+  focusStart: number;
+  focusEnd: number;
+  /** Our editorial line for the day (not a quote): "Lay aside every weight". */
+  theme: string;
+  /** Where the key moment starts playing (about 3s before the quote). */
+  keyAt: number;
+  keyTitle: string;
+  /** A verbatim transcript span. */
+  keyQuote: string;
+};
+
+/** A day joined with its sermon from the catalogue (undefined while it syncs). */
+export type PathDayWithSermon = PathDay & { sermon: Sermon | undefined };
+
+// ---- Edge Function "search" ------------------------------------------------
+
+/** A sermon as the search function describes it. */
+export type SearchSermon = {
+  youtubeId: string;
+  /** The exact YouTube title (never shown in place of the headline). */
+  title: string;
+  /** The parsed headline: show this. */
+  headline: string;
+  publishedAt: string;
+  preachedOn: string | null;
+  durationSeconds: number | null;
+  thumbnailUrl: string | null;
+  speaker: string | null;
+};
+
+export type SearchMoment = {
+  id: string;
+  youtubeId: string;
+  at: number;
+  end: number;
+  /**
+   * A verbatim quote, or null while it hasn't been extracted yet: fetch it
+   * with quotes() (useSearch does) and show a static placeholder meanwhile.
+   * Never show `excerpt` as a quote.
+   */
+  quote: string | null;
+  /** Raw lowercase transcript around the moment. For matching only. */
+  excerpt: string;
+  score: number;
+  sermon: SearchSermon;
+};
+
+export type SearchResponse = {
+  query: string;
+  /** What search took the question to mean, and three related needs. */
+  understood: { theme: string; related: string[] };
+  /** A path that answers this need, if one exists. */
+  path: { id: string; name: string; italic: string; days: number } | null;
+  /** At most 14. */
+  moments: SearchMoment[];
+  /** At most 10, with how many matching moments each holds. */
+  sermons: (SearchSermon & { moments: number })[];
+  total: { moments: number; sermons: number };
+  cached: boolean;
+  tookMs: number;
+};
+
+/** quotes(): a verbatim quote and where it starts, or null when none passed. */
+export type QuoteResult = { quote: string; at: number } | null;
+
+// ---- Errors ------------------------------------------------------------------
+
+export type LearningErrorCode =
+  /** No connection, or the request timed out. */
+  | "offline"
+  /** Too many searches; `retryAfter` seconds until the next is allowed. */
+  | "rate_limited"
+  /** The service isn't deployed or is down: show the calm unavailable state. */
+  | "unavailable"
+  /** The question was empty or over 200 characters. */
+  | "bad_query"
+  /** The caller cancelled (a newer search replaced it). Not shown. */
+  | "aborted";
+
+export class LearningError extends Error {
+  code: LearningErrorCode;
+  retryAfter?: number;
+  constructor(code: LearningErrorCode, message?: string, retryAfter?: number) {
+    super(message ?? code);
+    this.name = "LearningError";
+    this.code = code;
+    this.retryAfter = retryAfter;
+  }
+}
+
+// ---- Progress through paths --------------------------------------------------
+
+export type Enrollment = {
+  pathId: string;
+  startedAt: string;
+  finishedAt: string | null;
+  /** Day numbers marked done, ascending. */
+  done: number[];
+};
+
+/** The path someone is on now, and today's day. */
+export type ActivePath = {
+  path: Path;
+  /** Today's day number: the first day not yet done. */
+  day: number;
+  /** Day numbers done, ascending. */
+  done: number[];
+  total: number;
+  days: PathDayWithSermon[];
+  /** The day to play now (days[day - 1]). */
+  today: PathDayWithSermon | undefined;
+  startedAt: string;
+};

@@ -30,12 +30,13 @@ import {
 import { eventLine, headline } from "../data/display";
 import { useCatalogue } from "../catalogue/CatalogueProvider";
 import type { Sermon } from "../data/sermons";
+import { CardFan, ItalicTitle, spokenText } from "../kit";
+import { minutesPerDayLabel, usePath } from "../learning";
 import { useReducedMotion } from "../motion";
 import { firstParam, useGo, usePageTitle } from "../navigation";
 import { motion } from "../onboarding/parts";
 import { easeOut, font, radius, space, type } from "../theme";
 import {
-  Heading,
   IconButton,
   SermonTitle,
   T,
@@ -47,13 +48,22 @@ import {
   web,
 } from "../ui";
 
-type Reason = "watch" | "save" | "account";
+type Reason = "watch" | "save" | "path" | "account";
 type Mode = "sign-up" | "sign-in";
 
 const headlines: Record<Reason, string> = {
   watch: "Create a free account to watch",
   save: "Create a free account to save sermons",
+  path: "Create a free account to start this path",
   account: "Create your free account",
+};
+
+/** Each headline's phrase in italic, as the app's serif titles set it. */
+const italics: Record<Reason, string> = {
+  watch: "watch",
+  save: "save sermons",
+  path: "start this path",
+  account: "free account",
 };
 
 // The headline already says it's free and what was tapped; the lead adds
@@ -65,6 +75,7 @@ function leadFor(mode: Mode, reason: Reason, guestsWatch: boolean) {
       : "Sign in to watch, save sermons and keep your topics.";
   if (reason === "watch") return "You can also save sermons and keep your topics on any device.";
   if (reason === "save") return "Your saved sermons and topics stay with you on any device.";
+  if (reason === "path") return "Day 1 plays as soon as you’re in, and your progress stays with you on any device.";
   return guestsWatch
     ? "Save sermons and keep your topics on any device."
     : "Watch every sermon in full, save sermons and keep your topics on any device.";
@@ -105,7 +116,7 @@ export default function Join() {
   const task = useAuthTask();
   const requested = firstParam(params.reason);
   const reason: Reason =
-    requested === "watch" || requested === "save" ? requested : "account";
+    requested === "watch" || requested === "save" || requested === "path" ? requested : "account";
   const mode: Mode = firstParam(params.mode) === "sign-in" ? "sign-in" : "sign-up";
   const next = afterAuthParam(params.next);
   const busy = task.busy !== null;
@@ -118,6 +129,8 @@ export default function Join() {
   const [sermon, setSermon] = useState<Sermon | null>(() =>
     findSermon(sermonParam ?? peekPendingIntent(intentId)?.sermonId),
   );
+  // Starting a path: the sheet names the path rather than its first sermon.
+  const [pathId, setPathId] = useState<string | null>(() => pathOf(peekPendingIntent(intentId)));
   useEffect(() => {
     // Opened for something else (Account, Saved): an intent left behind by
     // an abandoned attempt isn't this sign-in's to carry out.
@@ -129,8 +142,9 @@ export default function Join() {
     if (sermonParam) return;
     let active = true;
     readPendingIntent(intentId).then((intent) => {
-      if (active && intent)
-        setSermon((current) => current ?? catalogue.find(intent.sermonId) ?? null);
+      if (!active || !intent) return;
+      setSermon((current) => current ?? catalogue.find(intent.sermonId) ?? null);
+      setPathId((current) => current ?? pathOf(intent));
     });
     return () => {
       active = false;
@@ -194,6 +208,7 @@ export default function Join() {
     <>
       <Intro
         title={mode === "sign-in" ? "Welcome back" : headlines[reason]}
+        italic={mode === "sign-in" ? null : italics[reason]}
         lead={leadFor(mode, reason, account.guestWatch === "all")}
       />
 
@@ -243,7 +258,11 @@ export default function Join() {
         onLayout={(event) => setTopRow(Math.ceil(event.nativeEvent.layout.height))}
       >
         <View style={styles.top}>
-          {sermon && !unavailable ? (
+          {unavailable ? (
+            <View style={{ flex: 1 }} />
+          ) : pathId && reason === "path" ? (
+            <PathContext id={pathId} />
+          ) : sermon ? (
             <Context sermon={sermon} />
           ) : (
             <View style={{ flex: 1 }} />
@@ -277,18 +296,45 @@ export default function Join() {
   );
 }
 
-function Intro({ title, lead }: { title: string; lead: string }) {
+function Intro({ title, italic, lead }: { title: string; italic?: string | null; lead: string }) {
   return (
     <View style={styles.intro}>
-      <Heading
-        level={1}
+      <ItalicTitle
+        text={title}
+        italic={italic}
+        accessibilityRole="header"
+        {...web({ "aria-level": 1 })}
         nativeID="join-title"
         style={styles.headline}
         maxFontSizeMultiplier={1.5}
-      >
-        {title}
-      </Heading>
+      />
       <T style={styles.lead}>{lead}</T>
+    </View>
+  );
+}
+
+function pathOf(intent: ReturnType<typeof peekPendingIntent>) {
+  return intent?.kind === "watch" && intent.path ? intent.path.id : null;
+}
+
+/** The path being started: a small fan of its first days, its name and its pace. */
+function PathContext({ id }: { id: string }) {
+  const { path, days } = usePath(id);
+  if (!path) return <View style={{ flex: 1 }} />;
+  const total = days.length || path.dayCount;
+  const meta = `${total} days · ${minutesPerDayLabel(path)}`;
+  const fan = days.slice(0, 2).map((d) => d.sermon ?? { id: d.youtubeId });
+  return (
+    <View
+      style={styles.context}
+      accessible={Platform.OS !== "web"}
+      accessibilityLabel={`${path.name}. ${spokenText(meta.replace(" · ", ". "))}`}
+    >
+      <CardFan sermons={fan} size="compact" />
+      <View style={styles.contextText}>
+        <ItalicTitle text={path.name} italic={path.italic} numberOfLines={2} style={styles.pathName} />
+        <T style={s.meta}>{meta}</T>
+      </View>
     </View>
   );
 }
@@ -488,6 +534,7 @@ const styles = StyleSheet.create({
   thumb: { width: 96, borderRadius: radius.sm },
   contextText: { flex: 1, gap: 2 },
   contextTitle: { fontFamily: font.semibold, fontSize: 15, lineHeight: 21 },
+  pathName: { fontSize: 17, lineHeight: 21, letterSpacing: -0.2 },
   intro: { gap: space.sm, marginTop: space.lg },
   headline: { ...type.question, fontSize: 28, lineHeight: 33 },
   lead: { ...type.lead, color: c.muted },

@@ -18,7 +18,9 @@ export const MEMBER = {
 
 export const test = base.extend<{ viewer: Viewer }>({
   viewer: ["member", { option: true }],
-  page: async ({ page, viewer }, use) => {
+  // The fixture callback is named `provide`, not `use`, so the React hooks
+  // lint rule doesn't take it for React's use().
+  page: async ({ page, viewer }, provide) => {
     // Navigation/privacy tests must not depend on remote thumbnail
     // availability. Player failure behavior is exercised in core.spec.ts.
     await page.route(
@@ -41,7 +43,7 @@ export const test = base.extend<{ viewer: Viewer }>({
       },
       { viewer, member: MEMBER },
     );
-    await use(page);
+    await provide(page);
   },
 });
 export { expect };
@@ -63,15 +65,20 @@ export function rows(page: Page) {
   return shown(page.getByTestId("sermon-row"));
 }
 
-export function tab(page: Page, name: "Home" | "Topics" | "Search" | "Account") {
+export type TabName = "Home" | "Paths" | "Search" | "Account";
+
+export function tab(page: Page, name: TabName) {
   return page.getByRole("tab", { name, exact: true });
 }
 
 /**
  * Replace YouTube's IFrame API with a deterministic stand-in: a 10-minute
- * video whose clock ticks while playing. Commands the app sends through the
+ * video (or `duration` seconds) whose clock ticks while playing. Commands the app sends through the
  * official API, and each player's `start`, are recorded on window.__yt for
  * assertions. Like the real API, player methods only exist once it's ready.
+ * - duration: the video's length in seconds (default 600). Moments and
+ *   path days sit hours into the sample sermons, so tests of those pass
+ *   the sermon's real length.
  * - error: fail with this YouTube error code instead of becoming ready.
  * - readyAfter: milliseconds before ready (or the error).
  * - stallFirst: the first script load never defines a player, as when
@@ -86,14 +93,20 @@ export async function fakeYouTube(
   options:
     | number
     | {
+        duration?: number;
         error?: number;
         readyAfter?: number;
         stallFirst?: boolean;
         blockAutoplay?: boolean | "silent" | "paused" | "stall";
       } = {},
 ) {
-  const { error, readyAfter = 50, stallFirst = false, blockAutoplay = false } =
-    typeof options === "number" ? { error: options } : options;
+  const {
+    duration = 600,
+    error,
+    readyAfter = 50,
+    stallFirst = false,
+    blockAutoplay = false,
+  } = typeof options === "number" ? { error: options } : options;
   let loads = 0;
   await page.route("https://www.youtube.com/iframe_api", (route) => {
     loads += 1;
@@ -115,7 +128,7 @@ export async function fakeYouTube(
         this.destroy = function () { clearInterval(timer); yt.destroyed++; };
         function attach() {
           self.getCurrentTime = function () { return t; };
-          self.getDuration = function () { return 600; };
+          self.getDuration = function () { return ${duration}; };
           self.getPlayerState = function () { return state; };
           self.playVideo = function () {
             if (refuse) {
@@ -198,4 +211,121 @@ export async function goOnline(page: Page) {
     sessionStorage.setItem("__aao_net", "online");
     window.dispatchEvent(new Event("online"));
   });
+}
+
+// ---- Sample library and learning test data -----------------------------------
+// The local mode's fixtures (src/learning/fixtures.ts) hang off the four
+// sermons bundled with the app, newest first.
+
+export const SERMON = {
+  pray: "nUW8NT2Pe88",
+  finale: "H9sRbSUt0YE",
+  dayTwo: "yUDzMcZsVk8",
+  dayOne: "WYiA7rjenVI",
+} as const;
+
+/** Each sample sermon's real length in seconds, for fakeYouTube's duration. */
+export const LENGTH: Record<string, number> = {
+  [SERMON.pray]: 12914,
+  [SERMON.finale]: 8915,
+  [SERMON.dayTwo]: 10195,
+  [SERMON.dayOne]: 6441,
+};
+
+/** The published 7-day path and the 5-day draft in the local fixtures. */
+export const HABIT = "breaking-free-from-habitual-sin";
+export const WAIT = "learning-to-wait-on-god";
+
+/** Where the learning layer keeps an account's (or a guest's) path progress. */
+export function pathProgressKey(owner: string = MEMBER.id) {
+  return `aao.learning.progress.v1.${owner}`;
+}
+
+/**
+ * Writes localStorage entries once per tab, before the app's first load
+ * (later reloads keep whatever the app stored since). `tag` tells apart
+ * several seeds in one test.
+ */
+export async function seedStorage(
+  page: Page,
+  entries: Record<string, unknown>,
+  tag = "storage",
+) {
+  await page.addInitScript(
+    ({ entries, flag }) => {
+      if (sessionStorage.getItem(flag)) return;
+      sessionStorage.setItem(flag, "1");
+      for (const [key, value] of Object.entries(entries))
+        localStorage.setItem(key, JSON.stringify(value));
+    },
+    { entries, flag: `__aao_seed_${tag}` },
+  );
+}
+
+/** Someone part way through paths: `done` day numbers per path id. */
+export async function seedPathProgress(
+  page: Page,
+  done: Record<string, number[]>,
+  owner: string = MEMBER.id,
+) {
+  const enrollments = Object.fromEntries(
+    Object.keys(done).map((id) => [
+      id,
+      { startedAt: "2026-10-10T08:00:00.000Z", finishedAt: null },
+    ]),
+  );
+  await seedStorage(
+    page,
+    { [pathProgressKey(owner)]: { enrollments, done, pending: [] } },
+    `paths_${owner}`,
+  );
+}
+
+export type WatchProgress = {
+  sermonId: string;
+  positionSeconds: number;
+  durationSeconds: number;
+  finished: boolean;
+  updatedAt: string;
+};
+
+/** An account's saved places in sermons (the on-device account service). */
+export async function seedWatchProgress(
+  page: Page,
+  progress: WatchProgress[],
+  owner: string = MEMBER.id,
+) {
+  await seedStorage(
+    page,
+    {
+      [`aao.local.data.v1.${owner}`]: {
+        profile: { displayName: null, interests: [], onboardedAt: "2026-10-01T00:00:00.000Z" },
+        saved: [],
+        progress,
+      },
+    },
+    `watch_${owner}`,
+  );
+}
+
+/** What the app has stored for this account's (or the guest's) paths. */
+export async function storedPathProgress(page: Page, owner: string = MEMBER.id) {
+  return page.evaluate((key) => {
+    const raw = localStorage.getItem(key);
+    return raw
+      ? (JSON.parse(raw) as {
+          enrollments: Record<string, { startedAt: string; finishedAt: string | null }>;
+          done: Record<string, number[]>;
+        })
+      : null;
+  }, pathProgressKey(owner));
+}
+
+/** The playing position the Now Playing slider reports, in seconds. */
+export async function playhead(page: Page) {
+  return Number(
+    await page
+      .getByRole("slider", { name: "Playback position" })
+      .getAttribute("aria-valuenow"),
+  );
 }

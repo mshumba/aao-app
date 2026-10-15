@@ -2,6 +2,7 @@ import { Tabs } from "expo-router";
 import { TabBar } from "../../tabBar";
 import { c } from "../../theme";
 
+/** Home · Paths · Search · Account, as in the approved concept. */
 export default function TabsLayout() {
   return (
     <Tabs
@@ -14,9 +15,11 @@ export default function TabsLayout() {
       }}
     >
       <Tabs.Screen name="index" options={{ title: "Home" }} />
-      <Tabs.Screen name="topics" options={{ title: "Topics" }} />
+      <Tabs.Screen name="paths" options={{ title: "Paths" }} />
       <Tabs.Screen name="search" options={{ title: "Search" }} />
       <Tabs.Screen name="account" options={{ title: "Account" }} />
+      {/* No longer a tab: old /topics links land on Search (browse by topic). */}
+      <Tabs.Screen name="topics" options={{ title: "Topics", href: null }} />
     </Tabs>
   );
 }

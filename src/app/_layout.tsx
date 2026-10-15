@@ -11,6 +11,8 @@ import {
   Manrope_800ExtraBold,
 } from "@expo-google-fonts/manrope";
 import {
+  Newsreader_400Regular,
+  Newsreader_400Regular_Italic,
   Newsreader_500Medium,
   Newsreader_500Medium_Italic,
   Newsreader_600SemiBold,
@@ -22,6 +24,7 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { AccountProvider, useAccount } from "../auth/AccountProvider";
 import { IntentRunner } from "../auth/gate";
 import { CatalogueProvider, useCatalogue } from "../catalogue/CatalogueProvider";
+import { LearningProvider } from "../learning";
 import { MotionProvider, useReducedMotion } from "../motion";
 import { TAB_PATHS } from "../player/layout";
 import { PlayerHost } from "../player/PlayerHost";
@@ -45,6 +48,8 @@ function RootLayout() {
     Manrope_600SemiBold,
     Manrope_700Bold,
     Manrope_800ExtraBold,
+    Newsreader_400Regular,
+    Newsreader_400Regular_Italic,
     Newsreader_500Medium,
     Newsreader_500Medium_Italic,
     Newsreader_600SemiBold,
@@ -55,21 +60,25 @@ function RootLayout() {
     <MotionProvider>
       <CatalogueProvider>
         <AccountProvider>
-          <PlayerProvider>
-            <ToastProvider>
-              {/* Dark clock and icons on the ivory page. A screen drawn under
-                  the status bar over dark artwork sets its own. */}
-              <StatusBar style="dark" />
-              {/* The scrubber's drag and the page's scroll share touches. */}
-              <GestureHandlerRootView style={{ flex: 1, backgroundColor: c.bg }}>
-                <Screens />
-                {/* One player for the whole app, above every screen. */}
-                <PlayerHost />
-                <IntentRunner />
-                <FirstRun />
-              </GestureHandlerRootView>
-            </ToastProvider>
-          </PlayerProvider>
+          {/* Needs, paths, moments and path progress (needs the account and
+              the catalogue above it). */}
+          <LearningProvider>
+            <PlayerProvider>
+              <ToastProvider>
+                {/* Dark clock and icons on the ivory page. A screen drawn under
+                    the status bar over dark artwork sets its own. */}
+                <StatusBar style="dark" />
+                {/* The scrubber's drag and the page's scroll share touches. */}
+                <GestureHandlerRootView style={{ flex: 1, backgroundColor: c.bg }}>
+                  <Screens />
+                  {/* One player for the whole app, above every screen. */}
+                  <PlayerHost />
+                  <IntentRunner />
+                  <FirstRun />
+                </GestureHandlerRootView>
+              </ToastProvider>
+            </PlayerProvider>
+          </LearningProvider>
         </AccountProvider>
       </CatalogueProvider>
     </MotionProvider>
@@ -145,6 +154,10 @@ function Screens() {
       <Stack.Screen name="auth/new-password" options={{ ...modal, gestureEnabled: false }} />
       <Stack.Screen name="auth/callback" options={{ animation: "none" }} />
       <Stack.Screen name="s/[id]" options={{ animation: "none" }} />
+      {/* A guided path: its dark cover runs under the status bar. */}
+      <Stack.Screen name="path/[id]" />
+      {/* Development only: every shared component with test data. */}
+      <Stack.Screen name="kit" />
     </Stack>
   );
 }

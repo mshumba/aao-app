@@ -2,13 +2,37 @@ import { Href, router, useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useRef } from "react";
 import { Platform } from "react-native";
 
+// Web: the second tap of a double tap lands on whatever the next screen has
+// right there (a row, a card), since nothing blocks touches while it opens.
+// A press on another control that starts where, and just after, the press
+// that navigated is that second tap, and is dropped.
+type Down = { t: number; x: number; y: number };
+let down: Down | null = null;
+let navDown: Down | null = null;
+/** Which control (its useNavigate) navigated last. */
+let navOwner: object | null = null;
+if (Platform.OS === "web" && typeof document !== "undefined")
+  document.addEventListener(
+    "pointerdown",
+    (e) => {
+      down = { t: Date.now(), x: e.clientX, y: e.clientY };
+    },
+    true,
+  );
+function secondTap() {
+  if (!down || !navDown || down === navDown) return false;
+  return down.t - navDown.t < 400 && Math.abs(down.x - navDown.x) < 30 && Math.abs(down.y - navDown.y) < 30;
+}
+
 /**
  * Navigation that ignores repeated taps. After one push, replace or back,
  * further calls from the same control are dropped until its screen is focused
- * again, so a double tap can't stack duplicate screens. The lock also lifts
+ * again, so a double tap can't stack duplicate screens (nor, on the web, open
+ * whatever the next screen has under the second tap). The lock also lifts
  * after 700ms in case an action didn't leave the screen.
  */
 export function useNavigate() {
+  const self = useRef({});
   const locked = useRef(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const release = useCallback(() => {
@@ -20,8 +44,13 @@ export function useNavigate() {
   useEffect(() => release, [release]);
   return useCallback(
     (action: () => void) => {
-      if (locked.current) return;
+      if (locked.current || (secondTap() && navOwner !== self.current)) return;
       locked.current = true;
+      // Started by a new press: remember it. Otherwise (a key, Escape) it
+      // ends any double tap.
+      const pressed = down !== navDown;
+      navDown = pressed ? down : null;
+      navOwner = pressed ? self.current : null;
       timer.current = setTimeout(release, 700);
       action();
     },

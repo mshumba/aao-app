@@ -1,0 +1,626 @@
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PropsWithChildren,
+} from "react";
+import { AppState } from "react-native";
+import { useAccount } from "../auth/AccountProvider";
+import { useGate } from "../auth/gate";
+import { registerPathStarter } from "../auth/intent";
+import { useCatalogue } from "../catalogue/CatalogueProvider";
+import { readJSON, writeJSON } from "../lib/storage";
+import { fixtureDays, fixtureMoments, fixtureNeeds, fixturePaths } from "./fixtures";
+import {
+  activePath,
+  applyOp,
+  emptyProgress,
+  enrollmentOf,
+  fromRemote,
+  joinDays,
+  type ProgressOp,
+  type ProgressState,
+} from "./progress";
+import {
+  deleteDayDone,
+  deleteEnrollment,
+  fetchMoments,
+  fetchNeeds,
+  fetchPaths,
+  fetchProgress,
+  isPermanent,
+  patchEnrollment,
+  postDayDone,
+  postEnrollment,
+} from "./queries";
+import { accessToken, learningMode } from "./session";
+import type { Moment, Need, Path, PathDay } from "./types";
+
+/**
+ * Needs, paths, moments and the viewer's progress through paths. Shown at
+ * once from the device's copy (stale-while-revalidate), so screens render
+ * instantly on later launches and offline, then brought up to date.
+ *
+ * - remote: Supabase tables (needs, moments, paths, path_days; the viewer's
+ *   own path_enrollments and path_day_done when signed in).
+ * - local (EXPO_PUBLIC_AUTH_MODE=local): the test data in fixtures.ts, with
+ *   progress kept on the device per local user.
+ *
+ * Guests' progress stays on this device. Starting a path as a guest goes
+ * through the sign-up gate first (useEnrollment), and starts once they have
+ * an account.
+ */
+
+const KEYS = {
+  needs: "aao.learning.needs.v1",
+  paths: "aao.learning.paths.v1",
+  moments: "aao.learning.moments.v1",
+  progress: (owner: string) => `aao.learning.progress.v1.${owner}`,
+  recent: (owner: string) => `aao.learning.recent.v1.${owner}`,
+};
+
+/** Needs and paths are fetched again when the app returns after this long. */
+const STALE_MS = 30 * 60 * 1000;
+/** A sermon's moments are fetched again after this long. */
+const MOMENTS_STALE_MS = 6 * 60 * 60 * 1000;
+/** How many sermons' moments the device keeps. */
+const MOMENTS_KEEP = 40;
+/** Progress is re-read from the server when the app returns after this long. */
+const PROGRESS_STALE_MS = 5 * 60 * 1000;
+const RECENT_MAX = 5;
+
+type Stamped<T> = { at: number; data: T };
+
+const local = learningMode === "local";
+const EMPTY_MOMENTS: Moment[] = [];
+const EMPTY_RECENT: string[] = [];
+
+// ---- Contexts ------------------------------------------------------------------
+
+type NeedsValue = { needs: Need[]; loading: boolean };
+type PathsValue = {
+  paths: Path[];
+  days: PathDay[];
+  daysByPath: Map<string, PathDay[]>;
+  loading: boolean;
+  /** Nothing could be loaded (no copy on the device either). */
+  error: boolean;
+  refresh: () => void;
+};
+type MomentsValue = { byId: Record<string, Moment[]>; load: (youtubeId: string) => void };
+type ProgressValue = {
+  owner: string;
+  state: ProgressState;
+  loading: boolean;
+  /** This viewer's progress is known (read from the device, or the server). */
+  read: boolean;
+  apply: (ops: ProgressOp[]) => void;
+};
+type RecentValue = {
+  recent: string[];
+  add: (query: string) => void;
+  remove: (query: string) => void;
+  clear: () => void;
+};
+
+const NeedsContext = createContext<NeedsValue | null>(null);
+const PathsContext = createContext<PathsValue | null>(null);
+const MomentsContext = createContext<MomentsValue | null>(null);
+const ProgressContext = createContext<ProgressValue | null>(null);
+const RecentContext = createContext<RecentValue | null>(null);
+
+function need<T>(value: T | null, name: string): T {
+  if (!value) throw new Error(`${name} needs LearningProvider (src/learning).`);
+  return value;
+}
+
+function byPath(days: PathDay[]) {
+  const map = new Map<string, PathDay[]>();
+  days.forEach((d) => {
+    const list = map.get(d.pathId) ?? [];
+    list.push(d);
+    map.set(d.pathId, list);
+  });
+  map.forEach((list) => list.sort((a, b) => a.day - b.day));
+  return map;
+}
+
+async function send(token: string, op: ProgressOp) {
+  switch (op.kind) {
+    case "start":
+      return postEnrollment(token, op.pathId, op.at);
+    case "done":
+      return postDayDone(token, op.pathId, op.day, op.at);
+    case "undone":
+      return deleteDayDone(token, op.pathId, op.day);
+    case "finish":
+      return patchEnrollment(token, op.pathId, op.at);
+    case "leave":
+      return deleteEnrollment(token, op.pathId);
+  }
+}
+
+/** `read`: this owner's copy on the device has been read (so "not started" is known). */
+type ProgressSlot = { owner: string; state: ProgressState; loading: boolean; read?: boolean };
+
+export function LearningProvider({ children }: PropsWithChildren) {
+  const account = useAccount();
+  const owner = account.user?.id ?? "guest";
+  const member = learningMode === "remote" && !!account.user;
+
+  // ---- Needs and paths ----------------------------------------------------------
+
+  const [needs, setNeeds] = useState<NeedsValue>(() =>
+    local ? { needs: fixtureNeeds, loading: false } : { needs: [], loading: true },
+  );
+  const [pathData, setPathData] = useState(() =>
+    local
+      ? { paths: fixturePaths, days: fixtureDays, loading: false, error: false }
+      : { paths: [] as Path[], days: [] as PathDay[], loading: true, error: false },
+  );
+  const lastFetch = useRef(0);
+
+  const revalidate = useCallback(async () => {
+    if (local) return;
+    lastFetch.current = Date.now();
+    const [n, p] = await Promise.allSettled([fetchNeeds(), fetchPaths()]);
+    if (n.status === "fulfilled") {
+      setNeeds({ needs: n.value, loading: false });
+      writeJSON(KEYS.needs, { at: Date.now(), data: n.value } satisfies Stamped<Need[]>);
+    } else setNeeds((was) => ({ ...was, loading: false }));
+    if (p.status === "fulfilled") {
+      setPathData({ ...p.value, loading: false, error: false });
+      writeJSON(KEYS.paths, { at: Date.now(), data: p.value });
+    } else setPathData((was) => ({ ...was, loading: false, error: was.paths.length === 0 }));
+  }, []);
+
+  useEffect(() => {
+    if (local) return;
+    let alive = true;
+    Promise.all([
+      readJSON<Stamped<Need[]> | null>(KEYS.needs, null),
+      readJSON<Stamped<{ paths: Path[]; days: PathDay[] }> | null>(KEYS.paths, null),
+    ]).then(([cachedNeeds, cachedPaths]) => {
+      if (!alive) return;
+      if (cachedNeeds?.data?.length) setNeeds({ needs: cachedNeeds.data, loading: false });
+      if (cachedPaths?.data?.paths?.length)
+        setPathData({ ...cachedPaths.data, loading: false, error: false });
+      revalidate();
+    });
+    const subscription = AppState.addEventListener("change", (next) => {
+      if (next === "active" && Date.now() - lastFetch.current > STALE_MS) revalidate();
+    });
+    return () => {
+      alive = false;
+      subscription.remove();
+    };
+  }, [revalidate]);
+
+  const daysByPath = useMemo(() => byPath(pathData.days), [pathData.days]);
+  const pathsValue = useMemo<PathsValue>(
+    () => ({ ...pathData, daysByPath, refresh: () => void revalidate() }),
+    [pathData, daysByPath, revalidate],
+  );
+
+  // ---- Moments ----------------------------------------------------------------------
+
+  const [moments, setMoments] = useState<Record<string, Moment[]>>({});
+  const momentCache = useRef<Record<string, Stamped<Moment[]>>>({});
+  const momentsRead = useRef<Promise<void> | null>(null);
+  const inflight = useRef(new Set<string>());
+
+  const loadMoments = useCallback((youtubeId: string) => {
+    if (!youtubeId) return;
+    if (local) {
+      setMoments((was) =>
+        was[youtubeId]
+          ? was
+          : { ...was, [youtubeId]: fixtureMoments.filter((m) => m.youtubeId === youtubeId) },
+      );
+      return;
+    }
+    if (inflight.current.has(youtubeId)) return;
+    inflight.current.add(youtubeId);
+    momentsRead.current ??= readJSON<Record<string, Stamped<Moment[]>>>(KEYS.moments, {}).then(
+      (cache) => {
+        momentCache.current = { ...cache, ...momentCache.current };
+        const shown: Record<string, Moment[]> = {};
+        Object.entries(momentCache.current).forEach(([id, entry]) => (shown[id] = entry.data));
+        setMoments((was) => ({ ...shown, ...was }));
+      },
+    );
+    (async () => {
+      await momentsRead.current;
+      const cached = momentCache.current[youtubeId];
+      if (cached && Date.now() - cached.at < MOMENTS_STALE_MS) return;
+      try {
+        const list = await fetchMoments(youtubeId);
+        momentCache.current[youtubeId] = { at: Date.now(), data: list };
+        // Keep the most recently fetched sermons only.
+        const kept = Object.entries(momentCache.current)
+          .sort((a, b) => b[1].at - a[1].at)
+          .slice(0, MOMENTS_KEEP);
+        momentCache.current = Object.fromEntries(kept);
+        writeJSON(KEYS.moments, momentCache.current);
+        setMoments((was) => ({ ...was, [youtubeId]: list }));
+      } catch {
+        // Offline or not deployed: keep any copy; otherwise no moments.
+        setMoments((was) => (was[youtubeId] ? was : { ...was, [youtubeId]: EMPTY_MOMENTS }));
+      }
+    })().finally(() => inflight.current.delete(youtubeId));
+  }, []);
+
+  const momentsValue = useMemo<MomentsValue>(
+    () => ({ byId: moments, load: loadMoments }),
+    [moments, loadMoments],
+  );
+
+  // ---- Progress -----------------------------------------------------------------------
+
+  const [progress, setProgress] = useState<ProgressSlot>({
+    owner,
+    state: emptyProgress,
+    loading: true,
+  });
+  const current = useRef<ProgressSlot>(progress);
+  const memberRef = useRef(member);
+  const syncing = useRef(false);
+  const again = useRef(false);
+  const lastSync = useRef(0);
+  const retry = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    memberRef.current = member;
+  }, [member]);
+
+  const commit = useCallback((next: ProgressSlot) => {
+    current.current = next;
+    setProgress(next);
+    writeJSON(KEYS.progress(next.owner), next.state);
+  }, []);
+
+  // A named function inside useMemo, so it can call itself to retry.
+  const sync = useMemo(() => {
+    async function run(forOwner: string, attempt = 0): Promise<void> {
+      if (!memberRef.current || forOwner === "guest") return;
+      if (syncing.current) {
+        again.current = true;
+        return;
+      }
+      syncing.current = true;
+      let rerun = false;
+      try {
+        const token = await accessToken();
+        if (!token) {
+          // The account's client is still restoring or refreshing its
+          // session: try again shortly, showing the device's copy meanwhile.
+          if (attempt < 5) {
+            if (retry.current) clearTimeout(retry.current);
+            retry.current = setTimeout(() => run(forOwner, attempt + 1), 1500 * 2 ** attempt);
+          }
+          if (current.current.owner === forOwner && current.current.loading)
+            commit({ ...current.current, loading: false });
+          return;
+        }
+        const sent = new Set<ProgressOp>();
+        for (const op of current.current.state.pending) {
+          try {
+            await send(token, op);
+            sent.add(op);
+          } catch (error) {
+            // Refused for good (the path was removed): drop it. Otherwise
+            // keep it and everything after it for the next sync.
+            if (isPermanent(error)) sent.add(op);
+            else break;
+          }
+        }
+        const remote = await fetchProgress(token);
+        if (current.current.owner !== forOwner) return;
+        const remaining = current.current.state.pending.filter((op) => !sent.has(op));
+        commit({ owner: forOwner, state: fromRemote(remote, remaining), loading: false, read: true });
+        lastSync.current = Date.now();
+      } catch {
+        if (current.current.owner === forOwner && current.current.loading)
+          commit({ ...current.current, loading: false });
+      } finally {
+        syncing.current = false;
+        rerun = again.current;
+        again.current = false;
+      }
+      if (rerun) await run(forOwner);
+    }
+    return run;
+  }, [commit]);
+
+  const apply = useCallback(
+    (ops: ProgressOp[]) => {
+      if (!ops.length) return;
+      const was = current.current;
+      let state = was.state;
+      ops.forEach((op) => {
+        state = applyOp(state, op);
+      });
+      if (memberRef.current) state = { ...state, pending: [...was.state.pending, ...ops] };
+      commit({ ...was, state });
+      if (memberRef.current) sync(was.owner);
+    },
+    [commit, sync],
+  );
+
+  // A path a guest asked to start before creating this account: the
+  // sign-up's intent starts it (registerPathStarter), once this account's
+  // own progress has been read, so it lands in the right place.
+  const readFor = useRef<string | null>(null);
+  const queued = useRef<string | null>(null);
+  const runQueued = useCallback(() => {
+    const pathId = queued.current;
+    const slot = current.current;
+    if (!pathId || slot.owner === "guest" || readFor.current !== slot.owner) return;
+    queued.current = null;
+    if (slot.state.enrollments[pathId]) return;
+    apply([{ kind: "start", pathId, at: new Date().toISOString() }]);
+  }, [apply]);
+  useEffect(() => {
+    registerPathStarter((pathId) => {
+      queued.current = pathId;
+      runQueued();
+    });
+    return () => registerPathStarter(null);
+  }, [runQueued]);
+
+  useEffect(() => {
+    let alive = true;
+    // Until this account's copy is read, nothing of another account shows
+    // (see `shown` below).
+    current.current = { owner, state: emptyProgress, loading: true };
+    readFor.current = null;
+    readJSON<ProgressState>(KEYS.progress(owner), emptyProgress).then((cached) => {
+      if (!alive || current.current.owner !== owner) return;
+      commit({
+        owner,
+        state: { ...emptyProgress, ...cached, pending: member ? (cached.pending ?? []) : [] },
+        loading: member,
+        read: true,
+      });
+      readFor.current = owner;
+      if (member) sync(owner);
+      runQueued();
+    });
+    return () => {
+      alive = false;
+      if (retry.current) clearTimeout(retry.current);
+    };
+  }, [owner, member, commit, sync, runQueued]);
+
+  useEffect(() => {
+    if (!member) return;
+    const subscription = AppState.addEventListener("change", (next) => {
+      if (next === "active" && Date.now() - lastSync.current > PROGRESS_STALE_MS)
+        sync(current.current.owner);
+    });
+    return () => subscription.remove();
+  }, [member, sync]);
+
+  // Right after signing in or out, the slot still holds the previous
+  // owner's progress for a moment: show this owner's empty state instead.
+  const shown = progress.owner === owner ? progress : null;
+  const progressValue = useMemo<ProgressValue>(
+    () => ({
+      owner,
+      state: shown?.state ?? emptyProgress,
+      loading: shown?.loading ?? true,
+      read: !!shown?.read,
+      apply,
+    }),
+    [owner, shown, apply],
+  );
+
+  // ---- Recent searches ---------------------------------------------------------------
+
+  const [recentSlot, setRecent] = useState<{ owner: string; list: string[] }>({ owner, list: [] });
+  useEffect(() => {
+    let alive = true;
+    readJSON<string[]>(KEYS.recent(owner), []).then((list) => {
+      if (alive) setRecent({ owner, list: Array.isArray(list) ? list.slice(0, RECENT_MAX) : [] });
+    });
+    return () => {
+      alive = false;
+    };
+  }, [owner]);
+  const recent = recentSlot.owner === owner ? recentSlot.list : EMPTY_RECENT;
+
+  const recentValue = useMemo<RecentValue>(() => {
+    const save = (update: (list: string[]) => string[]) =>
+      setRecent((was) => {
+        const next = update(was.owner === owner ? was.list : []).slice(0, RECENT_MAX);
+        writeJSON(KEYS.recent(owner), next);
+        return { owner, list: next };
+      });
+    const same = (a: string, b: string) => a.toLocaleLowerCase() === b.toLocaleLowerCase();
+    return {
+      recent,
+      add: (query) => {
+        const q = query.trim().replace(/\s+/g, " ");
+        if (q) save((list) => [q, ...list.filter((x) => !same(x, q))]);
+      },
+      remove: (query) => save((list) => list.filter((x) => !same(x, query))),
+      clear: () => save(() => []),
+    };
+  }, [recent, owner]);
+
+  return (
+    <NeedsContext.Provider value={needs}>
+      <PathsContext.Provider value={pathsValue}>
+        <MomentsContext.Provider value={momentsValue}>
+          <ProgressContext.Provider value={progressValue}>
+            <RecentContext.Provider value={recentValue}>{children}</RecentContext.Provider>
+          </ProgressContext.Provider>
+        </MomentsContext.Provider>
+      </PathsContext.Provider>
+    </NeedsContext.Provider>
+  );
+}
+
+// ---- Hooks ---------------------------------------------------------------------------
+
+/** Published needs in editorial order. Empty: hide the chips. */
+export function useNeeds() {
+  return need(useContext(NeedsContext), "useNeeds");
+}
+
+/** Every path (drafts included; label them with TrustLine), in editorial order. */
+export function usePaths() {
+  const value = need(useContext(PathsContext), "usePaths");
+  return {
+    paths: value.paths,
+    loading: value.loading,
+    error: value.error,
+    refresh: value.refresh,
+    /** A path's days in order (without sermons). */
+    daysOf: (pathId: string) => value.daysByPath.get(pathId) ?? [],
+  };
+}
+
+/**
+ * One path and its days joined with their sermons from the catalogue (a
+ * sermon is undefined while the catalogue syncs). `missing` once loading has
+ * finished and no such path exists.
+ */
+export function usePath(id?: string | null) {
+  const value = need(useContext(PathsContext), "usePath");
+  const { find } = useCatalogue();
+  const path = id ? value.paths.find((p) => p.id === id) : undefined;
+  const raw = id ? value.daysByPath.get(id) : undefined;
+  const days = useMemo(() => joinDays(raw ?? [], find), [raw, find]);
+  return {
+    path,
+    days,
+    loading: value.loading && !path,
+    missing: !value.loading && !path,
+    error: value.error,
+  };
+}
+
+/** A sermon's verified moments in playing order; empty when it has none. */
+export function useMoments(youtubeId?: string | null) {
+  const value = need(useContext(MomentsContext), "useMoments");
+  const { load } = value;
+  useEffect(() => {
+    if (youtubeId) load(youtubeId);
+  }, [youtubeId, load]);
+  const list = youtubeId ? value.byId[youtubeId] : undefined;
+  return { moments: list ?? EMPTY_MOMENTS, loading: !!youtubeId && list === undefined };
+}
+
+/**
+ * The path the viewer is on and today's day, without the gate (safe outside
+ * screens). Use useEnrollment() in screens to start paths and mark days.
+ */
+export function useActivePath() {
+  const progress = need(useContext(ProgressContext), "useActivePath");
+  const paths = need(useContext(PathsContext), "useActivePath");
+  const { find } = useCatalogue();
+  const active = useMemo(
+    () => activePath(progress.state, paths.paths, paths.daysByPath, find),
+    [progress.state, paths.paths, paths.daysByPath, find],
+  );
+  return { active, loading: progress.loading || paths.loading };
+}
+
+/**
+ * Progress through paths, for screens (it uses the sign-up gate, so call it
+ * inside a screen). Members' progress lives in Supabase; guests' on this
+ * device. `start` asks a guest to create a free account first (the gate's
+ * "watch" intent for Day 1; after signing up Day 1 plays and the path
+ * starts) and resolves "gated" then, or "started".
+ */
+export function useEnrollment() {
+  const progress = need(useContext(ProgressContext), "useEnrollment");
+  const paths = need(useContext(PathsContext), "useEnrollment");
+  const { find } = useCatalogue();
+  const account = useAccount();
+  const gate = useGate();
+  const { state, apply } = progress;
+  const { daysByPath } = paths;
+
+  const active = useMemo(
+    () => activePath(state, paths.paths, daysByPath, find),
+    [state, paths.paths, daysByPath, find],
+  );
+
+  const start = useCallback(
+    async (pathId: string): Promise<"started" | "gated"> => {
+      const at = new Date().toISOString();
+      if (account.user || account.mode === "unavailable") {
+        apply([{ kind: "start", pathId, at }]);
+        return "started";
+      }
+      const first = daysByPath.get(pathId)?.[0];
+      // A guest is asked for an account first; signing up then starts the
+      // path and plays Day 1 from its focus (the intent carries both).
+      // Closing the sheet drops it, so nothing starts later.
+      if (
+        !first ||
+        gate.require({
+          kind: "watch",
+          sermonId: first.youtubeId,
+          at: first.focusStart,
+          path: { id: pathId, day: first.day },
+        })
+      ) {
+        // Guests who may watch keep their progress on this device.
+        apply([{ kind: "start", pathId, at }]);
+        return "started";
+      }
+      return "gated";
+    },
+    [account.user, account.mode, apply, daysByPath, gate],
+  );
+
+  const markDone = useCallback(
+    (pathId: string, day: number) => {
+      const at = new Date().toISOString();
+      const ops: ProgressOp[] = [{ kind: "done", pathId, day, at }];
+      const total = daysByPath.get(pathId)?.length ?? 0;
+      const done = new Set([...(state.done[pathId] ?? []), day]);
+      if (total && done.size >= total) ops.push({ kind: "finish", pathId, at });
+      apply(ops);
+    },
+    [apply, daysByPath, state.done],
+  );
+
+  const unmarkDone = useCallback(
+    (pathId: string, day: number) => {
+      const ops: ProgressOp[] = [{ kind: "undone", pathId, day }];
+      if (state.enrollments[pathId]?.finishedAt) ops.push({ kind: "finish", pathId, at: null });
+      apply(ops);
+    },
+    [apply, state.enrollments],
+  );
+
+  const leave = useCallback((pathId: string) => apply([{ kind: "leave", pathId }]), [apply]);
+  const enrolled = useCallback((pathId: string) => !!state.enrollments[pathId], [state.enrollments]);
+  const progressFor = useCallback((pathId: string) => enrollmentOf(state, pathId), [state]);
+
+  return {
+    active,
+    enrolled,
+    progressFor,
+    start,
+    markDone,
+    unmarkDone,
+    leave,
+    loading: progress.loading || paths.loading,
+    /** Progress is known for this viewer (it may still be syncing). */
+    ready: progress.read,
+  };
+}
+
+/** The viewer's last five searches on this device, newest first. */
+export function useRecentSearches() {
+  return need(useContext(RecentContext), "useRecentSearches");
+}

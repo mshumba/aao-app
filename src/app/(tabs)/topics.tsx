@@ -1,24 +1,10 @@
-import { View } from "react-native";
-import { categories } from "../../data/categories";
-import { space } from "../../theme";
-import { TopicNotice, TopicRow } from "../../topics";
-import { Page, PageTitle } from "../../ui";
+import { Redirect } from "expo-router";
 
-export default function TopicLibrary() {
-  return (
-    <Page>
-      <PageTitle
-        title="Topics"
-        lead="Find sermons by the part of your walk you want to grow in."
-      />
-      <View style={{ gap: space.md, marginTop: space.lg }}>
-        {categories.map((category) => (
-          <TopicRow key={category.id} category={category} />
-        ))}
-      </View>
-      <View style={{ marginTop: space.lg }}>
-        <TopicNotice />
-      </View>
-    </Page>
-  );
+/**
+ * Topics is no longer a tab (Home · Paths · Search · Account). Old links to
+ * /topics go to Search, where topics are browsed; each topic's own page
+ * (/topics/[categoryId]) is unchanged.
+ */
+export default function TopicsRedirect() {
+  return <Redirect href="/search" />;
 }

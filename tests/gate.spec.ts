@@ -15,7 +15,15 @@ test("guests browse every tab and sermon page without being asked", async ({
   page,
 }) => {
   await page.goto("/");
-  for (const path of ["/topics", "/search", "/account", pray]) {
+  for (const path of [
+    "/paths",
+    "/path/breaking-free-from-habitual-sin",
+    "/search",
+    "/search?q=fear",
+    "/topics/prayer",
+    "/account",
+    pray,
+  ]) {
     await page.goto(path);
     await expect(page.getByRole("button").first()).toBeVisible();
     await expect(
@@ -280,6 +288,12 @@ test("each page names itself in the browser tab", async ({ page }) => {
   await expect(page).toHaveTitle("Home · AAO");
   await page.goto("/search");
   await expect(page).toHaveTitle("Search · AAO");
+  await page.goto("/paths");
+  await expect(page).toHaveTitle("Paths · AAO");
+  await page.goto("/path/learning-to-wait-on-god");
+  await expect(page).toHaveTitle("Learning to wait on God · AAO");
+  await page.goto("/path/no-such-path");
+  await expect(page).toHaveTitle("Path not found · AAO");
   await page.goto("/account");
   await expect(page).toHaveTitle("Account · AAO");
   await page.goto("/topics/prayer");

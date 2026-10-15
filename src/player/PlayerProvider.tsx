@@ -44,7 +44,12 @@ type Session = {
    */
   dockAboveTabs: boolean;
   setDockAboveTabs: (value: boolean) => void;
-  load: (sermon: Sermon) => void;
+  /**
+   * Loads and starts a sermon. A signed-in viewer picks up where they left
+   * off, unless `from` (seconds) asks for a place: a moment, a path day's
+   * focus, a shared time.
+   */
+  load: (sermon: Sermon, from?: number) => void;
   retry: () => void;
   close: () => void;
   /** Pause, and cancel a start still waiting for the player to load. */
@@ -278,8 +283,15 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   );
 
   const load = useCallback(
-    (next: Sermon) => {
+    (next: Sermon, at?: number) => {
       if (pending.current && sermon?.id === next.id) return;
+      // Asked for a place: start there, with no "Resuming at" note.
+      if (at != null && Number.isFinite(at) && at >= 0) {
+        resumeNote.current = 0;
+        setResumedFrom(0);
+        begin(next, Math.floor(at));
+        return;
+      }
       // A signed-in viewer picks up where they left off.
       const viewer = accountRef.current;
       let from = 0;

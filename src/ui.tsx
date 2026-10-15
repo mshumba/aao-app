@@ -156,12 +156,12 @@ export function dockScrollPadding(dock: number) {
     : undefined;
 }
 
-export function T({ style, ...props }: TextProps) {
+export function T({ style, ref, ...props }: TextProps & { ref?: Ref<Text> }) {
   // When the system text size changes while the app is open or in the
   // background, iOS keeps the old measured box for text already on screen
   // (rows kept their old height). A key per font scale re-measures it.
   const { fontScale } = useWindowDimensions();
-  return <Text key={fontScale} {...props} style={[s.text, style]} />;
+  return <Text key={fontScale} ref={ref} {...props} style={[s.text, style]} />;
 }
 
 /** A heading with a real level: h1 for the page title, h2 for sections. */
@@ -235,6 +235,35 @@ export function Icon({
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
+/**
+ * Web: react-native-web ignores `hitSlop`, so a control drawn smaller than
+ * 44pt (a 36pt chip, a 40pt round button) would only answer touches on what
+ * is drawn. An invisible child reaching past the edges by the slop takes
+ * those touches instead; it's inside the control, so presses bubble to it.
+ */
+function webSlop(hitSlop: PressableProps["hitSlop"]): ViewStyle | null {
+  if (Platform.OS !== "web" || hitSlop == null) return null;
+  const n = (v: number | null | undefined) => -(v ?? 0);
+  const box =
+    typeof hitSlop === "number"
+      ? { top: -hitSlop, bottom: -hitSlop, left: -hitSlop, right: -hitSlop }
+      : { top: n(hitSlop.top), bottom: n(hitSlop.bottom), left: n(hitSlop.left), right: n(hitSlop.right) };
+  if (!box.top && !box.bottom && !box.left && !box.right) return null;
+  return { position: "absolute", ...box };
+}
+
+// Web: one keyboard focus ring for every control, navy on the light page and
+// white on the dark surfaces (anything inside a view with dataSet={{ dark }}).
+if (Platform.OS === "web" && typeof document !== "undefined" && !document.getElementById("aao-focus")) {
+  const style = document.createElement("style");
+  style.id = "aao-focus";
+  style.textContent = [
+    "[role=button]:focus-visible,[role=link]:focus-visible,[role=tab]:focus-visible,[role=radio]:focus-visible,[role=adjustable]:focus-visible,[role=slider]:focus-visible,[role=switch]:focus-visible,[role=checkbox]:focus-visible,a:focus-visible{outline:2px solid #1f3a5f;outline-offset:2px}",
+    "[data-dark] [role=button]:focus-visible,[data-dark] [role=link]:focus-visible,[data-dark] [role=adjustable]:focus-visible,[data-dark] [role=slider]:focus-visible,[data-dark] a:focus-visible{outline-color:#ffffff}",
+  ].join("\n");
+  document.head.appendChild(style);
+}
+
 type Feedback = "scale" | "scaleLarge" | "highlight" | "dim";
 
 /**
@@ -279,6 +308,16 @@ export function Tap({
   const dimmed =
     active && (feedback === "dim" || (scales && reduced)) ? 0.6 : 1;
   const role = rest.accessibilityRole;
+  const slop = webSlop(rest.hitSlop);
+  const children =
+    slop && typeof rest.children !== "function" ? (
+      <>
+        <View style={[slop, { pointerEvents: "auto" }]} aria-hidden />
+        {rest.children}
+      </>
+    ) : (
+      rest.children
+    );
   return (
     <AnimatedPressable
       {...rest}
@@ -330,7 +369,9 @@ export function Tap({
           transitionTimingFunction: easeOut,
         },
       ]}
-    />
+    >
+      {children}
+    </AnimatedPressable>
   );
 }
 

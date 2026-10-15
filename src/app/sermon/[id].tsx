@@ -4,8 +4,8 @@ import {
   useLocalSearchParams,
   useNavigation,
 } from "expo-router";
-import * as Haptics from "expo-haptics";
-import { useCallback, useEffect, useRef, useState, type Ref } from "react";
+import { StatusBar } from "expo-status-bar";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Linking,
@@ -14,12 +14,12 @@ import {
   StyleSheet,
   View,
   useWindowDimensions,
+  type LayoutChangeEvent,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
 } from "react-native";
 import { ScrollView } from "react-native-gesture-handler";
-import {
-  SafeAreaView,
-  useSafeAreaInsets,
-} from "react-native-safe-area-context";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAccount } from "../../auth/AccountProvider";
 import { useGate } from "../../auth/gate";
 import { useCatalogue } from "../../catalogue/CatalogueProvider";
@@ -30,11 +30,27 @@ import {
   sermonCategoryIds,
   seriesSermons,
 } from "../../data/sermons";
-import { HEADER_HEIGHT, fullFrame } from "../../player/layout";
-import { NowPlaying } from "../../player/NowPlaying";
-import { clock, usePlayerSession } from "../../player/PlayerProvider";
+import {
+  ItalicTitle,
+  Kicker,
+  SectionHeader,
+  Wash,
+  clockText,
+  leftText,
+  parseDuration,
+  spokenText,
+  spokenTime,
+} from "../../kit";
+import { useMoments } from "../../learning";
+import { STAGE_BAR, fullFrame, stageColumn } from "../../player/layout";
+import {
+  LiveBand,
+  PlayerCenter,
+  Transport,
+  type BandMarks,
+} from "../../player/NowPlaying";
+import { clock, usePlayback, usePlayerSession } from "../../player/PlayerProvider";
 import { fraction, resumePoint } from "../../player/progress";
-import { canRetry, canWatchOnYouTube, playerError } from "../../player/types";
 import { useDockInset } from "../../player/useDockInset";
 import {
   clearWatchRequest,
@@ -44,40 +60,38 @@ import {
   usePageTitle,
   watchRequested,
 } from "../../navigation";
-import { shareSermon } from "../../share";
-import { font, radius, space, type } from "../../theme";
-import { useToast } from "../../toast";
+import { SaveButton, ShareButton, WatchPill } from "../../sermon/Actions";
+import { FocusCaption, MarkedCaption, SearchPill, StaticBand } from "../../sermon/Band";
+import { MomentsSection } from "../../sermon/Moments";
+import { MoreMenu, SeriesRow, type MenuItem } from "../../sermon/MoreMenu";
+import { readSermonParams, type SermonParams } from "../../sermon/params";
+import { DayDoneWatcher, PathDayRow, useOpenPath, usePathDay, type PathDayContext } from "../../sermon/PathDay";
+import { ErrorSlot, Poster, StageBar } from "../../sermon/Stage";
+import { c, radius, space, textCap, type } from "../../theme";
 import { TopicNotice, TopicTags } from "../../topics";
 import {
-  Badge,
   Header,
-  Icon,
-  type IconName,
   Notice,
   Page,
-  ProgressBar,
-  SectionHeading,
   SermonRow,
   SermonTitle,
   StatePanel,
   T,
-  Tap,
   TextButton,
-  Thumbnail,
-  c,
   dockScrollPadding,
-  moveFocus,
-  nowrap,
-  s,
-  useNarrow,
+  gradient,
   web,
 } from "../../ui";
 
 export default function SermonScreen() {
-  const params = useLocalSearchParams<{ id: string | string[] }>();
+  const params = useLocalSearchParams<Record<string, string | string[]>>();
   const id = firstParam(params.id);
   const catalogue = useCatalogue();
   const sermon = catalogue.find(id);
+  // The link's asks, kept stable while the values are the same.
+  const key = JSON.stringify([params.t, params.from, params.q, params.path, params.day, params.play]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const link = useMemo(() => readSermonParams(params), [key]);
   // A sermon newer than the device's copy of the library arrives with the sync.
   if (!sermon && !catalogue.settled)
     return (
@@ -102,7 +116,7 @@ export default function SermonScreen() {
         />
       </Page>
     );
-  return <NowPlayingScreen key={sermon.id} sermon={sermon} />;
+  return <NowPlayingScreen key={sermon.id} sermon={sermon} link={link} />;
 }
 
 type Transition = { data?: { closing?: boolean } };
@@ -156,631 +170,649 @@ function useStage(id: string) {
   );
 }
 
-function NowPlayingScreen({ sermon }: { sermon: Sermon }) {
+/**
+ * The navy light on the stage, centred just under the video (the concept's),
+ * `y` points below the top of the box it's drawn in. When the video is
+ * narrower than the window, it sits lower so it has faded out by the band's
+ * top edge, beside the video.
+ */
+const stageLight = (y: number) =>
+  `radial-gradient(420px 300px at 70% ${Math.round(y)}px, rgba(31,58,95,0.85) 0%, rgba(31,58,95,0) 70%)`;
+
+/** Under the pinned band and the stage bar: the page slides under, not against, them. */
+const BAND_FADE = "linear-gradient(180deg, rgba(15,17,21,0.85) 0%, rgba(15,17,21,0) 100%)";
+const BAR_FADE = "linear-gradient(180deg, rgba(15,17,21,0.6) 0%, rgba(15,17,21,0) 100%)";
+/** The playing band's height before it has measured itself (strip and times). */
+const BAND_GUESS = 40;
+
+/**
+ * Keeps the last two words of a title together, so a line never ends with
+ * one word alone ("Day Two / *Morning*"). The words are unchanged; only the
+ * space between the last two can't break.
+ */
+const keepLastTwo = (text: string) => text.replace(/ (\S+)$/, " $1");
+
+/** A byline's short parts ("Lioness Conference") never break inside. */
+const keepSegments = (text: string) =>
+  text
+    .split(" · ")
+    .map((part) => (part.length <= 24 ? part.replace(/ /g, " ") : part))
+    .join(" · ");
+
+/**
+ * The sermon page, which is also Now Playing: a dark stage flush under the
+ * status bar (the bar with Back and "…", the video, the band with its
+ * moments, the title and the transport), then an ivory panel rising over it
+ * (the path or series it belongs to, its moments, more sermons, details).
+ */
+function NowPlayingScreen({ sermon, link }: { sermon: Sermon; link: SermonParams }) {
   usePageTitle(headline(sermon));
   const session = usePlayerSession();
   const account = useAccount();
   const gate = useGate();
   const window = useWindowDimensions();
   const insets = useSafeAreaInsets();
-  const narrow = useNarrow();
   const dock = useDockInset();
   const catalogue = useCatalogue();
   const go = useGo();
+  const focused = useIsFocused();
+  const openPath = useOpenPath();
   const scroll = useRef<NativeScrollView>(null);
-  // Watch's button is replaced by the player, so focus moves to its controls.
+  const toggle = useRef<View>(null);
+  const aboutY = useRef(0);
+  // Watch's button is replaced by the transport, so focus moves to Play/Pause.
   const [watched, setWatched] = useState(false);
+  // Bumped when playback jumps to a moment, so the band's thumb glides.
+  const [glideKey, setGlideKey] = useState(0);
+  const [menu, setMenu] = useState(false);
   useStage(sermon.id);
+
   const frame = fullFrame(window, insets);
+  const column = stageColumn(window, frame);
   const current = session.sermon?.id === sermon.id;
   const failed = current && session.phase === "error";
   const pinned = current && !failed;
+
+  // ---- Scrolling ------------------------------------------------------------------------
+  // Where the title ends in the scroll content (summed from its ancestors'
+  // layouts, which each report a change on their own), so the bar can take
+  // the headline once it has scrolled away.
+  const offset = useRef(0);
+  const titleAt = useRef({ lit: 0, column: 0, meta: 0, title: 0 });
+  const [titleShown, setTitleShown] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
+  const shownNow = useRef({ title: false, scrolled: false });
+  const reread = useCallback(() => {
+    const t = titleAt.current;
+    const title = t.title > 0 && offset.current > t.lit + t.column + t.meta + t.title;
+    const moved = offset.current > 4;
+    if (title !== shownNow.current.title) setTitleShown(title);
+    if (moved !== shownNow.current.scrolled) setScrolled(moved);
+    shownNow.current = { title, scrolled: moved };
+  }, []);
+  const onScroll = useCallback(
+    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      offset.current = e.nativeEvent.contentOffset.y;
+      reread();
+    },
+    [reread],
+  );
+  const record = useCallback(
+    (part: keyof typeof titleAt.current, value: number) => {
+      titleAt.current[part] = value;
+      reread();
+    },
+    [reread],
+  );
+  const onLit = useCallback((e: LayoutChangeEvent) => record("lit", e.nativeEvent.layout.y), [record]);
+  const onColumn = useCallback((e: LayoutChangeEvent) => record("column", e.nativeEvent.layout.y), [record]);
+  const onMeta = useCallback((e: LayoutChangeEvent) => record("meta", e.nativeEvent.layout.y), [record]);
+  const onTitle = useCallback(
+    (e: LayoutChangeEvent) => record("title", e.nativeEvent.layout.y + e.nativeEvent.layout.height),
+    [record],
+  );
+  // The video (and, while it plays, the band) leave the scroll content for
+  // the fixed slot above it as playback starts, and come back when it
+  // stops. The page keeps its place: what you tapped stays under your
+  // finger. (Browsers' scroll anchoring would otherwise move it.)
+  useLayoutEffect(() => {
+    if (offset.current <= 0) return;
+    const y = offset.current;
+    scroll.current?.scrollTo({ y, animated: false });
+    const id = requestAnimationFrame(() => scroll.current?.scrollTo({ y, animated: false }));
+    return () => cancelAnimationFrame(id);
+  }, [pinned]);
+  // The playing band, fixed under the video, measures itself.
+  const [bandH, setBandH] = useState(BAND_GUESS);
+  const onBand = useCallback((e: LayoutChangeEvent) => {
+    const h = Math.round(e.nativeEvent.layout.height);
+    setBandH((was) => (Math.abs(was - h) < 1 ? was : h));
+  }, []);
+  const lightY = frame.width >= window.width ? 11 : 210;
+
+  const { moments } = useMoments(sermon.id);
+  const pathDay = usePathDay(sermon.id, link);
+
   // Where Watch would pick up for a signed-in viewer.
   const saved = account.user ? account.progressFor(sermon.id) : null;
   const resumeAt = resumePoint(saved);
-  const watch = () => {
-    if (!gate.require({ kind: "watch", sermonId: sermon.id })) return;
-    setWatched(true);
-    session.load(sermon);
-  };
-  // Opened from Continue watching: resume once the screen has settled and
-  // can show the player, so it never appears in the dock first.
-  const [resumeOnOpen] = useState(() => watchRequested(sermon.id));
+  const startAt = startFor(link.t, pathDay, resumeAt);
+
+  // What a guest asked for, kept through signing up: where to start, and
+  // the path day it is (so the path starts with the new account).
+  const dayOfPath = pathDay?.explicit ? { id: pathDay.path.id, day: pathDay.day.day } : undefined;
+  const intentFor = (at?: number | null) =>
+    ({ kind: "watch", sermonId: sermon.id, at: at ?? undefined, path: dayOfPath }) as const;
+  const start = useCallback(
+    (at?: number | null) => {
+      if (!gate.require(intentFor(at))) return;
+      setWatched(true);
+      session.load(sermon, at ?? undefined);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [gate, session, sermon, dayOfPath?.id, dayOfPath?.day],
+  );
+  const watch = () => start(startAt);
+  const jumped = useCallback(() => setGlideKey((k) => k + 1), []);
+
+  // Opened to play (Continue watching, "Play from" in search, a path day):
+  // start once the screen has settled and can show the player, so it never
+  // appears in the dock first. Already loaded, it moves to the asked place.
+  const [playOnOpen] = useState(() => watchRequested(sermon.id) || link.play);
+  const [loadedOnOpen] = useState(() => session.sermon?.id === sermon.id);
+  const [seeked, setSeeked] = useState(false);
   const resumed = useRef(false);
   const staged = session.stage === sermon.id;
   useEffect(() => {
-    if (!resumeOnOpen || !staged || resumed.current) return;
+    if (!playOnOpen || !staged || resumed.current) return;
     resumed.current = true;
     clearWatchRequest();
-    if (!current && gate.require({ kind: "watch", sermonId: sermon.id }))
-      session.load(sermon);
+    if (!current && gate.require(intentFor(startAt))) session.load(sermon, startAt ?? undefined);
     // Only when the request is first carried out.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resumeOnOpen, staged]);
-  // Where the scrolling column starts, to line the poster up with the video.
-  const contentLeft = (window.width - Math.min(window.width, 760)) / 2 + space.gutter;
+  }, [playOnOpen, staged]);
+  const seekOnOpen =
+    playOnOpen && loadedOnOpen && staged && current && startAt != null && !seeked ? startAt : null;
+
+  // "From your search: …" for the first six seconds.
+  const [searchPill, setSearchPill] = useState(link.from === "search" && !!link.q);
+  useEffect(() => {
+    if (!searchPill) return;
+    const timer = setTimeout(() => setSearchPill(false), 6000);
+    return () => clearTimeout(timer);
+  }, [searchPill]);
+
+  const estimate = parseDuration(sermon.duration) ?? 0;
+  const marks = useMemo<BandMarks>(() => {
+    const list = moments.map((m) => ({ key: m.id, at: m.at }));
+    const t = link.t;
+    // The search moment gets its own tick, unless a verified one is there.
+    if (link.from === "search" && t != null && !moments.some((m) => Math.abs(m.at - t) <= 10))
+      list.push({ key: "search", at: t });
+    list.sort((a, b) => a.at - b.at);
+    return {
+      moments: list,
+      activeKey: t != null ? (list.find((m) => Math.abs(m.at - t) <= 10)?.key ?? null) : null,
+      focus: pathDay ? { start: pathDay.day.focusStart, end: pathDay.day.focusEnd } : null,
+      estimate,
+    };
+  }, [moments, link.from, link.t, pathDay, estimate]);
+
+  const marked = moments.length ? <MarkedCaption count={moments.length} /> : null;
+  const centerExtra = searchPill && link.q ? (
+    <SearchPill q={link.q} />
+  ) : pathDay ? (
+    <FocusCaption day={pathDay.day.day} start={pathDay.day.focusStart} end={pathDay.day.focusEnd} />
+  ) : null;
+
+  const shared = !account.user && account.guestWatch === "shared" && account.hasPass(sermon.id);
+  const kicker = shared
+    ? link.t != null
+      ? `Shared with you · at ${clockText(link.t)}`
+      : `Shared with you · ${sermon.date}`
+    : `${sermon.date} · ${sermon.duration}`;
+
   const topics = sermonCategoryIds(sermon);
   // The rest of its series first, then sermons sharing a topic, then the newest.
   const more = relatedSermons(sermon, catalogue.sermons);
-  const series = sermon.seriesKey
-    ? seriesSermons(catalogue.sermons, sermon.seriesKey)
-    : [];
+  const series = sermon.seriesKey ? seriesSermons(catalogue.sermons, sermon.seriesKey) : [];
   const seriesName = catalogue.seriesName(sermon.seriesKey);
+  const openSeries = () =>
+    go.push({ pathname: "/series/[key]", params: { key: sermon.seriesKey! } });
+  const inSeries = series.length > 1 && !!seriesName;
+
+  const menuItems: MenuItem[] = [
+    {
+      key: "youtube",
+      label: "Open in YouTube",
+      icon: "logo-youtube",
+      onPress: () =>
+        current ? session.watchOnYouTube() : Linking.openURL(sermon.source).catch(() => {}),
+    },
+    ...(pathDay
+      ? [{ key: "path", label: `Go to ${pathDay.path.name}`, icon: "route" as const, onPress: () => openPath(pathDay.path.id) }]
+      : inSeries
+        ? [{ key: "series", label: `Go to ${seriesName}`, icon: "albums-outline" as const, onPress: openSeries }]
+        : []),
+    {
+      key: "about",
+      label: "About this sermon",
+      icon: "information-circle-outline",
+      onPress: () => scroll.current?.scrollTo({ y: aboutY.current, animated: true }),
+    },
+  ];
+
+  const sideGutter = (window.width - column) / 2;
 
   return (
-    // Plain ivory like every other page; the artwork carries the colour.
     <View style={styles.screen}>
-      <SafeAreaView style={{ flex: 1 }} edges={["top", "left", "right"]}>
-        <View style={[s.page, styles.header]}>
-          <Header back />
-          {Platform.OS === "web" && current && !failed && <SkipToPlayer />}
-        </View>
+      {/* Light clock and icons over the dark stage, while this is in front. */}
+      {focused ? <StatusBar style="light" /> : null}
+      <View style={{ height: insets.top }} />
+      <StageBar
+        width={column}
+        skipToPlayer={pinned}
+        onMore={() => setMenu(true)}
+        title={headline(sermon)}
+        titleShown={titleShown}
+      />
 
-        {/* Fixed slot the app-wide player fills while this sermon plays.
-            Otherwise the poster (or the error) scrolls with the page, which
-            leaves room for the page when another sermon is docked. */}
-        {pinned && (
-          <View
-            style={{
-              marginLeft: frame.left,
-              width: frame.width,
-              height: frame.height,
-            }}
-          >
-            <View
-              style={[styles.slot, { borderRadius: frame.radius }]}
-              testID="player-slot"
+      {/* Fixed slot the app-wide player fills while this sermon plays.
+          Otherwise the poster (or the error) scrolls with the page, which
+          leaves room for the page when another sermon is docked. */}
+      {pinned && (
+        <View style={{ marginLeft: frame.left, width: frame.width, height: frame.height }}>
+          <View style={[styles.slot, { borderRadius: frame.radius }]} testID="player-slot" />
+        </View>
+      )}
+      {/* While it plays, the band stays at the video's foot: the thumb, the
+          moments and the time are always in view, and the page slides under
+          a short fade. */}
+      {pinned && (
+        <View style={[styles.pinnedBand, gradient(stageLight(lightY))]} onLayout={onBand}>
+          <View style={{ marginLeft: frame.left, width: frame.width }}>
+            <LiveBand
+              marks={marks}
+              glideKey={glideKey}
+              center={<PlayerCenter toggle={toggle} fallback={centerExtra} />}
             />
           </View>
-        )}
+          <View style={[styles.underFade, { height: 12, opacity: scrolled ? 1 : 0 }, gradient(BAND_FADE)]} />
+        </View>
+      )}
 
-        <ScrollView
-          ref={scroll}
-          keyboardShouldPersistTaps="handled"
-          style={dockScrollPadding(dock)}
-          contentContainerStyle={[
-            s.page,
-            { paddingBottom: 48 + insets.bottom + dock },
-          ]}
-        >
+      <ScrollView
+        ref={scroll}
+        keyboardShouldPersistTaps="handled"
+        onScroll={onScroll}
+        scrollEventThrottle={16}
+        style={[styles.scroll, dockScrollPadding(dock)]}
+        contentContainerStyle={{ paddingBottom: 48 + insets.bottom + dock }}
+      >
+        <View style={styles.stage}>
+          {/* Dark above the content too, so pulling down shows the stage. */}
+          <View style={styles.overscroll} />
           {!pinned && (
-            <View
-              style={{
-                marginLeft: frame.left - contentLeft,
-                width: frame.width,
-              }}
-            >
+            <View style={{ marginLeft: frame.left, width: frame.width }}>
               {failed ? (
-                <PlayerErrorSlot height={frame.height} radius={frame.radius} />
+                <ErrorSlot width={frame.width} height={frame.height} />
               ) : (
-                <Poster
-                  sermon={sermon}
-                  height={frame.height}
-                  radius={frame.radius}
-                  resumeAt={resumeAt}
-                  watched={saved && resumeAt ? fraction(saved) : 0}
-                  // A guest is asked for a free account first; the sermon
-                  // starts once they have one.
-                  hint={
-                    gate.canWatch(sermon.id)
-                      ? undefined
-                      : "Asks you to create a free account first"
-                  }
-                  onWatch={watch}
-                />
+                <Poster sermon={sermon} width={frame.width} height={frame.height} radius={frame.radius} onPress={watch} />
               )}
             </View>
           )}
-
-          <View style={styles.identity}>
-            {/* Why a guest can watch this one. */}
-            {!account.user &&
-              account.guestWatch === "shared" &&
-              account.hasPass(sermon.id) && (
-                <View style={styles.shared}>
-                  <Badge>Shared with you</Badge>
-                </View>
-              )}
-            <SermonTitle
-              title={headline(sermon)}
-              accessibilityRole="header"
-              {...web({ "aria-level": 1 })}
-              style={[styles.title, narrow && styles.titleNarrow]}
-              maxFontSizeMultiplier={2.5}
-            />
-            <T style={styles.event}>
-              {eventLine(sermon)} · {nowrap(sermon.date)}
-            </T>
-            <T style={styles.meta}>
-              {sermon.channel} · {nowrap(sermon.duration)}
-            </T>
-          </View>
-
-          {/* Transport stays with the video it controls; Save and Share
-              follow, as secondary actions. */}
-          {current && <NowPlaying focusTransport={watched} scroll={scroll} />}
-
-          <SermonActions sermon={sermon} />
-
-          {/* The exact title as published, kept with its source. */}
-          <View style={styles.source}>
-            <T style={styles.sourceLabel}>On YouTube</T>
-            <SermonTitle title={sermon.title} style={styles.sourceTitle} />
-            <TextButton
-              label="Open in YouTube"
-              icon="open-outline"
-              align="start"
-              onPress={() =>
-                current
-                  ? session.watchOnYouTube()
-                  : Linking.openURL(sermon.source).catch(() => {})
-              }
-            />
-            <Notice icon="logo-youtube">
-              Plays through YouTube. Loading the player connects to Google,
-              which may set cookies.
-            </Notice>
-          </View>
-
-          {topics.length > 0 && (
-            <>
-              <SectionHeading>Topics</SectionHeading>
-              <View style={{ gap: space.md }}>
-                <TopicNotice />
-                <TopicTags ids={topics} />
-              </View>
-            </>
-          )}
-
-          <SectionHeading
-            action={
-              series.length > 1 && seriesName
-                ? {
-                    label: "Whole series",
-                    hint: `Opens every part of ${seriesName}`,
-                    onPress: () =>
-                      go.push({
-                        pathname: "/series/[key]",
-                        params: { key: sermon.seriesKey! },
-                      }),
-                  }
-                : undefined
-            }
+          <View
+            style={[styles.lit, gradient(stageLight(pinned ? lightY - bandH : lightY))]}
+            onLayout={onLit}
           >
-            More sermons
-          </SectionHeading>
-          <View style={{ gap: space.sm }}>
-            {more.map((item) => (
-              <SermonRow key={item.id} sermon={item} />
-            ))}
+            {pinned ? null : (
+              <View style={{ marginLeft: frame.left, width: frame.width }}>
+                <StaticBand
+                  marks={marks}
+                  position={startAt != null ? startAt / (estimate || 1) : resumeAt && saved ? fraction(saved) : null}
+                  // A path day starting at its focus: the gold start bracket
+                  // shows where, so no thumb covers it.
+                  hideThumb={!!pathDay?.explicit && startAt === pathDay.day.focusStart}
+                  arrive={startAt != null}
+                  center={centerExtra ?? marked}
+                />
+              </View>
+            )}
+            <View style={[styles.column, { width: column }]} onLayout={onColumn}>
+              <View style={styles.meta} onLayout={onMeta}>
+                <Kicker tone="onMedia">{kicker}</Kicker>
+                <ItalicTitle
+                  text={keepLastTwo(headline(sermon))}
+                  accessibilityLabel={headline(sermon)}
+                  italicLast
+                  accessibilityRole="header"
+                  {...web({ "aria-level": 1 })}
+                  onLayout={onTitle}
+                  style={styles.title}
+                  maxFontSizeMultiplier={textCap.display}
+                />
+                <T style={styles.byline}>{keepSegments(byline(sermon))}</T>
+              </View>
+              <View style={styles.actions}>
+                {current && !failed ? (
+                  <Transport toggle={toggle} focusTransport={watched}>
+                    <SaveButton sermon={sermon} />
+                    <ShareButton sermon={sermon} />
+                  </Transport>
+                ) : (
+                  <View style={styles.preplay}>
+                    {!failed ? (
+                      <View style={styles.watchSlot}>
+                        <WatchButton
+                          sermon={sermon}
+                          startAt={startAt}
+                          resumeAt={resumeAt}
+                          watched={saved && resumeAt ? fraction(saved) : 0}
+                          left={saved ? saved.durationSeconds - resumeAt : 0}
+                          pathDay={pathDay?.explicit ? pathDay : null}
+                          guest={!gate.canWatch(sermon.id)}
+                          onPress={watch}
+                        />
+                      </View>
+                    ) : (
+                      <View style={{ flex: 1 }} />
+                    )}
+                    <View style={styles.acts}>
+                      <SaveButton sermon={sermon} />
+                      <ShareButton sermon={sermon} />
+                    </View>
+                  </View>
+                )}
+              </View>
+            </View>
           </View>
-          <View style={{ marginTop: space.md }}>
-            <TextButton
-              label="Browse all sermons"
-              icon="chevron-forward"
-              onPress={() => exitTo("/")}
+        </View>
+
+        <View style={styles.panel}>
+          <View style={[styles.panelInner, { width: column }]}>
+            {pathDay ? (
+              <PathDayRow ctx={pathDay} current={current} />
+            ) : inSeries ? (
+              <SeriesRow
+                name={seriesName!}
+                part={series.findIndex((s) => s.id === sermon.id) + 1 || null}
+                total={series.length}
+                fan={seriesFan(series, sermon)}
+                onPress={openSeries}
+              />
+            ) : null}
+
+            <MomentsSection
+              moments={moments}
+              current={current && !failed}
+              markedAt={link.t}
+              onStart={start}
+              onJump={jumped}
             />
+
+            <SectionHeader
+              title="More sermons"
+              size="md"
+              action={
+                inSeries && pathDay
+                  ? { label: "Whole series", hint: `Opens every part of ${seriesName}`, onPress: openSeries }
+                  : undefined
+              }
+              style={styles.sectionGap}
+            />
+            <View style={{ gap: space.sm, marginTop: space.md }}>
+              {more.map((item) => (
+                <SermonRow key={item.id} sermon={item} />
+              ))}
+            </View>
+            <View style={{ marginTop: space.sm }}>
+              <TextButton label="Browse all sermons" icon="chevron-forward" onPress={() => exitTo("/")} />
+            </View>
+
+            {topics.length > 0 && (
+              <>
+                <SectionHeader title="Topics" size="md" style={styles.sectionGap} />
+                <View style={{ gap: space.md, marginTop: space.md }}>
+                  <TopicNotice />
+                  <TopicTags ids={topics} />
+                </View>
+              </>
+            )}
+
+            {/* The exact title as published, kept with its source. */}
+            <View onLayout={(e) => (aboutY.current = e.nativeEvent.layout.y)}>
+              <SectionHeader title="About this sermon" size="md" style={styles.sectionGap} />
+              <View style={styles.source}>
+                <Kicker tone="muted">On YouTube</Kicker>
+                <SermonTitle title={sermon.title} style={styles.sourceTitle} />
+                <TextButton
+                  label="Open in YouTube"
+                  icon="open-outline"
+                  align="start"
+                  onPress={() =>
+                    current ? session.watchOnYouTube() : Linking.openURL(sermon.source).catch(() => {})
+                  }
+                />
+                <Notice icon="logo-youtube">
+                  Plays through YouTube. Loading the player connects to Google, which may set cookies.
+                </Notice>
+              </View>
+            </View>
           </View>
-        </ScrollView>
-      </SafeAreaView>
-    </View>
-  );
-}
+        </View>
+      </ScrollView>
 
-/**
- * Save and Share, under the title (and under the transport once playing).
- * Saving asks a guest for a free account first, then saves once they have
- * one (the gate carries it out). Builds without an account service leave
- * Save out.
- */
-function SermonActions({ sermon }: { sermon: Sermon }) {
-  const account = useAccount();
-  const gate = useGate();
-  const toast = useToast();
-  // One save request and one share sheet at a time, so a double tap can't
-  // undo itself or open a second sheet.
-  const saving = useRef(false);
-  const sharing = useRef(false);
-  const saved = account.isSaved(sermon.id);
-
-  const toggleSave = async () => {
-    if (saving.current) return;
-    if (!gate.require({ kind: "save", sermonId: sermon.id })) return;
-    saving.current = true;
-    const next = !saved;
-    // With the optimistic change, so the tap and the new state land together.
-    if (Platform.OS !== "web")
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-    try {
-      await account.setSaved(sermon.id, next);
-      toast(
-        next ? "Saved to your library" : "Removed from saved",
-        next ? "bookmark" : "bookmark-outline",
-      );
-    } catch {
-      toast(
-        next
-          ? "Couldn’t save. Check your connection."
-          : "Couldn’t remove it. Check your connection.",
-        "alert-circle-outline",
-      );
-    } finally {
-      saving.current = false;
-    }
-  };
-
-  const share = async () => {
-    if (sharing.current) return;
-    sharing.current = true;
-    await shareSermon(sermon, toast);
-    sharing.current = false;
-  };
-
-  return (
-    <View style={styles.actions}>
-      {account.mode !== "unavailable" && (
-        <ActionPill
-          testID="save-sermon"
-          label={saved ? "Saved" : "Save"}
-          icon={saved ? "bookmark" : "bookmark-outline"}
-          selected={saved}
-          hint={account.user ? undefined : "Asks you to create a free account first"}
-          onPress={toggleSave}
-        />
-      )}
-      <ActionPill
-        testID="share-sermon"
-        label="Share"
-        // Each platform's own share glyph.
-        icon={Platform.OS === "android" ? "share-social-outline" : "share-outline"}
-        onPress={share}
-      />
-    </View>
-  );
-}
-
-/** A compact action under the title. `selected` makes it a toggle. */
-function ActionPill({
-  label,
-  icon,
-  selected,
-  hint,
-  testID,
-  onPress,
-}: {
-  label: string;
-  icon: IconName;
-  selected?: boolean;
-  hint?: string;
-  testID?: string;
-  onPress: () => void;
-}) {
-  const toggle = selected !== undefined;
-  return (
-    <Tap
-      testID={testID}
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      accessibilityHint={hint}
-      accessibilityState={toggle ? { selected } : undefined}
-      {...(toggle ? web({ "aria-pressed": selected }) : null)}
-      onPress={onPress}
-      style={[styles.action, selected && styles.actionSelected]}
-    >
-      <Icon name={icon} size={20} color={selected ? c.accent : c.text} />
-      <T style={[styles.actionLabel, selected && { color: c.accent }]}>
-        {label}
-      </T>
-    </Tap>
-  );
-}
-
-/**
- * The video player comes last in keyboard order, since it floats above every
- * screen. This link, shown when focused, jumps straight to it.
- */
-function SkipToPlayer() {
-  const { focusPlayer } = usePlayerSession();
-  const [focused, setFocused] = useState(false);
-  return (
-    <Tap
-      accessibilityRole="button"
-      accessibilityLabel="Go to video player"
-      onPress={focusPlayer}
-      onFocus={() => setFocused(true)}
-      onBlur={() => setFocused(false)}
-      feedback="dim"
-      style={[styles.skipLink, !focused && styles.offscreen]}
-    >
-      <T style={styles.skipLinkText}>Go to video player</T>
-    </Tap>
-  );
-}
-
-/**
- * A failed player, shown where the video was: what happened and what can
- * still be done. Only actions that can work are offered. It grows with the
- * text, since it scrolls with the page.
- */
-function PlayerErrorSlot({
-  height,
-  radius: corner,
-}: {
-  height: number;
-  radius: number;
-}) {
-  const session = usePlayerSession();
-  const focused = useIsFocused();
-  const primary = useRef<View>(null);
-  const message = useRef<View>(null);
-  const code = session.error ?? 0;
-  // The failure removed the focused Play button or the player itself. Carry
-  // focus to the way forward rather than leaving it on the page.
-  useEffect(() => {
-    if (Platform.OS !== "web" || !focused) return;
-    const active = document.activeElement;
-    if (active && active !== document.body) return;
-    moveFocus(primary.current ?? message.current);
-    // Only when the slot first appears.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-  const retry = canRetry(code);
-  return (
-    <View
-      style={[styles.errorSlot, { minHeight: height, borderRadius: corner }]}
-      testID="player-error"
-    >
-      <View
-        ref={message}
-        style={styles.errorMessage}
-        {...web({ tabIndex: -1 })}
-      >
-        <Icon name="alert-circle-outline" color={c.error} size={20} />
-        {/* Native announces the error once; on web the message is an alert. */}
-        <T
-          nativeID="player-error-message"
-          style={styles.errorText}
-          accessibilityRole={Platform.OS === "web" ? "alert" : undefined}
-        >
-          {playerError(code)}
-        </T>
-      </View>
-      <View style={styles.errorActions}>
-        {retry && (
-          <SlotButton
-            ref={primary}
-            label="Try again"
-            icon="refresh"
-            primary
-            onPress={session.retry}
-          />
-        )}
-        {canWatchOnYouTube(code) && (
-          <SlotButton
-            ref={retry ? undefined : primary}
-            label="Watch on YouTube"
-            icon="open-outline"
-            primary={!retry}
-            onPress={session.watchOnYouTube}
-          />
-        )}
-      </View>
-    </View>
-  );
-}
-
-function SlotButton({
-  label,
-  icon,
-  primary = false,
-  onPress,
-  ref,
-}: {
-  label: string;
-  icon: IconName;
-  primary?: boolean;
-  onPress: () => void;
-  ref?: Ref<View>;
-}) {
-  return (
-    <Tap
-      ref={ref}
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      // The reason is read with the button that focus lands on.
-      {...(primary ? web({ "aria-describedby": "player-error-message" }) : null)}
-      onPress={onPress}
-      style={[styles.slotButton, primary && styles.slotButtonPrimary]}
-    >
-      <Icon name={icon} size={16} color={primary ? c.onAccent : c.text} />
-      <T style={[styles.slotButtonText, primary && { color: c.onAccent }]}>
-        {label}
-      </T>
-    </Tap>
-  );
-}
-
-function Poster({
-  sermon,
-  height,
-  radius: corner,
-  resumeAt = 0,
-  watched = 0,
-  hint,
-  onWatch,
-}: {
-  sermon: Sermon;
-  height: number;
-  radius: number;
-  /** Where Watch picks up from, in seconds; 0 starts at the beginning. */
-  resumeAt?: number;
-  /** How much has been watched, 0 to 1, drawn along the bottom edge. */
-  watched?: number;
-  hint?: string;
-  onWatch: () => void;
-}) {
-  const label = resumeAt ? `Resume at ${clock(resumeAt)}` : "Watch sermon";
-  return (
-    <Tap
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      accessibilityHint={
-        hint ??
-        (resumeAt
-          ? "Plays the sermon from where you left off"
-          : "Starts the sermon in the YouTube player")
-      }
-      onPress={onWatch}
-      feedback="scaleLarge"
-      style={{ height }}
-    >
-      <Thumbnail
-        sermon={sermon}
-        height={height}
-        duration
-        style={{ borderRadius: corner }}
-      />
-      {watched > 0 && (
+      {/* Once the page moves, it slides under the stage bar through a short fade. */}
+      {!pinned ? (
         <View
           style={[
-            styles.posterProgress,
-            {
-              borderBottomLeftRadius: corner,
-              borderBottomRightRadius: corner,
-            },
+            styles.underFade,
+            { top: insets.top + STAGE_BAR, height: 10, opacity: scrolled ? 1 : 0 },
+            gradient(BAR_FADE),
           ]}
-        >
-          <ProgressBar value={watched} onMedia />
-        </View>
-      )}
-      <View style={[styles.center, { pointerEvents: "none" }]}>
-        <View style={styles.watch}>
-          <Icon name="play" color={c.onAccent} size={20} />
-          <T style={styles.watchLabel}>{label}</T>
-        </View>
-      </View>
-    </Tap>
+        />
+      ) : null}
+      {/* The page melts into ivory above the home indicator. */}
+      <Wash kind="pageEnd" band="bottom" height={44} />
+      {seekOnOpen != null ? (
+        <SeekOnce
+          at={seekOnOpen}
+          onDone={() => {
+            setSeeked(true);
+            jumped();
+          }}
+        />
+      ) : null}
+      {pathDay ? <DayDoneWatcher ctx={pathDay} sermonId={sermon.id} /> : null}
+      <MoreMenu
+        visible={menu}
+        onClose={() => setMenu(false)}
+        items={menuItems}
+        top={insets.top + 46}
+        right={sideGutter + space.lg}
+      />
+    </View>
   );
+}
+
+/**
+ * Where Play starts when the link asks for a place: its time, else a path
+ * day's focus (or your place inside it). Null lets the player decide (where
+ * a member left off, or the beginning).
+ */
+function startFor(t: number | null, pathDay: PathDayContext | null, resumeAt: number) {
+  if (t != null) return t;
+  if (pathDay?.explicit) {
+    const { focusStart, focusEnd } = pathDay.day;
+    return resumeAt >= focusStart && resumeAt < focusEnd ? resumeAt : focusStart;
+  }
+  return null;
+}
+
+/**
+ * Who preached it, then the occasion when the headline doesn't already say
+ * it: "Apostle Arome Osayi · Lioness Conference · Grand Finale". The venue
+ * alone ("The Votage") isn't worth the line.
+ */
+function byline(sermon: Sermon) {
+  const context = eventLine(sermon);
+  // Named preachers lead eventLine already.
+  if (sermon.speaker) return context;
+  if (!context || context === sermon.channel || context === sermon.venue) return sermon.channel;
+  return `${sermon.channel} · ${context}`;
+}
+
+/** Front first: this sermon, then the part after it (or before, at the end). */
+function seriesFan(series: Sermon[], sermon: Sermon) {
+  const i = series.findIndex((s) => s.id === sermon.id);
+  const other = series[i + 1] ?? series[i - 1];
+  return other ? [sermon, other] : [sermon];
+}
+
+/**
+ * The stage's call to play before the player loads. It says where it starts
+ * and how long: "Watch · 1 hr 53 min", "Resume · 1 hr 16 min left" (with how
+ * far in), "Play from 34:12", "Play Day 3 · 16-min focus".
+ */
+function WatchButton({
+  sermon,
+  startAt,
+  resumeAt,
+  watched,
+  left,
+  pathDay,
+  guest,
+  onPress,
+}: {
+  sermon: Sermon;
+  startAt: number | null;
+  resumeAt: number;
+  watched: number;
+  left: number;
+  pathDay: PathDayContext | null;
+  guest: boolean;
+  onPress: () => void;
+}) {
+  // A guest is asked for a free account first; the sermon starts once they
+  // have one.
+  const ask = guest ? "Asks you to create a free account first" : undefined;
+  if (pathDay && startAt != null) {
+    const { day, focusStart, focusEnd } = pathDay.day;
+    const minutes = Math.max(1, Math.round((focusEnd - focusStart) / 60));
+    if (startAt <= focusStart + 15)
+      return (
+        <WatchPill
+          label={`Play Day ${day}`}
+          detail={`${minutes}-min focus`}
+          accessibilityLabel={`Play day ${day}`}
+          hint={ask ?? `A ${minutes}-minute focus from ${spokenTime(focusStart)}`}
+          onPress={onPress}
+        />
+      );
+    if (startAt < focusEnd)
+      return (
+        <WatchPill
+          label={`Resume Day ${day}`}
+          detail={`${leftText(focusEnd - startAt).replace(" left", "")} to go`}
+          accessibilityLabel={`Resume day ${day} at ${clock(startAt)}`}
+          hint={ask ?? `${spokenText(leftText(focusEnd - startAt))} in today’s focus`}
+          progress={(startAt - focusStart) / (focusEnd - focusStart)}
+          onPress={onPress}
+        />
+      );
+  }
+  if (startAt != null)
+    return (
+      <WatchPill
+        label={`Play from ${clockText(startAt)}`}
+        accessibilityLabel={`Play from ${spokenTime(startAt)}`}
+        hint={ask ?? `Starts the sermon at ${spokenTime(startAt)}`}
+        onPress={onPress}
+      />
+    );
+  if (resumeAt)
+    return (
+      <WatchPill
+        label="Resume"
+        detail={left > 0 ? leftText(left) : null}
+        accessibilityLabel={`Resume at ${clock(resumeAt)}`}
+        hint={ask ?? "Plays the sermon from where you left off"}
+        progress={watched}
+        onPress={onPress}
+      />
+    );
+  return (
+    <WatchPill
+      label="Watch"
+      detail={sermon.duration}
+      accessibilityLabel="Watch sermon"
+      hint={ask ?? "Starts the sermon in the YouTube player"}
+      onPress={onPress}
+    />
+  );
+}
+
+/** Moves the loaded sermon to `at` and plays, once the player is ready. */
+function SeekOnce({ at, onDone }: { at: number; onDone: () => void }) {
+  const session = usePlayerSession();
+  const { seek, play } = usePlayback();
+  const ready = session.phase === "ready";
+  useEffect(() => {
+    if (!ready) return;
+    seek(at);
+    play();
+    onDone();
+    // Once, when ready.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready]);
+  return null;
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: c.bg },
+  screen: { flex: 1, backgroundColor: c.media },
   loading: { paddingVertical: space.xxl, alignItems: "center" },
-  // Fixed height so the player slot sits exactly where the player expects.
-  header: { height: HEADER_HEIGHT, overflow: "visible" },
   slot: { flex: 1, backgroundColor: c.media },
-  identity: { marginTop: space.lg, gap: 6 },
-  shared: { marginBottom: space.xs },
-  actions: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: space.sm,
-    marginTop: space.lg,
-  },
-  // White with a hairline, like the secondary button: clear on the wash and
-  // the ivory page without competing with Watch.
-  action: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: space.sm,
-    minHeight: 48,
-    paddingHorizontal: space.lg,
-    borderRadius: radius.pill,
-    backgroundColor: c.surface,
-    borderWidth: 1,
-    borderColor: c.border,
-  },
-  // Saved also changes its label and icon, so colour isn't the only signal.
-  actionSelected: { borderColor: c.accent },
-  actionLabel: type.label,
-  title: type.sermonTitle,
-  titleNarrow: { fontSize: 22, lineHeight: 28 },
-  event: { ...type.label, color: c.text },
-  meta: { ...type.caption, color: c.muted },
-  source: {
-    marginTop: space.xl,
-    gap: space.sm,
-    paddingTop: space.lg,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: c.border,
-  },
-  sourceLabel: { ...type.kicker, color: c.muted },
-  sourceTitle: { ...type.caption, color: c.text },
-  // A white card in the video's place, outlined in the error colour.
-  errorSlot: {
-    padding: space.md,
-    gap: space.md,
-    backgroundColor: c.surface,
-    borderWidth: 1,
-    borderColor: c.error,
-    justifyContent: "center",
-  },
-  errorMessage: { flexDirection: "row", gap: space.sm, alignItems: "flex-start" },
-  errorText: { flex: 1, color: c.text, fontSize: 15, lineHeight: 22 },
-  errorActions: { flexDirection: "row", flexWrap: "wrap", gap: space.sm },
-  slotButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    minHeight: 48,
-    paddingHorizontal: space.md,
-    borderRadius: radius.pill,
-    backgroundColor: c.surface,
-    borderWidth: 1,
-    borderColor: c.border,
-  },
-  slotButtonPrimary: { backgroundColor: c.accent, borderColor: c.accent },
-  slotButtonText: { fontFamily: font.semibold, fontSize: 14 },
-  center: {
-    ...StyleSheet.absoluteFill,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  // Navy, like the Play control that replaces it. Navy is close to the dark
-  // artwork, so a faint light edge and a shadow keep the pill's shape.
-  watch: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: space.sm,
-    minHeight: 48,
-    paddingHorizontal: 20,
-    borderRadius: radius.pill,
-    backgroundColor: c.accent,
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.28)",
-    boxShadow: "0 6px 20px rgba(0, 0, 0, 0.35)",
-  },
-  watchLabel: { color: c.onAccent, fontFamily: font.bold, fontSize: 16 },
-  // Along the artwork's bottom edge, clipped to its rounded corners.
-  posterProgress: {
+  // Ivory behind the content, so the end of the page (and an overscroll)
+  // is the panel's colour; the stage brings its own dark.
+  scroll: { flex: 1, backgroundColor: c.bg },
+  stage: { backgroundColor: c.media },
+  overscroll: {
     position: "absolute",
     left: 0,
     right: 0,
-    bottom: 0,
-    overflow: "hidden",
-    pointerEvents: "none",
+    top: -1000,
+    height: 1000,
+    backgroundColor: c.media,
   },
-  skipLink: {
-    position: "absolute",
-    top: 4,
-    left: 64,
-    minHeight: 48,
-    justifyContent: "center",
-    paddingHorizontal: space.md,
-    borderRadius: radius.pill,
-    backgroundColor: c.raised,
-    borderWidth: 1,
-    borderColor: c.border,
-    boxShadow: `0 8px 24px ${c.shadow}`,
+  // The navy light under the video, behind the band, title and transport.
+  // Its foot runs under the panel's rounded corners.
+  lit: { paddingBottom: 18 + radius.r28 },
+  column: { alignSelf: "center", paddingHorizontal: space.xl },
+  meta: { marginTop: 4 },
+  title: { ...type.sermonTitle, color: c.white, marginTop: 8 },
+  byline: {
+    fontFamily: type.meta.fontFamily,
+    fontSize: 13.5,
+    lineHeight: 19,
+    color: "rgba(255,255,255,0.76)",
+    marginTop: 4,
   },
-  skipLinkText: { fontFamily: font.semibold, fontSize: 15, color: c.accent },
-  offscreen: {
-    width: 1,
-    height: 1,
-    minHeight: 1,
-    paddingHorizontal: 0,
-    borderWidth: 0,
-    overflow: "hidden",
-    opacity: 0,
+  actions: { marginTop: 10, minHeight: 56, justifyContent: "center" },
+  // One row: the play control takes what the round actions leave.
+  preplay: { flexDirection: "row", alignItems: "center", gap: 12 },
+  watchSlot: { flex: 1, minWidth: 0 },
+  acts: { flexDirection: "row", alignItems: "center", gap: 10 },
+  // Over the page below it (drawn after it), so the fade can hang off its foot.
+  pinnedBand: { backgroundColor: c.media, zIndex: 2 },
+  underFade: { position: "absolute", left: 0, right: 0, top: "100%", pointerEvents: "none", zIndex: 2 },
+  panel: {
+    marginTop: -radius.r28,
+    backgroundColor: c.bg,
+    borderTopLeftRadius: radius.r28,
+    borderTopRightRadius: radius.r28,
   },
+  panelInner: { alignSelf: "center", paddingHorizontal: space.s20, paddingTop: space.s20 },
+  sectionGap: { marginTop: space.xxl, marginHorizontal: 4 },
+  source: { gap: space.sm, marginTop: space.md, marginHorizontal: 4 },
+  sourceTitle: { ...type.caption, color: c.text },
 });
