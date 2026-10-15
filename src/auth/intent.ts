@@ -6,7 +6,17 @@ import { keys, readJSON, removeKey, writeJSON } from "../lib/storage";
  * or Google leaves the page and comes back to /auth/callback.
  */
 export type Intent =
-  | { kind: "watch"; sermonId: string }
+  | {
+      kind: "watch";
+      sermonId: string;
+      /** Where to start (seconds): a search moment, a path day's focus. */
+      at?: number;
+      /**
+       * A guided path's day: once there's an account, the path starts (if it
+       * hasn't) and this day plays as part of it.
+       */
+      path?: { id: string; day: number };
+    }
   | { kind: "save"; sermonId: string };
 
 /**
@@ -80,6 +90,22 @@ export function registerIntentRunner(run: ((intent: Intent) => void) | null) {
 
 export function runIntent(intent: Intent) {
   runner?.(intent);
+}
+
+let pathStarter: ((pathId: string) => void) | null = null;
+
+/**
+ * Path progress registers how to start a path for the account that just
+ * signed in (it waits until that account's progress is read). Only an
+ * intent carried out after signing up starts one, so a sheet the guest
+ * closed never starts a path later.
+ */
+export function registerPathStarter(start: ((pathId: string) => void) | null) {
+  pathStarter = start;
+}
+
+export function startPathForIntent(pathId: string) {
+  pathStarter?.(pathId);
 }
 
 /* ------------------------------------------------------------------------ */

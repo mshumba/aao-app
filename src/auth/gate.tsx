@@ -2,7 +2,7 @@ import { router, useNavigation, usePathname } from "expo-router";
 import { useCallback, useEffect, useRef } from "react";
 import { Platform } from "react-native";
 import { useCatalogue } from "../catalogue/CatalogueProvider";
-import { useGo } from "../navigation";
+import { requestWatch, useGo } from "../navigation";
 import { usePlayerSession } from "../player/PlayerProvider";
 import { useToast } from "../toast";
 import { useAccount } from "./AccountProvider";
@@ -11,6 +11,7 @@ import {
   forgetEarlierIntent,
   registerIntentRunner,
   setPendingIntent,
+  startPathForIntent,
   takePendingIntent,
   runIntent,
 } from "./intent";
@@ -97,7 +98,8 @@ export function useGate() {
     if (account.user) return true;
     if (account.mode === "unavailable") return false;
     const id = setPendingIntent(intent) ?? undefined;
-    go.push({ pathname: "/join", params: { reason: intent.kind, intent: id } });
+    const reason = intent.kind === "watch" && intent.path ? "path" : intent.kind;
+    go.push({ pathname: "/join", params: { reason, intent: id } });
     return false;
   };
 
@@ -164,9 +166,22 @@ export function IntentRunner() {
       const { account: now, session: player, pathname: path, toast: show } = latest.current;
       if (!allowed(now)) return;
       if (intent.kind === "watch") {
-        if (path !== `/sermon/${sermon.id}`)
-          router.navigate({ pathname: "/sermon/[id]", params: { id: sermon.id } });
-        player.load(sermon);
+        // A path's first day: the path starts for the new account too.
+        if (intent.path) startPathForIntent(intent.path.id);
+        const at = intent.at != null ? Math.max(0, Math.floor(intent.at)) : undefined;
+        if (path !== `/sermon/${sermon.id}`) {
+          const params: Record<string, string> = { id: sermon.id };
+          if (at != null) params.t = String(at);
+          if (intent.path) {
+            params.path = intent.path.id;
+            params.day = String(intent.path.day);
+          }
+          // The sermon page starts it once it has settled, at `t`.
+          requestWatch(sermon.id);
+          router.navigate({ pathname: "/sermon/[id]", params } as never);
+          return;
+        }
+        player.load(sermon, at);
         return;
       }
       if (now.isSaved(sermon.id)) {

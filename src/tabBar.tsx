@@ -1,8 +1,9 @@
 import { Tabs } from "expo-router";
 import type { ComponentProps } from "react";
 import { Platform, StyleSheet, View } from "react-native";
+import { RouteIcon } from "./kit/RouteIcon";
 import { setChrome } from "./player/layout";
-import { font, radius, space } from "./theme";
+import { font, gradients, radius, shadows, textCap, type } from "./theme";
 import { Icon, IconName, T, Tap, c, gradient, pressedTint } from "./ui";
 
 type BottomTabBarProps = Parameters<
@@ -10,40 +11,48 @@ type BottomTabBarProps = Parameters<
 >[0];
 
 // How far the bar's fade reaches up over the page.
-const FADE = space.xl;
+const FADE = 28;
 
+// Selected (filled) and unselected (outline) Ionicons per tab. Paths uses
+// the concept's own route glyph (RouteIcon), which Ionicons lacks.
 const icons: Record<string, [IconName, IconName]> = {
   index: ["home", "home-outline"],
-  topics: ["albums", "albums-outline"],
   search: ["search", "search-outline"],
-  account: ["person-circle", "person-circle-outline"],
+  account: ["person", "person-outline"],
 };
 
 /**
- * A floating white pill of four peer destinations, in the style of media
- * apps: a hairline and a soft shadow lift it off the ivory page, and the
- * current tab sits on sand in navy (shape and colour, never colour alone).
- * Labels stop growing at 1.4× (as system tab bars don't scale); on iOS a long
- * press shows the large content viewer instead. The docked player sits on top
- * of the bar, so its real height is shared.
+ * A floating white pill of four peer destinations (Home · Paths · Search ·
+ * Account), as in the approved concept: a hairline ring and a soft shadow
+ * lift it off the ivory page, and the current tab sits on a sand capsule
+ * with a filled navy icon and a navy label (shape and colour, never colour
+ * alone). Labels stop growing at 1.4× (as system tab bars don't scale); on
+ * iOS a long press shows the large content viewer instead. The docked
+ * player sits on top of the bar, so its real height is shared.
  *
  * The bar overlaps the bottom of the page by FADE and fades it out there, so
  * content scrolling down meets a soft edge rather than a hard cut above the
- * pill. The fade passes touches through to the page.
+ * pill. The fade passes touches through to the page. Routes hidden with
+ * `href: null` (the old Topics tab) are left out.
  */
 export function TabBar({ state, descriptors, navigation, insets }: BottomTabBarProps) {
+  const current = state.routes[state.index]?.key;
+  const routes = state.routes.filter(
+    (route) =>
+      StyleSheet.flatten(descriptors[route.key].options.tabBarItemStyle)?.display !== "none",
+  );
   return (
     <View
-      pointerEvents="box-none"
-      style={[styles.wrap, { paddingBottom: insets.bottom + space.sm }]}
+      style={[styles.wrap, { paddingBottom: Math.max(12, insets.bottom - 8) }]}
       // The fade sits over the page, so the dock and toasts measure from
       // the bar below it.
       onLayout={(e) => setChrome("tabBar", e.nativeEvent.layout.height - FADE)}
     >
       <View style={styles.pill} accessibilityRole="tablist">
-        {state.routes.map((route, index) => {
-          const focused = state.index === index;
+        {routes.map((route) => {
+          const focused = route.key === current;
           const label = descriptors[route.key].options.title ?? route.name;
+          const color = focused ? c.accent : c.muted;
           const [on, off] = icons[route.name] ?? ["ellipse", "ellipse-outline"];
           return (
             <Tap
@@ -66,14 +75,21 @@ export function TabBar({ state, descriptors, navigation, insets }: BottomTabBarP
                   navigation.navigate(route.name, route.params);
               }}
               feedback="highlight"
-              highlightColor={pressedTint}
+              highlightColor={focused ? c.feature : pressedTint}
               style={[styles.tab, focused && styles.tabOn]}
             >
-              <Icon name={focused ? on : off} size={22} color={focused ? c.accent : c.muted} />
+              {/* A fixed box, so the glyph font and the drawn route icon line up. */}
+              <View style={styles.icon}>
+                {route.name === "paths" ? (
+                  <RouteIcon size={22} color={color} bold={focused} />
+                ) : (
+                  <Icon name={focused ? on : off} size={22} color={color} />
+                )}
+              </View>
               <T
                 style={[styles.label, focused && styles.labelOn]}
                 numberOfLines={1}
-                maxFontSizeMultiplier={1.4}
+                maxFontSizeMultiplier={textCap.tab}
               >
                 {label}
               </T>
@@ -87,40 +103,38 @@ export function TabBar({ state, descriptors, navigation, insets }: BottomTabBarP
 
 const styles = StyleSheet.create({
   wrap: {
+    pointerEvents: "box-none",
     marginTop: -FADE,
-    paddingTop: FADE + space.sm,
-    paddingHorizontal: space.md,
+    paddingTop: FADE,
+    paddingHorizontal: 16,
     backgroundColor: "transparent",
-    ...gradient(`linear-gradient(180deg, ${c.bg}00 0%, ${c.bg} ${FADE}px)`),
+    ...gradient(gradients.tabFade),
   },
   pill: {
     flexDirection: "row",
     alignSelf: "center",
+    alignItems: "center",
+    justifyContent: "space-around",
     width: "100%",
     maxWidth: 480,
-    minHeight: 56,
-    padding: space.xs,
-    gap: space.xs,
+    minHeight: 64,
+    paddingHorizontal: 6,
+    paddingVertical: 6,
     borderRadius: radius.pill,
     backgroundColor: c.raised,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: c.border,
-    boxShadow: "0 8px 24px rgba(27,30,36,0.10)",
+    boxShadow: shadows.floating,
   },
   tab: {
     flex: 1,
-    minHeight: 48,
-    borderRadius: radius.pill,
+    maxWidth: 80,
+    minHeight: 52,
+    borderRadius: 26,
     alignItems: "center",
     justifyContent: "center",
-    gap: 1,
+    gap: 3,
   },
   tabOn: { backgroundColor: c.feature },
-  label: {
-    fontFamily: font.semibold,
-    fontSize: 12,
-    lineHeight: 15,
-    color: c.muted,
-  },
-  labelOn: { color: c.accent },
+  icon: { height: 26, alignItems: "center", justifyContent: "center" },
+  label: { ...type.tab, color: c.muted },
+  labelOn: { fontFamily: font.bold, color: c.accent },
 });

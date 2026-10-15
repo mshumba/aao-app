@@ -47,12 +47,13 @@ import {
   web,
 } from "../ui";
 
-type Reason = "watch" | "save" | "account";
+type Reason = "watch" | "save" | "path" | "account";
 type Mode = "sign-up" | "sign-in";
 
 const headlines: Record<Reason, string> = {
   watch: "Create a free account to watch",
   save: "Create a free account to save sermons",
+  path: "Create a free account to start this path",
   account: "Create your free account",
 };
 
@@ -65,6 +66,7 @@ function leadFor(mode: Mode, reason: Reason, guestsWatch: boolean) {
       : "Sign in to watch, save sermons and keep your topics.";
   if (reason === "watch") return "You can also save sermons and keep your topics on any device.";
   if (reason === "save") return "Your saved sermons and topics stay with you on any device.";
+  if (reason === "path") return "Day 1 plays as soon as you’re in, and your progress stays with you on any device.";
   return guestsWatch
     ? "Save sermons and keep your topics on any device."
     : "Watch every sermon in full, save sermons and keep your topics on any device.";
@@ -105,7 +107,7 @@ export default function Join() {
   const task = useAuthTask();
   const requested = firstParam(params.reason);
   const reason: Reason =
-    requested === "watch" || requested === "save" ? requested : "account";
+    requested === "watch" || requested === "save" || requested === "path" ? requested : "account";
   const mode: Mode = firstParam(params.mode) === "sign-in" ? "sign-in" : "sign-up";
   const next = afterAuthParam(params.next);
   const busy = task.busy !== null;

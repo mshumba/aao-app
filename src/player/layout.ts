@@ -1,10 +1,14 @@
 import { useSyncExternalStore } from "react";
 import { StyleSheet } from "react-native";
-import { space } from "../theme";
 
 // Shared geometry so the sermon screen's player slot and the app-wide player
 // agree on exactly where the video sits, without measuring during transitions.
-export const HEADER_HEIGHT = 64; // Header minHeight 56 + marginBottom 8
+/**
+ * The sermon stage's dark bar between the status bar and the video: 44pt of
+ * round buttons (down and "…") and 6pt of air. The buttons sit here, never
+ * over the video, so they can't cover YouTube's own controls.
+ */
+export const STAGE_BAR = 50;
 // Pill 56 (plus its hairline border) + 8 above + 8 below. Used until measured.
 const TAB_BAR_HEIGHT = 72 + StyleSheet.hairlineWidth * 2;
 const DOCK_BAR_HEIGHT = 56;
@@ -16,7 +20,7 @@ const MIN_PLAYER = 200; // YouTube's minimum embedded player size
 const PAGE_ROOM = 160;
 
 /** Routes that show the tab bar, so the dock sits above it. */
-export const TAB_PATHS = ["/", "/topics", "/search", "/account"];
+export const TAB_PATHS = ["/", "/paths", "/search", "/account"];
 
 type Size = { width: number; height: number };
 type Insets = { top: number; bottom: number };
@@ -44,39 +48,42 @@ export function useChrome() {
   return useSyncExternalStore(subscribe, () => chrome, () => chrome);
 }
 
-/** Where the video sits on the sermon (Now Playing) screen. */
+/**
+ * Where the video sits on the sermon (Now Playing) screen: flush under the
+ * stage bar, edge to edge on a phone (the stage is the whole width). On a
+ * wide or short window it keeps 16:9 at a height that leaves room for the
+ * page below, centred on the dark stage.
+ */
 export function fullFrame(window: Size, insets: Insets) {
-  const page = Math.min(window.width, 760);
-  let width = page - space.gutter * 2;
-  let left = (window.width - page) / 2 + space.gutter;
-  // Below YouTube's minimum width, run the player edge to edge.
-  if (width < MIN_PLAYER) {
-    width = window.width;
-    left = 0;
-  }
+  const top = insets.top + STAGE_BAR;
+  let width = window.width;
   let height = Math.max(MIN_PLAYER, (width * 9) / 16);
-  // Keep room below for the title and controls: at most 45% of the window
-  // (a desktop browser), and never so tall on a short window that they can't
-  // scroll into view.
+  // At most 45% of the window (a desktop browser), and never so tall on a
+  // short window that the title and controls can't scroll into view.
   const room = Math.max(
     MIN_PLAYER,
-    Math.min(
-      window.height * 0.45,
-      window.height - insets.top - HEADER_HEIGHT - PAGE_ROOM,
-    ),
+    Math.min(window.height * 0.45, window.height - top - PAGE_ROOM),
   );
   if (height > room) {
     height = room;
-    // Narrower to keep 16:9, still aligned with the text column below.
     width = Math.min(width, Math.max(MIN_PLAYER, (height * 16) / 9));
   }
   return {
-    left,
-    top: insets.top + HEADER_HEIGHT,
+    left: (window.width - width) / 2,
+    top,
     width,
     height,
-    radius: width === window.width ? 0 : 12,
+    radius: width >= window.width ? 0 : 12,
   };
+}
+
+/**
+ * The stage's text column (title, transport, the panel below): the video's
+ * width on a wide window so they line up, and at least a comfortable
+ * reading width when a short window shrinks the video.
+ */
+export function stageColumn(window: Size, frame: { width: number }) {
+  return Math.min(window.width, Math.max(frame.width, 560));
 }
 
 /** From this width the dock is a small card in the bottom-right corner. */

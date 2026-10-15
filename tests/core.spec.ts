@@ -18,10 +18,10 @@ test("guest browse, exact sermon identity, search and back navigation", async ({
   await page.goto("/");
   await expect(page.locator("iframe")).toHaveCount(0);
   await page
-    .getByRole("button", { name: "Search sermons", exact: true })
+    .getByRole("button", { name: "What are you going through?", exact: true })
     .click();
-  const input = page.getByRole("searchbox", { name: "Search sermons" });
-  // Home's search field opens the Search tab ready to type.
+  const input = page.getByRole("searchbox", { name: "What are you going through?" });
+  // Home's question field opens the Search tab ready to type.
   await expect(input).toBeFocused();
   await expect(tab(page, "Search")).toHaveAttribute("aria-selected", "true");
   await input.fill("pray");
@@ -35,7 +35,10 @@ test("guest browse, exact sermon identity, search and back navigation", async ({
     page.getByRole("heading", { level: 1, name: "Pray Without Ceasing", exact: true }),
   ).toBeVisible();
   await expect(
-    shown(page.getByText("Lioness Conference · Grand Finale · 27 Sep 2026", { exact: true })),
+    shown(page.getByText("27 Sep 2026 · 3 hr 35 min", { exact: true })),
+  ).toBeVisible();
+  await expect(
+    shown(page.getByText("Apostle Arome Osayi · Lioness Conference · Grand Finale", { exact: true })),
   ).toBeVisible();
   await expect(shown(page.getByText(lioness, { exact: true }))).toBeVisible();
   await expect(
@@ -49,22 +52,28 @@ test("guest browse, exact sermon identity, search and back navigation", async ({
   await expect(input).toHaveValue("pray");
   await input.fill("no-such-sermon");
   await expect(
-    page.getByRole("heading", { name: "No sermons match “no-such-sermon”" }),
+    shown(
+      page.getByText(
+        "No sermon titles match “no-such-sermon”. Press search to find the moments where he speaks to it.",
+        { exact: true },
+      ),
+    ),
   ).toBeVisible();
-  await page
-    .getByRole("button", { name: "Clear search", exact: true })
-    .last()
-    .click();
+  await expect(rows(page)).toHaveCount(0);
+  await page.getByRole("button", { name: "Clear", exact: true }).click();
   await expect(input).toHaveValue("");
-  await expect(rows(page)).toHaveCount(4);
+  await expect(shown(page.getByRole("heading", { name: "Browse by topic" }))).toBeVisible();
 });
 
 test("each screen has one visible page heading", async ({ page }) => {
   for (const path of [
     "/",
     "/sermon/nUW8NT2Pe88",
-    "/topics",
+    "/paths",
+    "/path/breaking-free-from-habitual-sin",
+    "/topics/prayer",
     "/search",
+    "/search?q=fear",
     "/account",
   ]) {
     await page.goto(path);
@@ -85,8 +94,9 @@ test("unavailable sermon gives a route back to browse", async ({ page }) => {
   await page
     .getByRole("button", { name: "Browse sermons", exact: true })
     .click();
+  await expect(tab(page, "Home")).toHaveAttribute("aria-selected", "true");
   await expect(
-    page.getByRole("button", { name: "Search sermons", exact: true }),
+    page.getByRole("button", { name: "What are you going through?", exact: true }),
   ).toBeVisible();
 });
 
@@ -223,7 +233,7 @@ test("leaving a playing sermon docks it; it keeps playing across tabs", async ({
   const dock = page.getByTestId("player-dock");
   await expect(dock).toBeVisible();
   await expect(page.getByTestId("dock-status")).toHaveText("Playing");
-  for (const name of ["Topics", "Search", "Account", "Home"] as const) {
+  for (const name of ["Paths", "Search", "Account", "Home"] as const) {
     await tab(page, name).click();
     await expect(dock).toBeVisible();
   }
@@ -285,16 +295,21 @@ test("a double tap on a sermon opens it once", async ({ page }) => {
   );
   await page.getByRole("button", { name: "Back", exact: true }).click();
   await expect(
-    page.getByRole("button", { name: "Search sermons", exact: true }),
+    page.getByRole("button", { name: "What are you going through?", exact: true }),
   ).toBeVisible();
 });
 
-test("missing artwork falls back to the event name", async ({ page }) => {
+test("missing artwork falls back to the event name or an icon", async ({
+  page,
+}) => {
   // The fixture blocks every YouTube image request.
   await page.goto("/");
-  const fallback = page.getByTestId("thumbnail-fallback").first();
-  await expect(fallback).toBeVisible();
-  await expect(fallback).toContainText("Lioness Conference");
+  // Home's rows name the event on the dark tile instead.
+  await expect(rows(page)).toHaveCount(3);
+  for (const row of await rows(page).all()) await expect(row).toContainText("The Votage");
+  // Older list rows show a play icon tile.
+  await page.goto("/topics/prayer");
+  await expect(page.getByTestId("thumbnail-fallback").first()).toBeVisible();
 });
 
 test("sample screens are labelled, actionable and render without errors", async ({
@@ -361,7 +376,7 @@ test("press feedback scales, or dims when the system asks for less motion", asyn
 
 test("a double tap on Back goes back one screen, not two", async ({ page }) => {
   await page.goto("/");
-  await tab(page, "Topics").click();
+  await tab(page, "Search").click();
   await page
     .getByRole("button", { name: "Prayer, 2 sermons", exact: true })
     .click();
@@ -385,8 +400,12 @@ test("repeated link parameters don't break the app", async ({ page }) => {
   page.on("pageerror", (e) => errors.push(String(e)));
   await page.goto("/search?q=pray&q=faith");
   await expect(
-    page.getByRole("searchbox", { name: "Search sermons" }),
+    page.getByRole("searchbox", { name: "What are you going through?" }),
   ).toHaveValue("pray");
+  await page.goto("/path/breaking-free-from-habitual-sin?id=x&id=y");
+  await expect(
+    page.getByRole("heading", { level: 1, name: "Breaking free from habitual sin" }),
+  ).toBeVisible();
   await page.goto("/sermon/nUW8NT2Pe88?id=x");
   await expect(
     page.getByRole("button", { name: "Watch sermon", exact: true }),
