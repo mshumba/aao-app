@@ -44,3 +44,14 @@ Owner: "when someone is in a path they should get the sermon in full and maybe w
 - Paths tab card kicker: "7 MESSAGES" (drop "ABOUT 15 MIN A DAY"); path detail line "Day 3 of 7" plus optional total hours.
 - Keep focus_start/focus_end in the data model untouched.
 - Teaching series are LIVE (15 Oct): paths.kind='series', sort 101-105: building-on-the-right-foundation (12), knowing-the-holy-spirit (12), the-way-of-the-cross (6), living-by-faith (6), seeking-the-face-of-god (1). Do not show paths.minutes_per_day as watch time (it's the focus-segment average); use the full sermons' durations (sum or "12 teachings"). Kicker for series: "TEACHING SERIES · 12 TEACHINGS".
+
+## 7. Final-check leftovers (15 Oct; grades: Search 9.5, Path 9, Sermon 8.5, Paths tab 8.5, Home 8) — owner of each fix in brackets
+1. [pages] Home hero: newest-sermon flyers collide with the title and avatar. Keep the dark scrim to ~51% of the width and fade to ~80% like the concept (`src/home/Hero.tsx`), not just past the measured title; check with text-heavy flyer thumbnails.
+2. [pages] `src/kit/moments.tsx` (~270–278): the playing moment row uses a cool grey `#f3f4f6` and a 3pt navy left border on a rounded card — the "AI card" pattern. Use `c.featureOnSurface` (#f3eee5) and no one-sided border (state via the navy timestamp chip and "PLAYING" kicker).
+3. [paths] Scrubber: remove the gold focus brackets and the "Day 3 focus · …" label (also required by §6); white moment ticks only.
+4. [coordinator, data] Path italic phrases come from `paths.italic`; the concept italicises only "habitual" in "Breaking free from habitual sin". Data fix, done on the Mac.
+5. [pages] Continue watching: add "See all", and art-only tiles with "1 hr 12 min left" on the art (no title under it) like the concept; the full list lives behind See all.
+6. [pages] Tab icons: the concept's Home and Paths glyphs need `react-native-svg` — you may add it with `npx expo install react-native-svg` (a native rebuild is happening anyway for expo-image).
+7. [paths] Path page: Day 5 shows faintly under the sticky CTA; end the list cleanly (bottom padding / fade) like the concept.
+8. [pages] Home scrolled: the 94% cream status-bar strip over the dark path card leaves a pale band with a hard edge; fade it or switch the status-bar treatment over dark content.
+9. [search] "Moments that speak to this" is ~5% larger than the concept; and draft paths need the "Draft" marker in Search's guided-paths list too (consistent with the Paths tab).
