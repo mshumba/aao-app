@@ -1,0 +1,385 @@
+{
+  "about": "Shared cases for the clean-verbatim quote rule. Run by verbatim_test.ts (TypeScript), tests/test_verbatim.py in curated-sermons/pipelines/embeddings (Python), and against public.is_clean_verbatim() in SQL. 'check': the word rule alone (cleanSpan / clean_span / is_clean_verbatim). 'destutter': fillers and stutters left out of a finished quote. 'problem': quoteProblem / quote_problem on a finished quote. 'build': the model's pick rebuilt from the transcript (buildQuote / build_quote); seg_words/seg_times default to one caption line.",
+  "check": [
+    {
+      "p": "and i tell you the grace of god is not a license to sin it is the power over sin so stop",
+      "q": "I tell you, the grace of God is not a license to sin; it is the power over sin.",
+      "ok": true,
+      "why": "capitals and punctuation only"
+    },
+    {
+      "p": "if if you want to see the glory of god you must pray",
+      "q": "If you want to see the glory of God, you must pray.",
+      "ok": true,
+      "why": "one-word stutter left out"
+    },
+    {
+      "p": "we are we are going to see the hand of god in this place",
+      "q": "We are going to see the hand of God in this place.",
+      "ok": true,
+      "why": "two-word repeat left out"
+    },
+    {
+      "p": "the lord is the lord is the lord is my shepherd i shall not want",
+      "q": "The Lord is my shepherd, I shall not want.",
+      "ok": true,
+      "why": "three-word repeat left out twice"
+    },
+    {
+      "p": "you you you cannot serve two masters at the same time",
+      "q": "You cannot serve two masters at the same time.",
+      "ok": true,
+      "why": "triple stutter"
+    },
+    {
+      "p": "so um the word of god uh is er settled erm in heaven ah hmm mm forever",
+      "q": "So the word of God is settled in heaven forever.",
+      "ok": true,
+      "why": "all seven fillers left out"
+    },
+    {
+      "p": "the uh the blood of jesus speaks better things",
+      "q": "The blood of Jesus speaks better things.",
+      "ok": true,
+      "why": "a filler between the two copies"
+    },
+    {
+      "p": "pray pray pray until something happens in your life",
+      "q": "Pray, pray, pray until something happens in your life.",
+      "ok": true,
+      "why": "a repeat may be kept"
+    },
+    {
+      "p": "and um god will make a way where there seems to be no way",
+      "q": "And um God will make a way where there seems to be no way.",
+      "ok": true,
+      "why": "a filler may be kept"
+    },
+    {
+      "p": "dont be discouraged dont be tired it is not god it is the devil",
+      "q": "Don't be discouraged, don't be tired; it is not God, it is the devil.",
+      "ok": true,
+      "why": "apostrophes are punctuation"
+    },
+    {
+      "p": "and i tell you the grace of god is not a license to sin it is the power over sin so stop",
+      "q": "The grace of God is not a licence to sin.",
+      "ok": false,
+      "why": "a word changed (spelling)"
+    },
+    {
+      "p": "and i tell you the grace of god is not a license to sin it is the power over sin so stop",
+      "q": "The grace of God is truly not a license to sin.",
+      "ok": false,
+      "why": "a word added"
+    },
+    {
+      "p": "and i tell you the grace of god is not a license to sin it is the power over sin so stop",
+      "q": "The grace of God is not license to sin.",
+      "ok": false,
+      "why": "a real word left out"
+    },
+    {
+      "p": "and i tell you the grace of god is not a license to sin it is the power over sin so stop",
+      "q": "It is the power over sin, not a license to sin.",
+      "ok": false,
+      "why": "words reordered"
+    },
+    {
+      "p": "and i tell you the grace of god is not a license to sin it is the power over sin so stop",
+      "q": "The grace of God, um, is not a license to sin.",
+      "ok": false,
+      "why": "a filler added"
+    },
+    {
+      "p": "dont wait come what me i will pray for you",
+      "q": "Come what may, I will pray for you.",
+      "ok": false,
+      "why": "a caption mistake corrected"
+    },
+    {
+      "p": "we are we are going to see the hand of god in this place",
+      "q": "We we are going to see the hand of God.",
+      "ok": false,
+      "why": "only part of a repeat left out"
+    },
+    {
+      "p": "jesus said seek first the kingdom of god seek first the kingdom of god and his righteousness",
+      "q": "Jesus said, seek first the kingdom of God and his righteousness.",
+      "ok": false,
+      "why": "a repeat longer than 3 words"
+    },
+    {
+      "p": "god is good all the time and god is good",
+      "q": "God is good and God is good.",
+      "ok": false,
+      "why": "not an immediate repeat"
+    },
+    {
+      "p": "you know okay the grace of god is enough for you",
+      "q": "You know the grace of God is enough for you.",
+      "ok": false,
+      "why": "okay is not a filler"
+    },
+    {
+      "p": "the joy of the lord is your strength",
+      "q": "Faith comes by hearing and hearing by the word of God.",
+      "ok": false,
+      "why": "from another passage (wrong sermon)"
+    },
+    {
+      "p": "and i tell you the grace of god is not a license to sin it is the power over sin so stop",
+      "q": "The grace of God ... is not a license to sin.",
+      "ok": false,
+      "why": "ellipsis"
+    },
+    {
+      "p": "and i tell you the grace of god is not a license to sin it is the power over sin so stop",
+      "q": "The grace of God is not [a] license to sin.",
+      "ok": false,
+      "why": "brackets"
+    },
+    {
+      "p": "and i tell you the grace of god is not a license to sin it is the power over sin so stop",
+      "q": "ace of God is not a license",
+      "ok": false,
+      "why": "part of a word"
+    },
+    {
+      "p": "and i tell you the grace of god is not a license to sin it is the power over sin so stop",
+      "q": "...",
+      "ok": false,
+      "why": "no words"
+    },
+    {
+      "p": "start every day read your bible pray every day pray every day pray every day read your bible",
+      "q": "Read your Bible, pray every day, pray every day, read your Bible.",
+      "ok": false,
+      "why": "a phrase repeated on purpose (not a restart on a small word) stays"
+    },
+    {
+      "p": "and they cried holy holy holy is the lord god almighty which was and is",
+      "q": "And they cried, holy holy is the Lord God Almighty.",
+      "ok": false,
+      "why": "a word said three times on purpose stays"
+    },
+    {
+      "p": "this is very very important for every believer to know today",
+      "q": "This is very important for every believer to know today.",
+      "ok": false,
+      "why": "an emphatic double (very very) stays"
+    },
+    {
+      "p": "so the fact that you were delivered doesnt mean that that deliverance is permanent",
+      "q": "The fact that you were delivered doesn't mean that deliverance is permanent.",
+      "ok": false,
+      "why": "that that before a noun is grammar, not a stutter"
+    },
+    {
+      "p": "by then the man had had enough of the lies of the enemy",
+      "q": "By then the man had enough of the lies of the enemy.",
+      "ok": false,
+      "why": "had had is grammar, not a stutter"
+    },
+    {
+      "p": "you have found that place in god that that the eyes of men have never seen",
+      "q": "You have found that place in God that the eyes of men have never seen.",
+      "ok": true,
+      "why": "that that before a small word is a stutter"
+    },
+    {
+      "p": "satan cannot cannot afflict you as long as your vessel is clean",
+      "q": "Satan cannot afflict you as long as your vessel is clean.",
+      "ok": true,
+      "why": "any word said twice by mistake may still go"
+    },
+    {
+      "p": "he he he will miss the target because your vessel is clean",
+      "q": "He will miss the target because your vessel is clean.",
+      "ok": true,
+      "why": "a small word said three times is a stutter"
+    }
+  ],
+  "destutter": [
+    {
+      "in": "If if you want to see the glory of God, you must pray.",
+      "out": "If you want to see the glory of God, you must pray."
+    },
+    { "in": "We are we are going to see the hand of God.", "out": "We are going to see the hand of God." },
+    { "in": "I, I tell you the truth tonight.", "out": "I tell you the truth tonight." },
+    { "in": "The the blood of Jesus speaks better things.", "out": "The blood of Jesus speaks better things." },
+    { "in": "You you you cannot serve two masters.", "out": "You cannot serve two masters." },
+    { "in": "Um, the word of God is settled in heaven.", "out": "The word of God is settled in heaven." },
+    { "in": "And I said to him, uh.", "out": "And I said to him." },
+    { "in": "Pray, pray, pray until something happens.", "out": "Pray, pray, pray until something happens." },
+    { "in": "Run your race, finish. Run your race, finish.", "out": "Run your race, finish. Run your race, finish." },
+    { "in": "It is finished. It is finished.", "out": "It is finished. It is finished." },
+    {
+      "in": "Concluded again and again and again that the person safe to trust is God.",
+      "out": "Concluded again and again and again that the person safe to trust is God."
+    },
+    {
+      "in": "You will have to pray much, very much, very much if you want to keep pace.",
+      "out": "You will have to pray much, very much, very much if you want to keep pace."
+    },
+    {
+      "in": "Empty without you. I am empty. I am empty. I need you.",
+      "out": "Empty without you. I am empty. I am empty. I need you."
+    },
+    {
+      "in": "In fact, it's a it's a very strange emotional situation.",
+      "out": "In fact, it's a very strange emotional situation."
+    },
+    {
+      "in": "The way you are going you will never miss it, it means God takes responsibility.",
+      "out": "The way you are going you will never miss it, it means God takes responsibility."
+    },
+    {
+      "in": "What is passed is passed, so please let it pass.",
+      "out": "What is passed is passed, so please let it pass."
+    },
+    { "in": "God is good God is good all the time.", "out": "God is good God is good all the time." },
+    { "in": "I want to I want to encourage you tonight.", "out": "I want to encourage you tonight." },
+    { "in": "You know you know we have to give this time.", "out": "You know we have to give this time." },
+    {
+      "in": "This is very very important for every believer.",
+      "out": "This is very very important for every believer."
+    },
+    { "in": "Holy holy holy is the Lord God Almighty.", "out": "Holy holy holy is the Lord God Almighty." },
+    {
+      "in": "It doesn't mean that that deliverance is permanent.",
+      "out": "It doesn't mean that that deliverance is permanent."
+    },
+    {
+      "in": "You found the place that that the eyes of men have never seen.",
+      "out": "You found the place that the eyes of men have never seen."
+    }
+  ],
+  "problem": [
+    { "q": "I tell you, the grace of God is not a license to sin.", "problem": null },
+    { "q": "When you lose someone there is a void that is created in you.", "problem": null },
+    { "q": "Oh Lord, I am in it, so I go up to my God.", "problem": null },
+    { "q": "Grace of God is enough.", "problem": "length" },
+    {
+      "q": "w0 w1 w2 w3 w4 w5 w6 w7 w8 w9 w10 w11 w12 w13 w14 w15 w16 w17 w18 w19 w20 w21 w22 w23 w24 w25 w26 w27 w28 w29 w30 w31 w32 w33 w34 w35 w36 w37 w38 w39 w40 w41 w42 w43 w44 w45.",
+      "problem": "length"
+    },
+    { "q": "The grace of God is not a license to sin and it is the power", "problem": "no_sentence_end" },
+    {
+      "q": "I tried and I tried and I discover that my will was not strong enough for the fight that I've.",
+      "problem": "dangling_end"
+    },
+    { "q": "The grace of God is not a license to sin; it is the power of.", "problem": "dangling_end" },
+    {
+      "q": "Your healing begins the moment you capture truth, so let God be true and let every man be a li.",
+      "problem": "garbled"
+    },
+    { "q": "He that cometh to God must believe in his St and after seven years he came.", "problem": "garbled" },
+    { "q": "The grace of God is not a license to sin… it is power.", "problem": "characters" }
+  ],
+  "build": [
+    {
+      "why": "a clean pick is kept as it is",
+      "p": "and i tell you the the grace of god is not a license to sin um it is the power over sin so stop what you are doing",
+      "model": "I tell you, the grace of God is not a license to sin; it is the power over sin.",
+      "quote": "I tell you, the grace of God is not a license to sin; it is the power over sin.",
+      "first_token": 1
+    },
+    {
+      "why": "a stutter and a filler the model kept are left out",
+      "p": "and i tell you the the grace of god is not a license to sin um it is the power over sin so stop what you are doing",
+      "model": "I tell you, the the grace of God is not a license to sin, um, it is the power over sin.",
+      "quote": "I tell you, the grace of God is not a license to sin, it is the power over sin.",
+      "first_token": 1
+    },
+    {
+      "why": "a sentence where the model corrected a caption mistake is not used",
+      "p": "dont wait come what me i will pray for you every day and god will answer every prayer that you pray in faith in the name of jesus",
+      "model": "Don't wait, come what may, I will pray for you every day. And God will answer every prayer that you pray in faith.",
+      "quote": "And God will answer every prayer that you pray in faith.",
+      "first_token": 12
+    },
+    {
+      "why": "punctuated captions: the repeat the model left out stays out",
+      "p": "Hallelujah. We are, we are going to see the hand of God in this place. Amen.",
+      "model": "We are going to see the hand of God in this place.",
+      "quote": "We are going to see the hand of God in this place.",
+      "first_token": 3
+    },
+    {
+      "why": "the model's opening words don't match the captions: that sentence would start mid-way, so the next one is used",
+      "p": "theres a difference between a man that fell into sin and one that lives in sin god will restore the one that fell if he repents with all his heart",
+      "model": "There is a difference between a man that fell into sin and one that lives in sin. God will restore the one that fell if he repents with all his heart.",
+      "quote": "God will restore the one that fell if he repents with all his heart.",
+      "first_token": 16
+    },
+    {
+      "why": "no sentence end: nothing to show",
+      "p": "and i tell you the grace of god is not a license to sin it is the power over sin so stop",
+      "model": "I tell you the grace of God is not a license to sin",
+      "quote": null
+    },
+    {
+      "why": "mostly invented: nothing to show",
+      "p": "and i tell you the grace of god is not a license to sin it is the power over sin so stop",
+      "model": "Faith comes by hearing and hearing by the word of God.",
+      "quote": null
+    },
+    {
+      "why": "over 45 words: the longest whole sentence that fits",
+      "p": "the word of god is the seed of every harvest you will ever see in your life and if you will plant it in your heart day and night it will grow and it will bear fruit in its season and nothing the enemy does can stop a seed that god has planted in good ground",
+      "model": "The word of God is the seed of every harvest you will ever see in your life. And if you will plant it in your heart day and night, it will grow and it will bear fruit in its season, and nothing the enemy does can stop a seed that God has planted in good ground.",
+      "quote": "And if you will plant it in your heart day and night, it will grow and it will bear fruit in its season, and nothing the enemy does can stop a seed that God has planted in good ground.",
+      "first_token": 17
+    },
+    {
+      "why": "a long pause (music) between the sentences: the quote stays on one side of it",
+      "p": "the joy of the lord is your strength so rejoice in him today we will now take the offering and give with joy",
+      "seg_words": [0, 12, 14],
+      "seg_times": [100, 104, 140],
+      "end_s": 150,
+      "model": "The joy of the Lord is your strength, so rejoice in him today. We will now take the offering and give with joy.",
+      "quote": "The joy of the Lord is your strength, so rejoice in him today.",
+      "first_token": 0
+    },
+    {
+      "why": "a phrase repeated on purpose that the model cut: that sentence is not used",
+      "p": "start every day quiet time read your bible pray every day pray every day pray every day read your bible pray every day if you want to grow anything you have to grow every day so that you dont wreck your life",
+      "model": "Read your Bible, pray every day, pray every day, read your Bible, pray every day. If you want to grow anything, you have to grow every day so that you don't wreck your life.",
+      "quote": "If you want to grow anything, you have to grow every day so that you don't wreck your life.",
+      "first_token": 23
+    }
+  ],
+  "play_from": [
+    {
+      "why": "3 s before the quote",
+      "seg_words": [0, 4, 9],
+      "seg_times": [100, 102, 106],
+      "words": 12,
+      "start_s": 100,
+      "end_s": 110,
+      "first_token": 9,
+      "at": 103
+    },
+    {
+      "why": "a quote that opens its passage still gets its lead-in",
+      "seg_words": [0, 4, 9],
+      "seg_times": [100, 102, 106],
+      "words": 12,
+      "start_s": 100,
+      "end_s": 110,
+      "first_token": 0,
+      "at": 97
+    },
+    {
+      "why": "never before 0",
+      "seg_words": [0, 4],
+      "seg_times": [1.5, 3],
+      "words": 8,
+      "start_s": 1.5,
+      "end_s": 6,
+      "first_token": 0,
+      "at": 0
+    }
+  ]
+}
