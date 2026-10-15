@@ -243,9 +243,11 @@ const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
  * is drawn. An invisible child reaching past the edges by the slop takes
  * those touches instead; it's inside the control, so presses bubble to it.
  */
-function webSlop(hitSlop: PressableProps["hitSlop"]): ViewStyle | null {
+function webSlop(hitSlop: PressableProps["hitSlop"], border = 0): ViewStyle | null {
   if (Platform.OS !== "web" || hitSlop == null) return null;
-  const n = (v: number | null | undefined) => -(v ?? 0);
+  // An absolute child is placed from inside the border, so a bordered
+  // control (an outlined chip) reaches its edge plus the border.
+  const n = (v: number | null | undefined) => -((v ?? 0) + border);
   const box =
     typeof hitSlop === "number"
       ? { top: -hitSlop, bottom: -hitSlop, left: -hitSlop, right: -hitSlop }
@@ -310,7 +312,10 @@ export function Tap({
   const dimmed =
     active && (feedback === "dim" || (scales && reduced)) ? 0.6 : 1;
   const role = rest.accessibilityRole;
-  const slop = webSlop(rest.hitSlop);
+  const slop = webSlop(
+    rest.hitSlop,
+    Platform.OS === "web" ? (StyleSheet.flatten(style)?.borderWidth ?? 0) : 0,
+  );
   const children =
     slop && typeof rest.children !== "function" ? (
       <>
@@ -995,7 +1000,7 @@ export function SermonRow({
       />
       <View style={s.rowBody}>
         {top ? (
-          <T style={s.rowKicker} numberOfLines={stacked ? undefined : 1} maxFontSizeMultiplier={textCap.section}>
+          <T style={s.rowKicker} numberOfLines={stacked ? undefined : 2} maxFontSizeMultiplier={textCap.section}>
             {top}
           </T>
         ) : null}

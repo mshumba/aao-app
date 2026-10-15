@@ -185,13 +185,13 @@ export function IntentRunner() {
         return;
       }
       if (now.isSaved(sermon.id)) {
-        show("Already in your library", "bookmark");
+        show("Already saved", "bookmark");
         return;
       }
       try {
         await now.setSaved(sermon.id, true);
         // Seen and announced, like a save made with the Save button.
-        show("Saved to your library", "bookmark");
+        show("Saved", "bookmark");
       } catch {
         show("Couldn’t save. Check your connection.", "alert-circle-outline");
       }

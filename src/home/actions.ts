@@ -67,7 +67,7 @@ export function useSermonActions() {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     try {
       await account.setSaved(id, next);
-      toast(next ? "Saved to your library" : "Removed from saved", next ? "bookmark" : "bookmark-outline");
+      toast(next ? "Saved" : "Removed from saved", next ? "bookmark" : "bookmark-outline");
     } catch {
       toast(
         next ? "Couldn’t save. Check your connection." : "Couldn’t remove it. Check your connection.",

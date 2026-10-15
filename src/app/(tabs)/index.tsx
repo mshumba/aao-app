@@ -20,11 +20,14 @@ import {
   HERO_OVERLAP,
   HomeHero,
   LatestSermons,
+  SERIES_MIN,
   SeriesRow,
   StartPathRail,
+  TopicsRail,
   YourPath,
   YourPathPlaceholder,
   pathHref,
+  useBlessing,
   useSermonActions,
 } from "../../home";
 import { ChipRow, NeedChip, SearchField } from "../../kit";
@@ -32,9 +35,10 @@ import { useEnrollment, useNeeds, usePaths } from "../../learning";
 import { requestSearchFocus, useGo, usePageTitle } from "../../navigation";
 import { resumePoint } from "../../player/progress";
 import { useDockInset } from "../../player/useDockInset";
+import type { CategoryId } from "../../data/categories";
 import { c, easeOut, space } from "../../theme";
 import { sermonCount } from "../../topics";
-import { Notice, T, TextButton, dockScrollPadding, s } from "../../ui";
+import { Notice, T, TextButton, dockScrollPadding, gradient, s } from "../../ui";
 
 // The hero shows the four newest; "Latest" the next six.
 const HERO = 4;
@@ -44,6 +48,8 @@ const LATEST = 6;
 const SMALL = HERO + 4;
 /** Need chips on Home (Search lists the rest). */
 const HOME_NEEDS = 8;
+/** How far the ivory under the status bar fades out below it. */
+const STATUS_FADE = 18;
 
 // Switching tabs keeps what the other tab holds (Search's query, say), as
 // the tab bar does.
@@ -57,9 +63,10 @@ type TabsNavigation = {
 
 /**
  * Home, as the approved Immersive concept's screen 01: a dark hero with the
- * newest sermons, then on ivory the question "What are you going through?"
- * with common needs, the path you're on (or paths to start), Continue
- * watching, the latest sermons and the conferences.
+ * greeting, today's blessing and the newest sermons, then on ivory the
+ * question "What are you going through?" with common needs, the path you're
+ * on (or paths to start), Continue watching, the sermons in your topics,
+ * the latest sermons (See all: every sermon) and the conferences.
  */
 export default function Home() {
   usePageTitle("Home");
@@ -76,6 +83,7 @@ export default function Home() {
   const { paths, daysOf } = usePaths();
   const enrollment = useEnrollment();
   const active = enrollment.active;
+  const blessing = useBlessing();
 
   // The whole library, rather than the bundled sample of four.
   const library = catalogue.source !== "sample";
@@ -101,7 +109,7 @@ export default function Home() {
   // The concept shows a few needs here; Search has them all.
   const homeNeeds = useMemo(() => needs.slice(0, HOME_NEEDS), [needs]);
   const rails = useMemo(
-    () => (library ? seriesRails(sermons, seriesName, { count: 8 }) : []),
+    () => (library ? seriesRails(sermons, seriesName, { count: 8, min: SERIES_MIN }) : []),
     [library, sermons, seriesName],
   );
 
@@ -117,7 +125,7 @@ export default function Home() {
       requestSearchFocus();
       tabs.navigate("search", undefined, { merge: true });
     });
-  const searchAll = () => go.run(() => tabs.navigate("search", undefined, { merge: true }));
+  const allSermons = () => go.push("/sermons");
   const searchNeed = (label: string) => {
     if (Platform.OS !== "web") Haptics.selectionAsync().catch(() => {});
     go.run(() => router.navigate({ pathname: "/search", params: { q: label } }));
@@ -142,6 +150,11 @@ export default function Home() {
   );
   const openSeries = useCallback(
     (key: string) => goRef.current.push({ pathname: "/series/[key]", params: { key } }),
+    [],
+  );
+  const openTopic = useCallback(
+    (categoryId: CategoryId) =>
+      goRef.current.push({ pathname: "/topics/[categoryId]", params: { categoryId } }),
     [],
   );
 
@@ -182,6 +195,7 @@ export default function Home() {
           onWatch={actions.watch}
           onToggleSave={actions.toggleSave}
           onHeight={setHeroHeight}
+          blessing={blessing}
         />
 
         <View style={styles.column}>
@@ -226,10 +240,12 @@ export default function Home() {
 
           <ContinueRail exclude={active?.today?.youtubeId} onWatch={actions.watch} />
 
+          <TopicsRail sermons={sermons} topics={account.interests} onSeeAll={openTopic} />
+
           <LatestSermons
             sermons={latest}
             onOpen={actions.open}
-            onSeeAll={sermons.length > latest.length ? searchAll : undefined}
+            onSeeAll={sermons.length > latest.length ? allSermons : undefined}
           />
 
           <SeriesRow rails={rails} onOpen={openSeries} />
@@ -246,13 +262,15 @@ export default function Home() {
         </View>
       </ScrollView>
 
-      {/* Under the status bar once the hero has gone, so the time stays legible. */}
+      {/* Under the status bar once the hero has gone, so the time stays
+          legible: ivory fading out below it, never a band with a hard edge
+          over the dark path card. */}
       {insets.top > 0 ? (
         <Animated.View
           style={[
             styles.statusShade,
             {
-              height: insets.top,
+              height: insets.top + STATUS_FADE,
               opacity: pastHero ? 1 : 0,
               transitionProperty: "opacity",
               transitionDuration: 200,
@@ -278,7 +296,9 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
-    backgroundColor: "rgba(247,244,238,0.94)",
     pointerEvents: "none",
+    ...gradient(
+      "linear-gradient(180deg, rgba(247,244,238,0.96) 0%, rgba(247,244,238,0.9) 55%, rgba(247,244,238,0) 100%)",
+    ),
   },
 });

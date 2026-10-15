@@ -8,5 +8,7 @@ export { HERO_OVERLAP, HomeHero, heroHeight, heroTop } from "./Hero";
 export { StartPathRail, YourPath, YourPathPlaceholder, todayProgress } from "./PathSection";
 export { ContinueRail } from "./ContinueRail";
 export { LatestSermons, SeriesRow } from "./Latest";
+export { TopicsRail } from "./TopicsRail";
+export { fixtureBlessings, nextBlessing, spokenBlessing, useBlessing, type Blessing } from "./blessing";
 export { pathHref, useSermonActions } from "./actions";
 export { SERIES_MIN, greeting, heroKicker, isNewThisWeek, partOfDay, seriesCaption, seriesDays, shortDay } from "./copy";

@@ -209,7 +209,7 @@ export const Artwork = memo(function Artwork({
         ) : null}
         {lift !== "none" && <View style={[styles.edge, { borderRadius: r }]} />}
         {showProgress && (
-          <View style={styles.track}>
+          <View testID="progress-bar" style={styles.track}>
             <View style={[styles.fill, { width: `${Math.round(Math.min(1, progress!) * 1000) / 10}%` }]} />
           </View>
         )}

@@ -31,7 +31,8 @@ test.describe("signed in", () => {
     const save = page.getByTestId("save-sermon");
     await save.click();
     await expect(save).toContainText("Saved");
-    await expect(page.getByTestId("toast")).toContainText("Saved to your library");
+    // The sermon page's own wording ("Saved", or "Saved to your library").
+    await expect(page.getByTestId("toast")).toContainText(/Saved/);
     await page.goto("/saved");
     await expect(
       page.getByRole("button", { name: /^Apostolic Shift: Grand Finale\./ }),

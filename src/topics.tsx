@@ -233,7 +233,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  tileLabel: { fontFamily: font.bold, fontSize: 16, lineHeight: 22 },
+  tileLabel: { ...type.lead, fontFamily: font.bold },
   // Top-aligned so the icon stays with the title when text is large.
   row: {
     padding: space.lg,
@@ -253,21 +253,20 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  rowLabel: { fontFamily: font.bold, fontSize: 17, lineHeight: 24 },
+  rowLabel: { ...type.sectionSmall, color: c.text },
   tags: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
+  // Sand pills, as chips are drawn everywhere (on ivory and white alike).
   tag: {
-    minHeight: 48,
-    paddingHorizontal: space.lg,
+    minHeight: 44,
+    paddingHorizontal: 14,
     borderRadius: radius.pill,
-    borderWidth: 1,
-    borderColor: c.border,
-    backgroundColor: c.surface,
+    backgroundColor: c.feature,
     flexDirection: "row",
     alignItems: "center",
-    gap: space.sm,
+    gap: 6,
     maxWidth: "100%",
   },
-  tagLabel: { ...type.label, fontSize: 14, color: c.text, flexShrink: 1 },
+  tagLabel: { ...type.chip, color: c.text, flexShrink: 1 },
   strip: { marginHorizontal: -space.gutter, flexGrow: 0 },
   stripContent: { paddingHorizontal: space.gutter, gap: space.sm },
   filter: {
@@ -283,5 +282,5 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   filterSelected: { backgroundColor: c.accent, borderColor: c.accent },
-  filterLabel: { ...type.label, fontSize: 14, color: c.text },
+  filterLabel: { ...type.chip, color: c.text },
 });

@@ -145,7 +145,7 @@ test("Watch in the hero plays the sermon showing", async ({ page }) => {
 test("Save in the hero saves the sermon showing", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "Save Pray Without Ceasing", exact: true }).click();
-  await expect(page.getByTestId("toast")).toContainText("Saved to your library");
+  await expect(page.getByTestId("toast")).toContainText(/Saved/);
   await expect(
     page.getByRole("button", { name: "Remove Pray Without Ceasing from saved", exact: true }),
   ).toBeVisible();

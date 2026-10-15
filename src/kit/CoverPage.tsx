@@ -14,7 +14,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useGo, usePageTitle } from "../navigation";
 import { useDockInset } from "../player/useDockInset";
 import { c, easeOut, radius, space, textCap, type } from "../theme";
-import { dockScrollPadding } from "../ui";
+import { dockScrollPadding, gradient } from "../ui";
 import type { ArtSource } from "./Artwork";
 import { T, web } from "./base";
 import { RoundButton } from "./buttons";
@@ -124,7 +124,7 @@ export const CoverPage = memo(function CoverPage({
           style={[
             styles.statusShade,
             {
-              height: insets.top,
+              height: insets.top + 18,
               opacity: past ? 1 : 0,
               transitionProperty: "opacity",
               transitionDuration: 200,
@@ -178,7 +178,9 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     // A soft fade rather than a hard band over whatever scrolls under it.
-    backgroundColor: "rgba(247,244,238,0.94)",
+    ...gradient(
+      "linear-gradient(180deg, rgba(247,244,238,0.96) 0%, rgba(247,244,238,0.9) 55%, rgba(247,244,238,0) 100%)",
+    ),
     pointerEvents: "none",
   },
 });

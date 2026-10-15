@@ -21,8 +21,9 @@ import type { Sermon } from "../data/sermons";
 import { Artwork, Avatar, ItalicTitle, Kicker, PlayPill, RoundButton, Wash, spokenKicker, spokenText, spokenTime } from "../kit";
 import { useReducedMotion } from "../motion";
 import { motion } from "../onboarding/parts";
-import { c, easeOut, font, gradients, radius, shadows, textCap, type } from "../theme";
+import { c, easeOut, font, fontSize, radius, shadows, textCap, type } from "../theme";
 import { T, Tap, gradient, web, type WebKey } from "../ui";
+import { spokenBlessing, type Blessing } from "./blessing";
 import { greeting, heroKicker } from "./copy";
 
 /**
@@ -41,8 +42,8 @@ import { greeting, heroKicker } from "./copy";
 export const HERO_OVERLAP = 56;
 
 const AVATAR = 38;
-/** Kicker 14 + 6 + two lines of the masthead (41 each). */
-const BODY_MIN = 102;
+/** Kicker 16 + 6 + two lines of the masthead (41 each). */
+const BODY_MIN = 104;
 const ACTIONS = 48;
 /** From the hero's bottom edge to the bottom of Watch. */
 const ACTIONS_BOTTOM = 70;
@@ -57,15 +58,17 @@ const ART_BOTTOM_BLEED = 51;
 const ART_H = Math.round((ART_W * 9) / 16);
 /** The title column: beside the preacher's face, never across it. */
 const TITLE_MAX = 252;
+/** The blessing's column: a little wider than the title's, still clear of the face. */
+const BLESSING_MAX = 288;
 /**
- * The masthead steps down for a long title: 39/41 when it fits on two
- * lines, else 34/37 on two, else 31/34 on up to three. The words never
+ * The masthead steps down for a long title: 38/41 when it fits on two
+ * lines, else 34/37 on two, else 30/34 on up to three. The words never
  * change and are never cut off.
  */
 const TITLE_STEPS = [
-  { fontSize: 39, lineHeight: 41, letterSpacing: -0.8 },
-  { fontSize: 34, lineHeight: 37, letterSpacing: -0.6 },
-  { fontSize: 31, lineHeight: 34, letterSpacing: -0.5 },
+  { fontSize: fontSize.hero, lineHeight: 41, letterSpacing: -0.8 },
+  { fontSize: fontSize.title, lineHeight: 37, letterSpacing: -0.6 },
+  { fontSize: fontSize.question, lineHeight: 34, letterSpacing: -0.5 },
 ] as const;
 /** Later pages fetch their artwork once the viewer moves the pager, or after this. */
 const REST_MS = 2500;
@@ -75,16 +78,17 @@ const ART_WAIT_MS = 1200;
 const LOADING_AFTER_MS = 400;
 
 /**
- * The scrim across a page: dark under the title, clearing just past its
- * longest line (`edge`, in points from the left), so the face stays bright.
- * With the concept's own title (edge 248) these are its 51/61/71/80% stops.
+ * The scrim across a page, as the concept draws it: dark to 51% of the
+ * width (further when the title's longest line runs past that, `edge` in
+ * points from the left), then fading out by 80%, so busy flyer lettering
+ * never shows through the words and the face stays bright.
  */
-function heroScrim(edge: number | null) {
-  if (edge == null) return gradients.heroScrim;
-  const e = Math.round(edge);
+function heroScrim(edge: number | null, width: number) {
+  const d = Math.round(Math.max(width * 0.51, edge != null ? edge - 32 : 0));
+  const w = width;
   return (
     "linear-gradient(180deg, rgba(15,17,21,0.62) 0px, rgba(15,17,21,0) 130px), " +
-    `linear-gradient(90deg, rgba(15,17,21,0.99) 0px, rgba(15,17,21,0.98) ${e - 48}px, rgba(15,17,21,0.6) ${e}px, rgba(15,17,21,0.15) ${e + 40}px, rgba(15,17,21,0) ${e + 75}px), ` +
+    `linear-gradient(90deg, rgba(15,17,21,0.99) 0px, rgba(15,17,21,0.98) ${d}px, rgba(15,17,21,0.6) ${Math.round(d + w * 0.1)}px, rgba(15,17,21,0.15) ${Math.round(d + w * 0.2)}px, rgba(15,17,21,0) ${Math.round(d + w * 0.29)}px), ` +
     "linear-gradient(180deg, rgba(15,17,21,0) 40%, rgba(15,17,21,0.5) 70%, rgba(15,17,21,0.3) 84%)"
   );
 }
@@ -118,6 +122,8 @@ type HeroProps = {
   onToggleSave: (id: string) => void;
   /** Reports the hero's height (for the status bar's switch to dark text). */
   onHeight?: (height: number) => void;
+  /** Today's blessing, under the greeting (text only). */
+  blessing?: Blessing | null;
 };
 
 export const HomeHero = memo(function HomeHero({
@@ -132,6 +138,7 @@ export const HomeHero = memo(function HomeHero({
   onWatch,
   onToggleSave,
   onHeight,
+  blessing = null,
 }: HeroProps) {
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
@@ -261,6 +268,7 @@ export const HomeHero = memo(function HomeHero({
         style={[styles.top, { top, left: inset, right: inset }]}
         onLayout={onRow}
       >
+        <View style={styles.greetingRow}>
         <ItalicTitle
           text={greeting(name)}
           italicLast={!!name}
@@ -285,6 +293,8 @@ export const HomeHero = memo(function HomeHero({
             </T>
           </Tap>
         )}
+        </View>
+        {blessing ? <BlessingLines blessing={blessing} width={Math.min(width - 2 * inset, BLESSING_MAX)} /> : null}
       </Rise>
 
       {count ? (
@@ -370,6 +380,37 @@ export const HomeHero = memo(function HomeHero({
             </View>
           ) : null}
         </Rise>
+      ) : null}
+    </View>
+  );
+});
+
+// ---- The blessing ----------------------------------------------------------------
+
+/**
+ * Today's blessing under the greeting: Newsreader italic, never cut off (it
+ * wraps; the band grows to hold it), and its Bible reference below in small
+ * gold capitals when it has one. Text only: nothing to play or open. Read
+ * as one sentence, "Blessing: …. Psalm 71:21".
+ */
+const BlessingLines = memo(function BlessingLines({ blessing, width }: { blessing: Blessing; width: number }) {
+  const spoken = spokenBlessing(blessing);
+  return (
+    <View
+      testID="home-blessing"
+      style={[styles.blessing, { maxWidth: width }]}
+      accessible={Platform.OS !== "web"}
+      accessibilityLabel={spoken}
+    >
+      {/* Web: the word "Blessing" is read before it, unseen. */}
+      {Platform.OS === "web" ? <T style={styles.unseen}>Blessing:</T> : null}
+      <T style={styles.blessingText} maxFontSizeMultiplier={textCap.quote}>
+        {blessing.text}
+      </T>
+      {blessing.scriptureRef ? (
+        <T style={styles.blessingRef} maxFontSizeMultiplier={textCap.section}>
+          {blessing.scriptureRef}
+        </T>
       ) : null}
     </View>
   );
@@ -474,7 +515,7 @@ const HeroPage = memo(function HeroPage({
     (e: LayoutChangeEvent) => onMeasure(sermon.id, e.nativeEvent.layout.height),
     [onMeasure, sermon.id],
   );
-  const scrim = useMemo(() => gradient(heroScrim(edge)), [edge]);
+  const scrim = useMemo(() => gradient(heroScrim(edge, width)), [edge, width]);
 
   // The concept's crop, grown to cover a taller band (a three-line title), so
   // the artwork's top edge never shows under the status bar.
@@ -657,6 +698,12 @@ function Rise({
   );
 }
 
+const legible = {
+  textShadowColor: "rgba(15,17,21,0.85)",
+  textShadowOffset: { width: 0, height: 1 },
+  textShadowRadius: 10,
+};
+
 const styles = StyleSheet.create({
   hero: { backgroundColor: c.media, overflow: "hidden" },
   // Each page crops its own artwork, so a neighbour's never shows through.
@@ -666,13 +713,28 @@ const styles = StyleSheet.create({
     position: "absolute",
     zIndex: 2,
     minHeight: AVATAR,
+  },
+  greetingRow: {
+    minHeight: AVATAR,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     gap: 12,
   },
+  // Room below, so the reference never reads as part of the sermon's kicker.
+  blessing: { marginTop: 6, paddingBottom: 14, gap: 6 },
+  // Soft white italic, with a shadow that keeps it legible where a
+  // flyer's own lettering runs behind it.
+  blessingText: {
+    ...type.prose,
+    fontFamily: font.serifRegularItalic,
+    color: c.onMediaSoft,
+    ...legible,
+  },
+  blessingRef: { ...type.overline, color: c.goldOnMedia, ...legible },
+  unseen: { position: "absolute", width: 1, height: 1, overflow: "hidden", left: -1, top: 0 },
   greeting: { color: c.white, flexShrink: 1 },
-  greetingNarrow: { fontSize: 20, lineHeight: 26 },
+  greetingNarrow: { fontSize: fontSize.heading, lineHeight: 26 },
   // Navy with the avatar's white ring, so it holds on bright artwork too.
   signIn: {
     minHeight: 36,
@@ -683,7 +745,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  signInText: { fontFamily: font.bold, fontSize: 14, lineHeight: 18, color: c.white },
+  signInText: { ...type.button, color: c.white },
   body: { position: "absolute" },
   // The concept keeps the title off the preacher's face (TITLE_MAX).
   title: { color: c.white, marginTop: 6, alignSelf: "flex-start" },

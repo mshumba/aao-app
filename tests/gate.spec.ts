@@ -155,7 +155,7 @@ test("a save made just after signing in stays saved", async ({ page }) => {
   await page.getByTestId("save-sermon").click();
   await page.getByTestId("continue-google").click();
   await expect(
-    page.getByTestId("toast").filter({ hasText: "Saved to your library" }),
+    page.getByTestId("toast").filter({ hasText: /Saved/ }),
   ).toBeVisible();
   await expect(page.getByTestId("save-sermon")).toContainText("Saved");
   // Still saved once the list has had time to arrive.

@@ -47,6 +47,8 @@ export const c = {
   goldOnDark: "#b8954a",
   /** Kickers on the dark hero, path cards and the stage. */
   onMediaKicker: "rgba(255, 255, 255, 0.78)",
+  /** Gold small text on the dark hero (a blessing's Bible reference), 8:1 on c.media. */
+  goldOnMedia: "#c8a65e",
   /** Subtitles on the dark hero. */
   onMediaSoft: "rgba(255, 255, 255, 0.82)",
   /** Upcoming segments of a path's progress on dark. */
