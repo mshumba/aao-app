@@ -156,7 +156,13 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const progress = useWatchProgress();
   // Read when saving, so saves never re-create the player's callbacks.
   const accountRef = useRef({ user, ...progress });
+  // The load still waiting on the account's progress for its saved place
+  // (catchUp), as a ticket only that load holds. Anything that settles the
+  // place first drops it: the viewer seeking, skipping or starting over,
+  // closing, another load, or another viewer signing in.
+  const lateResume = useRef<object | null>(null);
   useEffect(() => {
+    if (accountRef.current.user?.id !== user?.id) lateResume.current = null;
     accountRef.current = { user, ...progress };
   }, [user, progress]);
   const [sermon, setSermon] = useState<Sermon | null>(null);
@@ -331,10 +337,13 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   /**
    * The account's progress arrived after this sermon started loading (a
    * Watch straight after signing in). Jump to the saved place, unless the
-   * viewer has already moved on from the start.
+   * viewer has already moved on from the start or chose a place meanwhile
+   * (even the start itself), or this load has been replaced.
    */
   const catchUp = useCallback(
-    (id: string, items: WatchProgress[]) => {
+    (ticket: object, id: string, items: WatchProgress[]) => {
+      if (lateResume.current !== ticket) return;
+      lateResume.current = null;
       const loaded = current.current;
       if (!loaded || loaded.id !== id) return;
       const from = resumePoint(items.find((item) => item.sermonId === id) ?? null);
@@ -355,6 +364,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const load = useCallback(
     (next: Sermon, at?: number) => {
       if (pending.current && sermon?.id === next.id) return;
+      // An earlier load's saved place, still on its way, isn't for this one.
+      lateResume.current = null;
       // Asked for a place: start there, with no "Resuming at" note.
       if (at != null && Number.isFinite(at) && at >= 0) {
         resumeNote.current = 0;
@@ -367,8 +378,13 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       let from = 0;
       if (viewer.user && viewer.progressReady)
         from = resumePoint(viewer.progressFor(next.id));
-      else if (viewer.user)
-        viewer.whenProgressReady().then((items) => items && catchUp(next.id, items));
+      else if (viewer.user) {
+        const ticket = {};
+        lateResume.current = ticket;
+        viewer
+          .whenProgressReady()
+          .then((items) => items && catchUp(ticket, next.id, items));
+      }
       resumeNote.current = from;
       setResumedFrom(from);
       begin(next, from);
@@ -385,6 +401,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     pathDayRef.current = null;
     current.current = null;
     loadedId = null;
+    lateResume.current = null;
     resumeNote.current = 0;
     setResumedFrom(0);
     clearBlockedCheck();
@@ -520,6 +537,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   }, [full, persist]);
 
   const startOver = useCallback(() => {
+    lateResume.current = null;
     resumeNote.current = 0;
     setResumedFrom(0);
     const loaded = current.current;
@@ -595,6 +613,17 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const playback = useMemo<Playback>(() => {
     const clamp = (s: number) =>
       Math.max(0, duration ? Math.min(s, duration - 1) : s);
+    // The viewer's own choice of place: a saved one arriving late (or
+    // waiting for the player to be ready) mustn't move them afterwards.
+    const moveTo = (to: number) => {
+      lateResume.current = null;
+      // The player ignores commands until it's ready, so a choice made
+      // while it loads is kept for then.
+      seekOnReady.current = phaseRef.current === "loading" ? to : null;
+      position.current = to;
+      setSeconds(to);
+      command({ type: "seek", seconds: to });
+    };
     return {
       state,
       playing,
@@ -605,18 +634,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       play: () => command({ type: "play" }),
       pause: hold,
       toggle: () => (playing ? hold() : command({ type: "play" })),
-      seek: (s) => {
-        const to = clamp(s);
-        position.current = to;
-        setSeconds(to);
-        command({ type: "seek", seconds: to });
-      },
-      skip: (delta) => {
-        const to = clamp(position.current + delta);
-        position.current = to;
-        setSeconds(to);
-        command({ type: "seek", seconds: to });
-      },
+      seek: (s) => moveTo(clamp(s)),
+      skip: (delta) => moveTo(clamp(position.current + delta)),
       cycleRate: () => {
         const next = RATES[(RATES.indexOf(rate) + 1) % RATES.length] ?? 1;
         setRate(next);
