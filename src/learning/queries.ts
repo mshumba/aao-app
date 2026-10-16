@@ -1,4 +1,5 @@
-import { authHeaders, fetchWithTimeout, restBase } from "./session";
+import { request } from "./request";
+import { authHeaders, restBase } from "./session";
 import type { Moment, Need, Path, PathDay, PathKind, PathStatus } from "./types";
 
 /**
@@ -32,16 +33,22 @@ async function rest<T>(
   };
   if (init.body !== undefined) headers["Content-Type"] = "application/json";
   if (init.prefer) headers.Prefer = init.prefer;
-  const response = await fetchWithTimeout(`${restBase}/${path}`, {
-    method: init.method ?? "GET",
-    headers,
-    body: init.body === undefined ? undefined : JSON.stringify(init.body),
-    timeoutMs: TIMEOUT,
-  });
-  if (!response.ok) throw new HttpError(response.status, `${path.split("?")[0]} failed (${response.status})`);
-  if (response.status === 204) return undefined as T;
-  const text = await response.text();
-  return (text ? JSON.parse(text) : undefined) as T;
+  // The body is read under the same deadline as the request.
+  return request(
+    `${restBase}/${path}`,
+    {
+      method: init.method ?? "GET",
+      headers,
+      body: init.body === undefined ? undefined : JSON.stringify(init.body),
+      timeoutMs: TIMEOUT,
+    },
+    async (response) => {
+      if (!response.ok) throw new HttpError(response.status, `${path.split("?")[0]} failed (${response.status})`);
+      if (response.status === 204) return undefined as T;
+      const text = await response.text();
+      return (text ? JSON.parse(text) : undefined) as T;
+    },
+  );
 }
 
 /** Reads a public table; a table not deployed yet reads as empty. */

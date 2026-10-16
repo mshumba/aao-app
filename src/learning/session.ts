@@ -89,23 +89,6 @@ export async function authHeaders(token?: string | null): Promise<Record<string,
   };
 }
 
-/** fetch with a timeout that also honours the caller's AbortSignal. */
-export async function fetchWithTimeout(
-  url: string,
-  init: RequestInit & { timeoutMs?: number },
-): Promise<Response> {
-  const { timeoutMs = 15_000, signal, ...rest } = init;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort("timeout"), timeoutMs);
-  const forward = () => controller.abort("caller");
-  if (signal) {
-    if (signal.aborted) controller.abort("caller");
-    else signal.addEventListener("abort", forward);
-  }
-  try {
-    return await fetch(url, { ...rest, signal: controller.signal });
-  } finally {
-    clearTimeout(timer);
-    signal?.removeEventListener("abort", forward);
-  }
-}
+// Requests themselves live in request.ts (no React Native imports, so the
+// tests run them); blessing/data.ts reads fetchWithTimeout from here.
+export { fetchWithTimeout } from "./request";

@@ -1,5 +1,6 @@
 import { fakeQuotes, fakeSearch } from "./fixtures";
-import { authHeaders, fetchWithTimeout, functionsBase, learningMode } from "./session";
+import { request } from "./request";
+import { authHeaders, functionsBase, learningMode } from "./session";
 import { LearningError, type QuoteResult, type SearchResponse } from "./types";
 
 /**
@@ -44,26 +45,27 @@ async function failure(response: Response): Promise<LearningError> {
 function thrown(error: unknown, signal?: AbortSignal): LearningError {
   if (error instanceof LearningError) return error;
   if (signal?.aborted) return new LearningError("aborted");
-  // A timeout or no connection: fetch rejects with a TypeError or AbortError.
+  // A timeout (TimeoutError) or no connection (fetch's TypeError).
   return new LearningError("offline", error instanceof Error ? error.message : String(error));
 }
 
 async function post<T>(name: string, body: unknown, timeoutMs: number, signal?: AbortSignal): Promise<T> {
-  let response: Response;
   try {
-    response = await fetchWithTimeout(`${functionsBase}/${name}`, {
-      method: "POST",
-      headers: { ...(await authHeaders()), ...regionHeaders, "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-      signal,
-      timeoutMs,
-    });
-  } catch (error) {
-    throw thrown(error, signal);
-  }
-  if (!response.ok) throw await failure(response);
-  try {
-    return (await response.json()) as T;
+    // The deadline and `signal` cover the body too, error bodies included.
+    return await request(
+      `${functionsBase}/${name}`,
+      {
+        method: "POST",
+        headers: { ...(await authHeaders()), ...regionHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal,
+        timeoutMs,
+      },
+      async (response) => {
+        if (!response.ok) throw await failure(response);
+        return (await response.json()) as T;
+      },
+    );
   } catch (error) {
     throw thrown(error, signal);
   }
