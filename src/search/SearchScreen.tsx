@@ -7,6 +7,7 @@ import {
   useContext,
   useDeferredValue,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -31,7 +32,7 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useSaved } from "../auth/AccountProvider";
+import { useAccount, useSaved } from "../auth/AccountProvider";
 import { useGate } from "../auth/gate";
 import { useCatalogue } from "../catalogue/CatalogueProvider";
 import { getCategory } from "../data/categories";
@@ -199,6 +200,7 @@ function SearchView({ initialQuery, unknownTopic }: { initialQuery: string; unkn
   const go = useGo();
   const gate = useGate();
   const saved = useSaved();
+  const userId = useAccount().user?.id ?? null;
   const toast = useToast();
   const { sermons } = useCatalogue();
   const { needs } = useNeeds();
@@ -209,9 +211,9 @@ function SearchView({ initialQuery, unknownTopic }: { initialQuery: string; unkn
   // Navigation, the gate, the saved list and the toast change identity
   // between renders; callbacks read the latest through a ref so the rows
   // they're passed to stay memoised.
-  const latest = useRef({ go, gate, saved, toast });
-  useEffect(() => {
-    latest.current = { go, gate, saved, toast };
+  const latest = useRef({ go, gate, saved, toast, userId });
+  useLayoutEffect(() => {
+    latest.current = { go, gate, saved, toast, userId };
   });
 
   const [query, setQuery] = useState(initialQuery);
@@ -335,25 +337,29 @@ function SearchView({ initialQuery, unknownTopic }: { initialQuery: string; unkn
     [asked],
   );
 
-  const saving = useRef(false);
+  // Keep pending writes across account changes; only the same account and sermon wait.
+  const saving = useRef(new Set<string>());
   const toggleSave = useCallback(
     async (m: SearchMoment) => {
-      const { gate, saved, toast } = latest.current;
-      if (saving.current) return;
+      const { gate, saved, toast, userId } = latest.current;
+      const key = JSON.stringify([userId, m.youtubeId]);
+      if (saving.current.has(key)) return;
       if (!gate.require({ kind: "save", sermonId: m.youtubeId })) return;
-      saving.current = true;
+      saving.current.add(key);
       const next = !saved.isSaved(m.youtubeId);
       if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
       try {
         await saved.setSaved(m.youtubeId, next);
+        if (latest.current.userId !== userId) return;
         toast(next ? "Saved" : "Removed from saved", next ? "bookmark" : "bookmark-outline");
       } catch {
+        if (latest.current.userId !== userId) return;
         toast(
           next ? "Couldn’t save. Check your connection." : "Couldn’t remove it. Check your connection.",
           "alert-circle-outline",
         );
       } finally {
-        saving.current = false;
+        saving.current.delete(key);
       }
     },
     [],

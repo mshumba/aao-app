@@ -2,7 +2,7 @@ import * as Haptics from "expo-haptics";
 import { router, type Href } from "expo-router";
 import { useCallback, useLayoutEffect, useMemo, useRef } from "react";
 import { Platform } from "react-native";
-import { useSaved } from "../auth/AccountProvider";
+import { useAccount, useSaved } from "../auth/AccountProvider";
 import { useGate } from "../auth/gate";
 import { requestWatch, useGo } from "../navigation";
 import { loadedSermonId } from "../player/PlayerProvider";
@@ -31,12 +31,14 @@ export function useSermonActions() {
   const go = useGo();
   const gate = useGate();
   const saved = useSaved();
+  const userId = useAccount().user?.id ?? null;
   const toast = useToast();
-  const latest = useRef({ go, gate, saved, toast });
+  const latest = useRef({ go, gate, saved, toast, userId });
   useLayoutEffect(() => {
-    latest.current = { go, gate, saved, toast };
+    latest.current = { go, gate, saved, toast, userId };
   });
-  const saving = useRef(false);
+  // Keep pending writes across account changes; only the same account and sermon wait.
+  const saving = useRef(new Set<string>());
 
   const open = useCallback((id: string) => {
     latest.current.go.push({ pathname: "/sermon/[id]", params: { id } });
@@ -57,23 +59,26 @@ export function useSermonActions() {
   }, []);
 
   const toggleSave = useCallback(async (id: string) => {
-    const { gate, saved, toast } = latest.current;
-    if (saving.current) return;
+    const { gate, saved, toast, userId } = latest.current;
+    const key = JSON.stringify([userId, id]);
+    if (saving.current.has(key)) return;
     if (!gate.require({ kind: "save", sermonId: id })) return;
-    saving.current = true;
+    saving.current.add(key);
     const next = !saved.isSaved(id);
     if (Platform.OS !== "web")
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     try {
       await saved.setSaved(id, next);
+      if (latest.current.userId !== userId) return;
       toast(next ? "Saved" : "Removed from saved", next ? "bookmark" : "bookmark-outline");
     } catch {
+      if (latest.current.userId !== userId) return;
       toast(
         next ? "Couldn’t save. Check your connection." : "Couldn’t remove it. Check your connection.",
         "alert-circle-outline",
       );
     } finally {
-      saving.current = false;
+      saving.current.delete(key);
     }
   }, []);
 

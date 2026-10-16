@@ -182,26 +182,32 @@ export function LearningProvider({ children }: PropsWithChildren) {
   const revalidate = useCallback(async () => {
     if (local) return;
     lastFetch.current = Date.now();
-    const [n, p] = await Promise.allSettled([fetchNeeds(), fetchPaths()]);
-    // What the device's copy already shows is kept as it is.
-    if (n.status === "fulfilled") {
-      const fresh = n.value;
-      setNeeds((was) => (!was.loading && same(was.needs, fresh) ? was : { needs: fresh, loading: false }));
-      writeJSON(KEYS.needs, { at: Date.now(), data: fresh } satisfies Stamped<Need[]>);
-    } else setNeeds((was) => (was.loading ? { ...was, loading: false } : was));
-    if (p.status === "fulfilled") {
-      const fresh = p.value;
-      setPathData((was) =>
-        !was.loading && !was.error && same(was.paths, fresh.paths) && same(was.days, fresh.days)
-          ? was
-          : { ...fresh, loading: false, error: false },
-      );
-      writeJSON(KEYS.paths, { at: Date.now(), data: fresh });
-    } else
-      setPathData((was) => {
-        const error = was.paths.length === 0;
-        return !was.loading && was.error === error ? was : { ...was, loading: false, error };
-      });
+    // These resources are independent: show each as soon as it arrives.
+    // Paths and their days still publish together as one consistent result.
+    await Promise.all([
+      fetchNeeds().then(
+        (fresh) => {
+          setNeeds((was) => (!was.loading && same(was.needs, fresh) ? was : { needs: fresh, loading: false }));
+          writeJSON(KEYS.needs, { at: Date.now(), data: fresh } satisfies Stamped<Need[]>);
+        },
+        () => setNeeds((was) => (was.loading ? { ...was, loading: false } : was)),
+      ),
+      fetchPaths().then(
+        (fresh) => {
+          setPathData((was) =>
+            !was.loading && !was.error && same(was.paths, fresh.paths) && same(was.days, fresh.days)
+              ? was
+              : { ...fresh, loading: false, error: false },
+          );
+          writeJSON(KEYS.paths, { at: Date.now(), data: fresh });
+        },
+        () =>
+          setPathData((was) => {
+            const error = was.paths.length === 0;
+            return !was.loading && was.error === error ? was : { ...was, loading: false, error };
+          }),
+      ),
+    ]);
   }, []);
 
   useEffect(() => {
