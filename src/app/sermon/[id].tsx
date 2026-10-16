@@ -326,6 +326,9 @@ function NowPlayingScreen({ sermon, link }: { sermon: Sermon; link: SermonParams
     clearWatchRequest();
     if (!current && gate.require(watchIntent(sermon.id, startAt, dayOfPath)))
       session.load(sermon, startAt ?? undefined);
+    // Continue means play even when this sermon is already paused in the
+    // dock. A requested timestamp keeps its seek-then-play path below.
+    else if (current && startAt == null) session.play();
     // Only when the request is first carried out.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playOnOpen, staged]);

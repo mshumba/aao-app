@@ -125,6 +125,8 @@ export async function fakeYouTube(
         el.style.width = "100%"; el.style.height = "100%";
         el.innerHTML = '<iframe title="Fake YouTube player" style="width:100%;height:100%;border:0;background:#000"></iframe>';
         function emit(s) { state = s; o.events.onStateChange({ data: s }); }
+        // A controlled natural end, for replay tests without hours of ticks.
+        yt.finish = function () { clearInterval(timer); t = ${duration}; emit(0); };
         this.destroy = function () { clearInterval(timer); yt.destroyed++; };
         function attach() {
           self.getCurrentTime = function () { return t; };
@@ -151,6 +153,13 @@ export async function fakeYouTube(
       } };
       window.onYouTubeIframeAPIReady && window.onYouTubeIframeAPIReady();`,
     });
+  });
+}
+
+/** Let the currently loaded fake video report its natural end. */
+export async function finishYouTube(page: Page) {
+  await page.evaluate(() => {
+    (window as unknown as { __yt: { finish: () => void } }).__yt.finish();
   });
 }
 
