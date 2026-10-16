@@ -26,16 +26,22 @@ import {
 } from "./types";
 
 /**
- * Google's own sign-in sheet on iPhone, so signing in with Google never
- * passes through the account service's web page. A build made before it was
- * added (TestFlight build 2, Expo Go) lacks its native module, and loading
+ * Google's own sign-in sheet on iPhone and Android, so signing in with Google
+ * never passes through the account service's web page. A build made before it
+ * was added (TestFlight build 2, Expo Go) lacks its native module, and loading
  * the library there would throw at once, so it's only loaded when the module
- * is found (the same lookup the library makes). Those builds, Android and the
- * web keep the web flow.
+ * is found (the same lookup the library makes). Those builds and the web keep
+ * the web flow.
  */
 type GoogleSignInModule = typeof import("@react-native-google-signin/google-signin");
+const hasGoogleClient =
+  Platform.OS === "ios"
+    ? Boolean(googleClientIds.ios)
+    : // Android's sheet only works once an Android client with the build's
+      // SHA-1 exists in Google Cloud; its ID here says it does.
+      Platform.OS === "android" && Boolean(googleClientIds.web && googleClientIds.android);
 const nativeGoogle: GoogleSignInModule | null =
-  Platform.OS === "ios" && googleClientIds.ios && TurboModuleRegistry.get("RNGoogleSignin")
+  hasGoogleClient && TurboModuleRegistry.get("RNGoogleSignin")
     ? // eslint-disable-next-line @typescript-eslint/no-require-imports
       (require("@react-native-google-signin/google-signin") as GoogleSignInModule)
     : null;
@@ -163,11 +169,17 @@ export function createSupabaseBackend(): AuthBackend {
     const { GoogleSignin, statusCodes } = google;
     if (!googleConfigured) {
       GoogleSignin.configure({
-        iosClientId: googleClientIds.ios,
+        ...(Platform.OS === "ios" ? { iosClientId: googleClientIds.ios } : null),
         webClientId: googleClientIds.web || undefined,
       });
       googleConfigured = true;
     }
+    // Android's sheet needs Google Play services (iPhone always says yes);
+    // without them, or with an old version, the browser flow still works.
+    const playServices = await GoogleSignin.hasPlayServices({
+      showPlayServicesUpdateDialog: false,
+    }).catch(() => false);
+    if (!playServices) return oauth("google");
     let token: string | null;
     try {
       const response = await GoogleSignin.signIn();

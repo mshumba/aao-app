@@ -70,6 +70,9 @@ export const enabledMethods =
 export const googleClientIds = {
   ios: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID?.trim() ?? "",
   web: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID?.trim() ?? "",
+  // Never passed to Google (Android finds its client by package and SHA-1);
+  // set once that client exists, it turns on Google's own sheet on Android.
+  android: process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID?.trim() ?? "",
 };
 
 /** Public web address used in share links and email redirects. */
