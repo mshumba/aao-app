@@ -236,10 +236,10 @@ test("leaving a playing sermon docks it; it keeps playing across tabs", async ({
   // Same player instance throughout: nothing reloaded or restarted.
   expect((await ytLog(page)).created).toBe(1);
   expect((await ytLog(page)).destroyed).toBe(0);
-  // Content can still scroll clear of the dock.
-  const footer = page.getByText(/This preview has 4 sermons/);
-  await footer.scrollIntoViewIfNeeded();
-  const [f, d] = [(await footer.boundingBox())!, (await dock.boundingBox())!];
+  // Content can still scroll clear of the dock: Home's last sermon.
+  const last = rows(page).last();
+  await last.scrollIntoViewIfNeeded();
+  const [f, d] = [(await last.boundingBox())!, (await dock.boundingBox())!];
   expect(f.y + f.height).toBeLessThanOrEqual(d.y);
   // The dock pauses, reopens Now Playing, and closes.
   await dock.getByRole("button", { name: "Pause", exact: true }).click();

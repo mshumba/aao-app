@@ -204,6 +204,15 @@ test("need chips answer a 44pt touch on the web too", async ({ page }) => {
   const chip = page
     .getByRole("list", { name: "Common needs" })
     .getByRole("button", { name: "Fear", exact: true });
+  // Once the launch's ivory cover has lifted, and a person can see it.
+  await expect
+    .poll(() =>
+      chip.evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        return el.contains(document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2));
+      }),
+    )
+    .toBe(true);
   const hit = await chip.evaluate((el) => {
     const r = el.getBoundingClientRect();
     const x = r.left + r.width / 2;

@@ -26,17 +26,19 @@ import {
   type SearchSermon,
 } from "./types";
 
+// In the live order (supabase/migrations/20261016000100_home_order.sql):
+// hope and growth first, sin, shame and temptation later.
 export const fixtureNeeds: Need[] = [
-  { id: "same-sin", label: "I keep falling into the same sin", short: "The same sin again", theme: "breaking a habit of sin", sort: 1 },
-  { id: "fear", label: "I'm afraid of what's coming", short: "Fear", theme: "overcoming fear", sort: 2 },
-  { id: "waiting", label: "I'm tired of waiting on God", short: "Waiting on God", theme: "waiting on God's timing", sort: 3 },
-  { id: "prayer", label: "My prayer life feels dry", short: "Prayer feels dry", theme: "a dry prayer life", sort: 4 },
-  { id: "hear-god", label: "I want to hear God clearly", short: "Hearing God", theme: "hearing the voice of God", sort: 5 },
-  { id: "shame", label: "I feel ashamed after I fall", short: "Shame after falling", theme: "shame after falling", sort: 6 },
-  { id: "anxiety", label: "I can't stop worrying", short: "Anxiety", theme: "anxiety and worry", sort: 7 },
-  { id: "purpose", label: "I don't know what God wants for me", short: "My purpose", theme: "finding your purpose", sort: 8 },
-  { id: "temptation", label: "I'm being tempted", short: "Temptation", theme: "resisting temptation", sort: 9 },
-  { id: "self-control", label: "I want more self-control", short: "Self-control", theme: "mastering your appetites", sort: 10 },
+  { id: "hear-god", label: "I want to hear God clearly", short: "Hearing God", theme: "hearing the voice of God", sort: 1 },
+  { id: "fear", label: "I'm afraid of what's coming", short: "Fear", theme: "overcoming fear", sort: 3 },
+  { id: "purpose", label: "I don't know what God wants for me", short: "My purpose", theme: "finding your purpose", sort: 4 },
+  { id: "prayer", label: "My prayer life feels dry", short: "Prayer feels dry", theme: "a dry prayer life", sort: 5 },
+  { id: "anxiety", label: "I can't stop worrying", short: "Anxiety", theme: "anxiety and worry", sort: 6 },
+  { id: "waiting", label: "I'm tired of waiting on God", short: "Waiting on God", theme: "waiting on God's timing", sort: 8 },
+  { id: "same-sin", label: "I keep falling into the same sin", short: "The same sin again", theme: "breaking a habit of sin", sort: 26 },
+  { id: "shame", label: "I feel ashamed after I fall", short: "Shame after falling", theme: "shame after falling", sort: 27 },
+  { id: "temptation", label: "I'm being tempted", short: "Temptation", theme: "resisting temptation", sort: 28 },
+  { id: "self-control", label: "I want more self-control", short: "Self-control", theme: "mastering your appetites", sort: 29 },
 ];
 
 const HABIT = "breaking-free-from-habitual-sin";
@@ -44,7 +46,21 @@ const WAIT = "learning-to-wait-on-god";
 const SPIRIT = "knowing-the-holy-spirit";
 const FACE = "seeking-the-face-of-god";
 
+// In the live order too: waiting on God (4) before habitual sin (8).
 export const fixturePaths: Path[] = [
+  {
+    id: WAIT,
+    kind: "path",
+    name: "Learning to wait on God",
+    italic: "wait on God",
+    promise: "Five days on staying faithful when God's promise seems slow.",
+    why: "For anyone in a season where prayers seem unanswered and promises delayed: why God makes us wait, how he renews strength while we wait, and how to keep believing.",
+    needs: ["waiting", "fear", "anxiety"],
+    minutesPerDay: 14,
+    status: "draft",
+    sort: 4,
+    dayCount: 5,
+  },
   {
     id: HABIT,
     kind: "path",
@@ -56,21 +72,8 @@ export const fixturePaths: Path[] = [
     minutesPerDay: 16,
     // Test data: published so the "Order set by the ministry" state shows.
     status: "published",
-    sort: 1,
+    sort: 8,
     dayCount: 7,
-  },
-  {
-    id: WAIT,
-    kind: "path",
-    name: "Learning to wait on God",
-    italic: "wait on God",
-    promise: "Five days on staying faithful when God's promise seems slow.",
-    why: "For anyone in a season where prayers seem unanswered and promises delayed: why God makes us wait, how he renews strength while we wait, and how to keep believing.",
-    needs: ["waiting", "fear", "anxiety"],
-    minutesPerDay: 14,
-    status: "draft",
-    sort: 2,
-    dayCount: 5,
   },
   {
     id: SPIRIT,

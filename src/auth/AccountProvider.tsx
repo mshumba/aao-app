@@ -112,6 +112,14 @@ type Account = {
   hasPass: (sermonId: string) => boolean;
   grantPass: (sermonId: string) => void;
 
+  /**
+   * The signed-in account was created just now, in this launch (by email,
+   * Apple or Google), and Home hasn't welcomed it yet on this device.
+   */
+  justJoined: boolean;
+  /** Home has welcomed the new account; never again for it on this device. */
+  clearJustJoined: () => void;
+
   updateProfile: (changes: ProfileChanges) => Promise<void>;
   signUpWithPassword: (email: string, password: string, name?: string) => Promise<AuthResult>;
   signInWithPassword: (email: string, password: string) => Promise<AuthResult>;
@@ -144,6 +152,9 @@ type SavedEdit = { saved: boolean; settled: number | null };
 
 /** The name Apple gave for a new account, until its profile has it. */
 type PendingName = { userId: string; name: string };
+
+/** Accounts Home has already welcomed on this device (see justJoined). */
+const WELCOMED_ACCOUNTS = "aao.welcomedAccounts.v1";
 
 const AccountContext = createContext<Account | null>(null);
 
@@ -183,6 +194,11 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   // they reached the service: an older read would otherwise undo them.
   const savedEdits = useRef(new Map<string, SavedEdit>());
   const editSeq = useRef(0);
+  // A sign-in or sign-up was started in this launch, so an account that
+  // arrives now was signed into here rather than restored from storage.
+  const signingIn = useRef(false);
+  // The account created in this launch, until Home has welcomed it.
+  const [joined, setJoined] = useState<string | null>(null);
 
   // Restore the session and this device's onboarding state together, so
   // the first route decision sees both.
@@ -253,6 +269,13 @@ export function AccountProvider({ children }: { children: ReactNode }) {
       } catch {
         return null;
       }
+      // Never through onboarding on any device, and signed into just now: an
+      // account the sign-in created (Apple, Google and email codes sign in
+      // and sign up alike). A returning one finished onboarding long ago.
+      if (!loaded.onboardedAt && signingIn.current)
+        readJSON<string[]>(WELCOMED_ACCOUNTS, []).then((welcomed) => {
+          if (!welcomed.includes(userId)) setJoined(userId);
+        });
       const local = onboardingRef.current;
       const name =
         pendingName.current?.userId === userId ? pendingName.current.name : null;
@@ -572,7 +595,22 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  const clearJustJoined = useCallback(() => {
+    if (!joined) return;
+    setJoined(null);
+    readJSON<string[]>(WELCOMED_ACCOUNTS, []).then((welcomed) =>
+      writeJSON(WELCOMED_ACCOUNTS, [joined, ...welcomed.filter((id) => id !== joined)].slice(0, 20)),
+    );
+  }, [joined]);
+
+  /** Starts a sign-in or sign-up (see signingIn). */
+  const signingInWith = useCallback(<T,>(run: () => Promise<T>) => {
+    signingIn.current = true;
+    return run();
+  }, []);
+
   const signInWithApple = useCallback(() => {
+    signingIn.current = true;
     const attempt = (async () => {
       const result = await need().signInWithApple();
       if (result.status === "signedIn" && result.name) {
@@ -617,18 +655,22 @@ export function AccountProvider({ children }: { children: ReactNode }) {
       guestWatch,
       hasPass: (id) => passes.includes(id),
       grantPass,
+      justJoined: !!user && joined === user.id,
+      clearJustJoined,
       updateProfile,
       signUpWithPassword: (email, password, name) =>
-        need().signUpWithPassword(email.trim(), password, name?.trim() || undefined),
+        signingInWith(() =>
+          need().signUpWithPassword(email.trim(), password, name?.trim() || undefined),
+        ),
       signInWithPassword: (email, password) =>
-        need().signInWithPassword(email.trim(), password),
+        signingInWith(() => need().signInWithPassword(email.trim(), password)),
       sendEmailCode: (email) => need().sendEmailCode(email.trim()),
       verifyCode: (email, code, purpose) =>
-        need().verifyCode(email.trim(), code.trim(), purpose),
+        signingInWith(() => need().verifyCode(email.trim(), code.trim(), purpose)),
       resendCode: (email, purpose) => need().resendCode(email.trim(), purpose),
       signInWithApple,
-      signInWithGoogle: () => need().signInWithGoogle(),
-      exchangeCode: (code) => need().exchangeCode(code),
+      signInWithGoogle: () => signingInWith(() => need().signInWithGoogle()),
+      exchangeCode: (code) => signingInWith(() => need().exchangeCode(code)),
       sendPasswordReset: (email) => need().sendPasswordReset(email.trim()),
       updatePassword: (password) => need().updatePassword(password),
       signOut: async () => {
@@ -660,6 +702,9 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     saveProgress,
     passes,
     guestWatch,
+    joined,
+    clearJustJoined,
+    signingInWith,
     setInterests,
     finishWelcome,
     setSaved,

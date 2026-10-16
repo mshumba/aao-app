@@ -66,9 +66,9 @@ function Gallery() {
   const [saved, setSaved] = useState<Record<string, boolean>>({});
   const result = useSearch(submitted);
 
-  const habit = fixturePaths[0];
+  const { pathId, done, partial } = fixtureProgress;
+  const habit = fixturePaths.find((p) => p.id === pathId)!;
   const habitDays = useMemo(() => fixtureDays.filter((d) => d.pathId === habit.id), [habit.id]);
-  const { done, partial } = fixtureProgress;
   const today = done.length + 1;
   const todayDay = habitDays[today - 1];
   const todaySermon = find(todayDay.youtubeId);

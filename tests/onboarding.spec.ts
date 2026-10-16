@@ -131,3 +131,19 @@ test("Apple's name is kept until the account can save it", async ({ page }) => {
   await page.getByTestId("done-home").click();
   await expect(shown(page.getByText(/, Apple/))).toBeVisible();
 });
+
+test("a new account made in onboarding is welcomed on Home with confetti", async ({ page }) => {
+  await page.goto("/");
+  await page.getByTestId("welcome-get-started").click();
+  await page.getByTestId("topics-continue").click();
+  await page.getByTestId("continue-google").click();
+  // Google gives a name, so the name step is skipped.
+  await expect(page.getByRole("heading", { name: /You’re all set, Google/ })).toBeVisible();
+  // The flow's own check mark is its celebration; Home's comes on arrival.
+  await expect(page.getByTestId("welcome-confetti")).toHaveCount(0);
+  await page.getByTestId("done-home").click();
+  await expect(tab(page, "Home")).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByTestId("welcome-confetti")).toBeVisible();
+  await expect(page.getByTestId("start-here")).toBeVisible();
+  await expect(page.getByTestId("welcome-confetti")).toHaveCount(0, { timeout: 3000 });
+});

@@ -7,6 +7,7 @@ import {
   fakeYouTube,
   playhead,
   seedPathProgress,
+  seedStorage,
   seedWatchProgress,
   storedPathProgress,
   shown,
@@ -168,24 +169,52 @@ test("the question field opens Search ready to type, and a need searches it", as
   await expect(shown(page.getByTestId("moment-result")).first()).toBeVisible();
 });
 
-test("not on a path: Home offers paths to start", async ({ page }) => {
+test("not on a path: Home offers paths to start, opening with hope rather than sin", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByTestId("your-path")).toHaveCount(0);
   const rail = page.getByTestId("start-a-path");
-  // The first path as the navy card, honest about who set its order. Day 1
-  // reads as its theme, which is known before the sermon is.
+  // The first path in the editors' order as the navy card. Day 1 reads as
+  // its theme, which is known before the sermon is.
   const first = rail.getByTestId("start-here");
-  await expect(first.getByRole("button", { name: /^Start the path with day 1\. Lay aside every weight\. 1 hour 47 minutes$/ })).toBeVisible();
+  await expect(
+    first.getByRole("button", { name: /^Start the path with day 1\. God is a King, not a servant\. / }),
+  ).toBeVisible();
+  // A draft carries no label, and never claims the ministry set its order.
+  await expect(first).toContainText("Learning to wait on God");
+  await expect(first).not.toContainText(/Draft|awaiting ministry review/);
+  await expect(first).not.toContainText("Order set by the ministry");
+  // Habitual sin comes later, among the others; the ministry set its order.
   await expect(rail.getByRole("heading", { name: "More paths" })).toBeVisible();
-  // A draft path carries no label, and never claims the ministry set its order.
-  const draft = rail.getByRole("button", { name: /^Learning to wait on God\./ });
-  await expect(draft).not.toContainText(/Draft|awaiting ministry review/);
-  await expect(draft).not.toContainText("Order set by the ministry");
-  await draft.click();
-  await expect(page).toHaveURL(/\/path\/learning-to-wait-on-god$/);
+  const habit = rail.getByRole("button", { name: /^Breaking free from habitual sin\./ });
+  await expect(habit).toContainText("Order set by the ministry");
+  await habit.click();
+  await expect(page).toHaveURL(new RegExp(`/path/${HABIT}$`));
   await page.getByTestId("path-back").click();
   await page.getByTestId("start-a-path").getByRole("button", { name: "See all", exact: true }).click();
   await expect(tab(page, "Paths")).toHaveAttribute("aria-selected", "true");
+});
+
+test("the common needs open with hope, and the struggles are still there", async ({ page }) => {
+  await page.goto("/");
+  // The editors' order (needs.sort): sin, shame and temptation come later.
+  await expect(
+    page.getByRole("list", { name: "Common needs" }).getByRole("button"),
+  ).toHaveText([
+    "Hearing God",
+    "Fear",
+    "My purpose",
+    "Prayer feels dry",
+    "Anxiety",
+    "Waiting on God",
+    "The same sin again",
+    "Shame after falling",
+  ]);
+});
+
+test("Home ends with the library, with no line about the channel under it", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByTestId("start-here")).toBeVisible();
+  await expect(page.getByText(/Arome Osayi channel|not the full archive/)).toHaveCount(0);
 });
 
 test.describe("on a path", () => {
@@ -307,4 +336,104 @@ test.describe("as a guest", () => {
     await page.getByTestId("home-sign-in").click();
     await expect(page.getByRole("heading", { name: "Welcome back" })).toBeVisible();
   });
+});
+
+// ---- A new account's welcome ----------------------------------------------------
+
+/** Counts each burst of the welcome confetti on this page load (window.__confetti). */
+async function countConfetti(page: Page) {
+  await page.addInitScript(() => {
+    const w = window as unknown as { __confetti: number };
+    w.__confetti = 0;
+    let last: Element | null = null;
+    new MutationObserver(() => {
+      const burst = document.querySelector('[data-testid="welcome-confetti"]');
+      if (burst && burst !== last) w.__confetti += 1;
+      last = burst;
+    }).observe(document, { subtree: true, childList: true });
+  });
+}
+
+function confettiShown(page: Page) {
+  return page.evaluate(() => (window as unknown as { __confetti: number }).__confetti);
+}
+
+/** Creates an account (with Google, in the stand-in service) from Home. */
+async function signUpFromHome(page: Page) {
+  await page.getByTestId("home-sign-in").click();
+  await page.getByTestId("join-switch").click();
+  await expect(page.getByRole("heading", { name: "Create your free account" })).toBeVisible();
+  await page.getByTestId("continue-google").click();
+  await expect(page.getByTestId("toast")).toContainText("signed in");
+}
+
+test.describe("a new account", () => {
+  test.use({ viewer: "guest" });
+
+  test("is welcomed on Home with confetti, once", async ({ page }) => {
+    await countConfetti(page);
+    await page.goto("/");
+    await expect(page.getByTestId("start-here")).toBeVisible();
+    await signUpFromHome(page);
+    // A short burst over the Start here card, that nothing has to wait for.
+    const confetti = page.getByTestId("welcome-confetti");
+    await expect(confetti).toBeVisible();
+    await expect(page.getByTestId("start-here")).toBeVisible();
+    await expect(confetti).toHaveCount(0, { timeout: 3000 });
+    expect(await confettiShown(page)).toBe(1);
+
+    // Never again for this account: not on Home's next visit, nor after a
+    // reload, nor after signing out and back in.
+    await tab(page, "Search").click();
+    await tab(page, "Home").click();
+    await page.waitForTimeout(1500);
+    expect(await confettiShown(page)).toBe(1);
+    await page.reload();
+    await expect(page.getByTestId("start-here")).toBeVisible();
+    await tab(page, "Account").click();
+    await page.getByTestId("sign-out").click();
+    await expect(page.getByTestId("toast")).toContainText("Signed out");
+    await tab(page, "Home").click();
+    await page.getByTestId("home-sign-in").click();
+    await page.getByTestId("continue-google").click();
+    await expect(page.getByTestId("toast")).toContainText("signed in");
+    await page.waitForTimeout(2000);
+    expect(await confettiShown(page)).toBe(0);
+  });
+
+  test("with Reduce Motion: no confetti", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await countConfetti(page);
+    await page.goto("/");
+    await signUpFromHome(page);
+    await page.waitForTimeout(2000);
+    expect(await confettiShown(page)).toBe(0);
+  });
+
+  test("a returning account signing in isn't welcomed as new", async ({ page }) => {
+    // google.viewer@example.com finished onboarding on another device.
+    await seedStorage(page, {
+      [`aao.local.data.v1.local:google.viewer@example.com`]: {
+        profile: { displayName: "Google Viewer", interests: [], onboardedAt: "2026-10-01T00:00:00.000Z" },
+        saved: [],
+      },
+    });
+    await countConfetti(page);
+    await page.goto("/");
+    await page.getByTestId("home-sign-in").click();
+    await page.getByTestId("continue-google").click();
+    await expect(page.getByTestId("toast")).toContainText("signed in");
+    await page.waitForTimeout(2000);
+    expect(await confettiShown(page)).toBe(0);
+  });
+});
+
+test("an account restored at launch isn't welcomed as new", async ({ page }) => {
+  // The default viewer is signed in from a previous launch.
+  await countConfetti(page);
+  await page.goto("/");
+  await expect(page.getByTestId("start-here")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Account", exact: true }).first()).toBeVisible();
+  await page.waitForTimeout(2000);
+  expect(await confettiShown(page)).toBe(0);
 });

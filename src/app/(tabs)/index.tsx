@@ -1,12 +1,13 @@
 import * as Haptics from "expo-haptics";
 import { router, useIsFocused, useNavigation } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   Platform,
   ScrollView,
   StyleSheet,
   View,
+  useWindowDimensions,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from "react-native";
@@ -31,14 +32,15 @@ import {
   useSermonActions,
 } from "../../home";
 import { ChipRow, NeedChip, SearchField } from "../../kit";
+import { Confetti } from "../../kit/Confetti";
 import { useEnrollment, useNeeds, usePaths } from "../../learning";
+import { useReducedMotion } from "../../motion";
 import { requestSearchFocus, useGo, usePageTitle } from "../../navigation";
 import { resumePoint } from "../../player/progress";
 import { useDockInset } from "../../player/useDockInset";
 import type { CategoryId } from "../../data/categories";
 import { c, easeOut, space } from "../../theme";
-import { sermonCount } from "../../topics";
-import { Notice, T, TextButton, dockScrollPadding, gradient, s } from "../../ui";
+import { Notice, TextButton, dockScrollPadding, gradient } from "../../ui";
 
 // The hero shows the four newest; "Latest" the next six.
 const HERO = 4;
@@ -50,6 +52,8 @@ const SMALL = HERO + 4;
 const HOME_NEEDS = 8;
 /** How far the ivory under the status bar fades out below it. */
 const STATUS_FADE = 18;
+/** How long Home is in front, settled, before a new account's welcome. */
+const WELCOME_AFTER = 600;
 
 // Switching tabs keeps what the other tab holds (Search's query, say), as
 // the tab bar does.
@@ -162,6 +166,44 @@ export default function Home() {
     [],
   );
 
+  // ---- A new account's welcome -------------------------------------------------------
+  // Someone who has just created an account, on Home with its path card
+  // (Start here, or the path they started): once, a short burst of confetti
+  // from that card and a success tap; under Reduce Motion, the tap alone.
+  // It waits for Home to settle in front, so a sign-up that went straight
+  // on to a sermon is welcomed on coming back.
+  const reduced = useReducedMotion();
+  const { width, height } = useWindowDimensions();
+  const screen = useRef<View>(null);
+  const pathCard = useRef<View>(null);
+  const [burst, setBurst] = useState<{ x: number; y: number } | null>(null);
+  const endBurst = useCallback(() => setBurst(null), []);
+  const { justJoined, clearJustJoined } = account;
+  const hasCard = !!active || (!enrollment.loading && paths.some((path) => path.kind !== "series"));
+  const welcome = justJoined && focused && !covered && hasCard;
+  useEffect(() => {
+    if (!welcome) return;
+    const timer = setTimeout(() => {
+      clearJustJoined();
+      if (Platform.OS !== "web")
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      if (reduced) return;
+      // From just inside the card's top edge while it's on screen, else
+      // from a little above the middle.
+      const fallback = { x: width / 2, y: height * 0.4 };
+      const card = pathCard.current;
+      const page = screen.current;
+      if (!card || !page) return setBurst(fallback);
+      page.measureInWindow((left, top) =>
+        card.measureInWindow((x, y, w) => {
+          const from = { x: x - left + w / 2, y: y - top + 40 };
+          setBurst(from.y > insets.top + 60 && from.y < height - 200 ? from : fallback);
+        }),
+      );
+    }, WELCOME_AFTER);
+    return () => clearTimeout(timer);
+  }, [welcome, reduced, clearJustJoined, width, height, insets.top]);
+
   // ---- The status bar: light over the hero, dark once it has scrolled by ------------
   const [heroHeight, setHeroHeight] = useState(340);
   const [pastHero, setPastHero] = useState(false);
@@ -178,7 +220,7 @@ export default function Home() {
   );
 
   return (
-    <View style={styles.screen}>
+    <View ref={screen} style={styles.screen}>
       {focused ? <StatusBar style={pastHero ? "dark" : "light"} animated /> : null}
       <ScrollView
         style={dockScrollPadding(dock)}
@@ -235,13 +277,15 @@ export default function Home() {
             </View>
           ) : null}
 
-          {active ? (
-            <YourPath active={active} onOpenPath={openPath} onPlay={actions.watch} />
-          ) : enrollment.loading ? (
-            <YourPathPlaceholder />
-          ) : (
-            <StartPathRail paths={paths} daysOf={daysOf} onOpenPath={openPath} onSeeAll={allPaths} />
-          )}
+          <View ref={pathCard} collapsable={false}>
+            {active ? (
+              <YourPath active={active} onOpenPath={openPath} onPlay={actions.watch} />
+            ) : enrollment.loading ? (
+              <YourPathPlaceholder />
+            ) : (
+              <StartPathRail paths={paths} daysOf={daysOf} onOpenPath={openPath} onSeeAll={allPaths} />
+            )}
+          </View>
 
           <ContinueRail exclude={active?.today?.youtubeId} onWatch={actions.watch} />
 
@@ -254,19 +298,6 @@ export default function Home() {
           />
 
           <SeriesRow rails={rails} onOpen={openSeries} />
-
-          {sermons.length > 0 ? (
-            <View style={styles.footer}>
-              <T style={s.meta}>
-                {/* No count while only the newest sermons are in: it would say 200. */}
-                {catalogue.source === "newest"
-                  ? "From the Apostle Arome Osayi channel, newest first."
-                  : library
-                  ? `${sermonCount(sermons.length)} from the Apostle Arome Osayi channel, newest first.`
-                  : `This preview has ${sermonCount(sermons.length).toLowerCase()}, not the full archive.`}
-              </T>
-            </View>
-          ) : null}
         </View>
       </ScrollView>
 
@@ -288,6 +319,8 @@ export default function Home() {
         />
       ) : null}
 
+      {burst ? <Confetti origin={burst} onDone={endBurst} testID="welcome-confetti" /> : null}
+
       {/* A cold start's blessing opens over Home; until it's up, Home stays
           under the ivory the splash lifts onto, so it never flashes first. */}
       {covered ? <View testID="home-cover" style={styles.cover} /> : null}
@@ -302,7 +335,6 @@ const styles = StyleSheet.create({
   field: { marginTop: -HERO_OVERLAP, marginHorizontal: 20 },
   chips: { marginTop: 12 },
   offline: { gap: space.xs, marginTop: space.lg, paddingHorizontal: 24 },
-  footer: { marginTop: 40, paddingHorizontal: 24 },
   cover: { ...StyleSheet.absoluteFill, backgroundColor: c.bg },
   statusShade: {
     position: "absolute",
