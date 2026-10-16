@@ -9,6 +9,7 @@ import React, {
 } from "react";
 import { Artwork } from "./kit/Artwork";
 import { T, web } from "./kit/base";
+import { WebIcon } from "./kit/icons/WebIcon";
 import { splitItalic } from "./kit/italic";
 import { spokenKicker } from "./kit/time";
 import {
@@ -215,6 +216,10 @@ export function nowrap(text: string) {
   return text.replace(/ /g, " ");
 }
 
+/**
+ * An Ionicon. The web draws it as SVG, so it never waits for (or shows an
+ * empty box before) the icon font: see src/kit/icons/WebIcon.web.tsx.
+ */
 export function Icon({
   name,
   size = 22,
@@ -224,6 +229,7 @@ export function Icon({
   size?: number;
   color?: string;
 }) {
+  if (Platform.OS === "web") return <WebIcon name={name} size={size} color={color} />;
   return (
     <Ionicons
       accessible={false}

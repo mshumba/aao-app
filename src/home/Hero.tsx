@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ActivityIndicator,
+  PixelRatio,
   Platform,
   ScrollView,
   StyleSheet,
@@ -18,10 +19,10 @@ import Animated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { headline } from "../data/display";
 import type { Sermon } from "../data/sermons";
-import { Artwork, Avatar, ItalicTitle, Kicker, PlayPill, RoundButton, Wash, spokenKicker, spokenText, spokenTime } from "../kit";
+import { Artwork, Avatar, ItalicTitle, Kicker, PlayPill, RoundButton, Wash, artUri, sizedArt, spokenKicker, spokenText, spokenTime } from "../kit";
 import { useReducedMotion } from "../motion";
 import { motion } from "../onboarding/parts";
-import { c, easeOut, fontSize, radius, shadows, textCap, type } from "../theme";
+import { artFade, c, easeOut, fontSize, radius, shadows, textCap, type } from "../theme";
 import { T, Tap, gradient, web, type WebKey } from "../ui";
 import { greeting, heroKicker } from "./copy";
 
@@ -84,8 +85,12 @@ const TITLE_STEPS = [
 ] as const;
 /** Later pages fetch their artwork once the viewer moves the pager, or after this. */
 const REST_MS = 2500;
-/** On the first launch, the words wait this long at most for the artwork. */
-const ART_WAIT_MS = 1200;
+/**
+ * The first page's artwork comes in two steps: YouTube's 320×180 copy
+ * (about 12 KB) first, drawn at full size, then the sharp one (the 1280×720
+ * WebP, about 100 KB) fading in over it. The words never wait for either.
+ */
+const PREVIEW_PX = 320;
 /** "Loading the latest sermons" only if the library takes longer than this. */
 const LOADING_AFTER_MS = 400;
 
@@ -130,7 +135,7 @@ export function heroHeight(top: number, body: number, row = AVATAR) {
   return top + Math.max(AVATAR, row) + 10 + Math.max(BODY_MIN, body) + 14 + ACTIONS + ACTIONS_BOTTOM;
 }
 
-// The text arrives once per launch, after the artwork has faded in.
+// The words rise in once per launch, without waiting for the artwork.
 let introPlayed = false;
 
 type HeroProps = {
@@ -194,17 +199,6 @@ export const HomeHero = memo(function HomeHero({
   useEffect(() => {
     onHeight?.(height);
   }, [height, onHeight]);
-
-  // ---- Arrival: the words rise once the first artwork is in (or soon after) ------
-  const [artReady, setArtReady] = useState(!intro);
-  const firstArt = useCallback(() => setArtReady(true), []);
-  useEffect(() => {
-    if (artReady) return;
-    const timer = setTimeout(() => setArtReady(true), ART_WAIT_MS);
-    return () => clearTimeout(timer);
-  }, [artReady]);
-  const rising = intro && artReady;
-  const waiting = intro && !artReady;
 
   // ---- Later pages' artwork waits until the viewer moves, or a moment passes -----
   const [rest, setRest] = useState(false);
@@ -285,8 +279,6 @@ export const HomeHero = memo(function HomeHero({
           screen readers and the keyboard meet the page's heading first. */}
       <Rise
         intro={intro}
-        rising={rising}
-        waiting={waiting}
         reduced={reduced}
         delay={120}
         style={[styles.top, { top, left: inset, right: inset }]}
@@ -345,12 +337,9 @@ export const HomeHero = memo(function HomeHero({
               first={i === 0}
               load={i === 0 || rest || i === index}
               intro={intro && i === 0}
-              rising={rising && i === 0}
-              waiting={waiting && i === 0}
               reduced={reduced}
               onOpen={onOpen}
               onMeasure={measure}
-              onArt={i === 0 ? firstArt : undefined}
             />
           ))}
         </ScrollView>
@@ -371,8 +360,6 @@ export const HomeHero = memo(function HomeHero({
       {current ? (
         <Rise
           intro={intro}
-          rising={rising}
-          waiting={waiting}
           reduced={reduced}
           delay={300}
           style={[styles.actions, { left: inset, right: inset, bottom: ACTIONS_BOTTOM }]}
@@ -425,12 +412,9 @@ const HeroPage = memo(function HeroPage({
   first,
   load,
   intro,
-  rising,
-  waiting,
   reduced,
   onOpen,
   onMeasure,
-  onArt,
 }: {
   sermon: Sermon;
   width: number;
@@ -441,12 +425,9 @@ const HeroPage = memo(function HeroPage({
   /** false: the tint only until the viewer moves the pager. */
   load: boolean;
   intro: boolean;
-  rising: boolean;
-  waiting: boolean;
   reduced: boolean;
   onOpen: (id: string) => void;
   onMeasure: (id: string, height: number) => void;
-  onArt?: () => void;
 }) {
   const { fontScale } = useWindowDimensions();
   const kicker = useMemo(() => heroKicker(sermon), [sermon]);
@@ -517,6 +498,17 @@ const HeroPage = memo(function HeroPage({
   const bleed = Math.round((ART_RIGHT_BLEED * artW) / ART_W);
   const col = heroColumn(width);
   const artRight = col.left + col.width + bleed;
+  const artBox = { left: artRight - artW, top: height + ART_BOTTOM_BLEED - artH };
+
+  // The first page: the small copy first, until the sharp one is in. Only
+  // when there is a smaller copy (YouTube's sd or maxres for the sharp one).
+  const previewW = Math.floor(PREVIEW_PX / PixelRatio.get());
+  const uri = artUri(sermon);
+  const sharpUri = sizedArt(uri, artW);
+  const preview =
+    first && load && /(sd|maxres)default/.test(sharpUri) && sizedArt(uri, previewW) !== sharpUri;
+  const [sharp, setSharp] = useState(false);
+  const onSharp = useCallback(() => setSharp(true), []);
 
   const words = (
     <>
@@ -547,16 +539,40 @@ const HeroPage = memo(function HeroPage({
         radius={0}
         lift="none"
         load={load}
-        onSettled={onArt}
+        onSettled={preview ? onSharp : undefined}
         priority={first ? "high" : "low"}
         testID={first ? "hero-art" : undefined}
-        style={[styles.art, { left: artRight - artW, top: height + ART_BOTTOM_BLEED - artH }]}
+        style={[styles.art, artBox]}
       />
+      {preview ? (
+        <Animated.View
+          testID="hero-art-preview"
+          style={[
+            styles.art,
+            styles.noTouch,
+            artBox,
+            { width: artW, height: artH, opacity: sharp ? 0 : 1 },
+            { transitionProperty: "opacity", transitionDuration: reduced ? 0 : artFade },
+          ]}
+        >
+          <Artwork
+            art={sermon}
+            width={previewW}
+            radius={0}
+            lift="none"
+            priority="high"
+            style={{
+              position: "absolute",
+              left: (artW - previewW) / 2,
+              top: (artH - (previewW * 9) / 16) / 2,
+              transform: [{ scale: artW / previewW }],
+            }}
+          />
+        </Animated.View>
+      ) : null}
       <View style={[StyleSheet.absoluteFill, styles.noTouch, scrim]} aria-hidden />
       <Rise
         intro={intro}
-        rising={rising}
-        waiting={waiting}
         reduced={reduced}
         delay={200}
         style={bodyBox}
@@ -650,13 +666,11 @@ const HeroDots = memo(function HeroDots({
 
 /**
  * On the first Home of a launch: up 8pt as it fades in (a fade alone under
- * Reduce Motion), once the first artwork is in. Until then (`waiting`) the
- * words hold back, so they never rise over an empty band.
+ * Reduce Motion), at once, whether or not the artwork is in yet (it fades
+ * in behind the words when it arrives).
  */
 function Rise({
   intro,
-  rising,
-  waiting,
   reduced,
   delay,
   style,
@@ -664,8 +678,6 @@ function Rise({
   children,
 }: {
   intro: boolean;
-  rising: boolean;
-  waiting: boolean;
   reduced: boolean;
   delay: number;
   style?: StyleProp<ViewStyle>;
@@ -678,15 +690,13 @@ function Rise({
       style={[
         style,
         { pointerEvents: "box-none" },
-        waiting && { opacity: 0 },
-        intro &&
-          rising && {
-            animationName: reduced ? motion.fade : motion.rise,
-            animationDuration: reduced ? 200 : 360,
-            animationDelay: delay,
-            animationTimingFunction: easeOut,
-            animationFillMode: "backwards",
-          },
+        intro && {
+          animationName: reduced ? motion.fade : motion.rise,
+          animationDuration: reduced ? 200 : 360,
+          animationDelay: delay,
+          animationTimingFunction: easeOut,
+          animationFillMode: "backwards",
+        },
       ]}
     >
       {children}
