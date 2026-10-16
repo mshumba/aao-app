@@ -616,7 +616,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       duration,
       rate,
       status,
-      play,
+      play: () => command({ type: "play" }),
       pause: hold,
       toggle: () => (playing ? hold() : command({ type: "play" })),
       seek: (s) => {
@@ -637,7 +637,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         command({ type: "rate", rate: next });
       },
     };
-  }, [state, seconds, duration, rate, status, command, play, hold, playing]);
+  }, [state, seconds, duration, rate, status, command, hold, playing]);
 
   return (
     <SessionContext.Provider value={session}>
