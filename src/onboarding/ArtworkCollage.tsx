@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Image, StyleSheet, View, useWindowDimensions } from "react-native";
 import Animated from "react-native-reanimated";
 import { useCatalogue } from "../catalogue/CatalogueProvider";
@@ -9,6 +9,59 @@ import { gradient, web } from "../ui";
 import { motion } from "./parts";
 
 const GAP = 12;
+
+// One shuffle per launch, so the wall looks different each time the app
+// opens but stays put while it's on screen.
+const LAUNCH_SEED = Math.floor(Math.random() * 2 ** 31);
+
+/** A small, fast, seeded random number generator (mulberry32). */
+function seeded(seed: number) {
+  let a = seed;
+  return () => {
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+const RECENT_YEARS = 4;
+
+/**
+ * `count` different sermons for the wall: one per series or conference (so
+ * Day 3 and Day 4 of one crusade don't fill it with the same flyer), mostly
+ * Apostle Arome Osayi's own from the last few years (their artwork is sharp),
+ * in a fresh order each launch. Falls back to older ones and guest ministers
+ * only when there aren't enough.
+ */
+export function wallOf(all: Sermon[], count: number): Sermon[] {
+  const random = seeded(LAUNCH_SEED);
+  const since = `${new Date().getFullYear() - RECENT_YEARS}`;
+  const group = (s: Sermon) => s.seriesKey ?? s.event ?? s.headline;
+  const tiers = [
+    all.filter((s) => !s.speaker && s.day >= since),
+    all.filter((s) => s.day >= since),
+    all,
+  ];
+  const picked: Sermon[] = [];
+  const seen = new Set<string>();
+  const groups = new Set<string>();
+  for (const tier of tiers) {
+    const shuffled = [...tier];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(random() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    for (const sermon of shuffled) {
+      if (picked.length >= count) return picked;
+      if (seen.has(sermon.id) || !sermon.thumbnail || groups.has(group(sermon))) continue;
+      seen.add(sermon.id);
+      groups.add(group(sermon));
+      picked.push(sermon);
+    }
+  }
+  return picked.length ? picked : all.slice(0, count);
+}
 const TILT = "-8deg";
 
 // Washes the top in ivory so the dark status bar text stays readable, lets
@@ -40,8 +93,6 @@ export function ArtworkCollage({
 }) {
   const { width, height } = useWindowDimensions();
   const catalogue = useCatalogue();
-  // The newest artwork, which is the sharpest; the sample until it loads.
-  const sermons = catalogue.sermons.length ? catalogue.sermons.slice(0, 12) : sampleSermons;
   const [failed, setFailed] = useState<Record<string, true>>({});
   const markFailed = useCallback(
     (id: string) =>
@@ -57,6 +108,13 @@ export function ArtworkCollage({
   const rows = Math.ceil((height * 0.75) / (tileH + GAP)) + 1;
   const planeW = cols * (tileW + GAP);
   const planeH = rows * (tileH + GAP);
+  // A different sermon on every tile: one per series or conference, shuffled
+  // afresh each launch; the sample until the catalogue loads.
+  const sermons = useMemo(
+    () =>
+      catalogue.sermons.length ? wallOf(catalogue.sermons, rows * cols) : sampleSermons,
+    [catalogue.sermons, rows, cols],
+  );
 
   return (
     <View
@@ -99,8 +157,8 @@ export function ArtworkCollage({
               ]}
             >
               {Array.from({ length: cols }, (_, col) => {
-                // Two steps per row, so no tile touches a copy of itself.
-                const sermon = sermons[(col + row * 2) % sermons.length];
+                // Each tile its own sermon; only the small sample repeats.
+                const sermon = sermons[(row * cols + col) % sermons.length];
                 return (
                   <Tile
                     key={col}
