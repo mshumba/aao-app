@@ -14,6 +14,7 @@ import { CategoryId, categories } from "../data/categories";
 import { keys, readJSON, removeKey, writeJSON } from "../lib/storage";
 import { authMode, enabledMethods } from "./config";
 import { createLocalBackend } from "./localBackend";
+import { createSavedWrites } from "./savedWrites";
 import { createSupabaseBackend } from "./supabaseBackend";
 import {
   AuthBackend,
@@ -159,9 +160,6 @@ type AccountData = {
   savedError: boolean;
 };
 
-/** A save or unsave, and when it reached the service (an edit sequence number). */
-type SavedEdit = { saved: boolean; settled: number | null };
-
 /** The name Apple gave for a new account, until its profile has it. */
 type PendingName = { userId: string; name: string };
 
@@ -246,10 +244,21 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   // An Apple sign-in still finishing. The profile read waits for it, so the
   // name it brings is part of that read rather than racing it.
   const appleSignIn = useRef<Promise<unknown> | null>(null);
-  // Saves and unsaves, laid over every saved list read until one read after
-  // they reached the service: an older read would otherwise undo them.
-  const savedEdits = useRef(new Map<string, SavedEdit>());
-  const editSeq = useRef(0);
+  // Saves and unsaves, written one at a time for each sermon whichever
+  // screen they came from, and laid over saved list reads until those have
+  // them (see createSavedWrites).
+  const [savedWrites] = useState(() =>
+    createSavedWrites({
+      write: (id, sermonId, on) => need().setSaved(id, sermonId, on),
+      // Shown in that account's loaded list only, never another's.
+      show: (id, sermonId, on) =>
+        setData((current) => {
+          if (!current || current.userId !== id) return current;
+          const rest = current.saved.filter((saved) => saved !== sermonId);
+          return { ...current, saved: on ? [sermonId, ...rest] : rest };
+        }),
+    }),
+  );
   // A sign-in or sign-up was started in this launch, so an account that
   // arrives now was signed into here rather than restored from storage.
   const signingIn = useRef(false);
@@ -367,34 +376,23 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   );
 
   /** The saved list with recent saves laid over it; null when it fails. */
-  const fetchSaved = useCallback(async (userId: string) => {
-    if (!backend) return null;
-    const since = editSeq.current;
-    let list: string[];
-    try {
-      list = await backend.listSaved(userId);
-    } catch {
-      return null;
-    }
-    savedEdits.current.forEach((edit, sermonId) => {
-      // It reached the service before this read began, so the list has it.
-      if (edit.settled !== null && edit.settled <= since) {
-        savedEdits.current.delete(sermonId);
-        return;
-      }
-      const rest = list.filter((id) => id !== sermonId);
-      list = edit.saved ? [sermonId, ...rest] : rest;
-    });
-    return list;
-  }, []);
+  const fetchSaved = useCallback(
+    async (userId: string) => {
+      if (!backend) return null;
+      return savedWrites.read(userId, () => backend.listSaved(userId)).catch(() => null);
+    },
+    [savedWrites],
+  );
 
   // Load the account's profile and saved list.
   const userId = user?.id ?? null;
+  // Writes still queued for an account that has signed out aren't sent.
+  useEffect(() => {
+    savedWrites.signedIn(userId);
+  }, [savedWrites, userId]);
   useEffect(() => {
     if (!userId || !backend) return;
     let active = true;
-    // Another account's saves don't carry over.
-    savedEdits.current.clear();
     (async () => {
       await appleSignIn.current;
       const welcomed = !!onboardingRef.current?.welcomed;
@@ -604,29 +602,12 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   const setSaved = useCallback(
     async (sermonId: string, value: boolean) => {
       if (!userId) throw new AuthError("invalid_credentials", "Not signed in");
-      const had = saved.includes(sermonId);
-      const edit: SavedEdit = { saved: value, settled: null };
-      savedEdits.current.set(sermonId, edit);
-      const show = (on: boolean) =>
-        change((d) => {
-          const rest = d.saved.filter((id) => id !== sermonId);
-          return { ...d, saved: on ? [sermonId, ...rest] : rest };
-        });
-      // Optimistic, rolled back if the service refuses.
-      show(value);
-      try {
-        await need().setSaved(userId, sermonId, value);
-        edit.settled = ++editSeq.current;
-      } catch (error) {
-        // Unless a later tap has taken its place.
-        if (savedEdits.current.get(sermonId) === edit) {
-          savedEdits.current.delete(sermonId);
-          show(had);
-        }
-        throw error;
-      }
+      // Optimistic, and written after any save or unsave of this sermon
+      // still on its way (from this screen or another), so the service ends
+      // with the latest; rolled back if the service refuses it.
+      await savedWrites.set(userId, sermonId, value, saved.includes(sermonId));
     },
-    [change, saved, userId],
+    [saved, savedWrites, userId],
   );
 
   const reloadSaved = useCallback(async () => {

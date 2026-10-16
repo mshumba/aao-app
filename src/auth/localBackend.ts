@@ -23,6 +23,10 @@ import {
  *   confirmed yet, like an account whose sign-up code was never entered.
  * - slow@example.com's watch progress arrives after 6 s, so switching to
  *   another account while it's still on its way can be tested.
+ * - slowsave@example.com's saves reach its saved list 2 s after they're
+ *   sent, and its unsaves at once, like a slow request a quicker one
+ *   overtakes, so a save and an unsave from another screen just after it
+ *   can be tested.
  *
  * Like the real service, the profile and saved list come back a moment
  * after they're asked for (as they were when asked), and fail while the
@@ -33,6 +37,7 @@ const EXPIRED_CODE = "000000";
 const TAKEN = "taken@example.com";
 const UNCONFIRMED = "unconfirmed@example.com";
 const SLOW_PROGRESS = "local:slow@example.com";
+const SLOW_SAVES = "local:slowsave@example.com";
 const WRONG = "wrong-password";
 
 // Accounts stored before watch progress existed have no `progress`.
@@ -196,6 +201,7 @@ export function createLocalBackend(): AuthBackend {
     },
     async setSaved(userId, sermonId, saved) {
       reachable();
+      if (saved && userId === SLOW_SAVES) await wait(2000);
       await change(userId, (data) => {
         const rest = data.saved.filter((id) => id !== sermonId);
         return { ...data, saved: saved ? [sermonId, ...rest] : rest };
