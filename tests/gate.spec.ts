@@ -1,9 +1,13 @@
-/// <reference types="node" />
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-import { runInNewContext } from "node:vm";
+// Node's built-ins, typed here: the app's tsconfig leaves Node's types out
+// (a type reference here would let Node APIs into app code unnoticed).
 import ts from "typescript";
 import { CODE, expect, fakeYouTube, shown, test, ytLog } from "./fixtures";
+type Fs = { readFileSync(path: string, encoding: "utf8"): string };
+type Vm = { runInNewContext(code: string, context: object): unknown };
+const builtin = (id: string) =>
+  (globalThis as unknown as { process: { getBuiltinModule(id: string): unknown } }).process.getBuiltinModule(id);
+const { readFileSync } = builtin("node:fs") as Fs;
+const { runInNewContext } = builtin("node:vm") as Vm;
 
 // Guests browse freely; Watch and Save ask for a free account, then carry on
 // with what was tapped. A shared link plays without one.
@@ -216,7 +220,7 @@ test("a reload part-way through signing up still carries on with the sermon", as
 // the CI failure. Only the surrounding hooks, router and intent runner are
 // replaced; route counting and completion behavior come from app source.
 function flowCompletion(current: string[], stale: string[], focused = false) {
-  const filename = join(__dirname, "../src/auth/gate.tsx");
+  const filename = `${test.info().project.testDir}/../src/auth/gate.tsx`;
   const source = ts.createSourceFile(filename, readFileSync(filename, "utf8"), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   const names = new Set(["FLOW_ROUTES", "isFlowRoute", "isAuthRoute", "trailing", "useFinishFlow", "useCloseAuthRoutes"]);
   const declarations = source.statements.filter((node) =>

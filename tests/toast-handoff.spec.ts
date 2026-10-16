@@ -1,15 +1,19 @@
-/// <reference types="node" />
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-import { runInNewContext } from "node:vm";
+// Node's built-ins, typed here: the app's tsconfig leaves Node's types out
+// (a type reference here would let Node APIs into app code unnoticed).
 import ts from "typescript";
 import { expect, test } from "@playwright/test";
+type Fs = { readFileSync(path: string, encoding: "utf8"): string };
+type Vm = { runInNewContext(code: string, context: object): unknown };
+const builtin = (id: string) =>
+  (globalThis as unknown as { process: { getBuiltinModule(id: string): unknown } }).process.getBuiltinModule(id);
+const { readFileSync } = builtin("node:fs") as Fs;
+const { runInNewContext } = builtin("node:vm") as Vm;
 
 /** Execute the real provider and hook once per mount, with state writes and
  * effect cleanup recorded. No React rendering or timer behavior is recreated.
  */
 function toastMounts() {
-  const filename = join(__dirname, "../src/toast.tsx");
+  const filename = `${test.info().project.testDir}/../src/toast.tsx`;
   const source = ts.createSourceFile(filename, readFileSync(filename, "utf8"), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   const names = new Set(["ToastContext", "mountedToast", "dispatchToast", "ToastProvider", "useToast"]);
   const declarations = source.statements.filter((node) =>
