@@ -1,4 +1,4 @@
-import { router, useNavigation, usePathname } from "expo-router";
+import { router, useNavigation, useNavigationContainerRef, usePathname } from "expo-router";
 import { useCallback, useEffect, useRef } from "react";
 import { Platform } from "react-native";
 import { useCatalogue } from "../catalogue/CatalogueProvider";
@@ -44,12 +44,21 @@ function isAuthRoute(name: string) {
   return name === "join" || name.startsWith("auth/");
 }
 
-type RouteList = { name: string }[];
+type RouteState = {
+  index?: number;
+  routes: readonly { name: string; state?: RouteState }[];
+};
 
-function trailing(routes: RouteList, match: (name: string) => boolean) {
-  let count = 0;
-  for (let i = routes.length - 1; i >= 0 && match(routes[i].name); i--) count += 1;
-  return count;
+/** Count the active flow screens, through the container's layout wrappers. */
+function trailing(state: RouteState | undefined, match: (name: string) => boolean) {
+  while (state) {
+    const last = state.index ?? state.routes.length - 1;
+    let count = 0;
+    for (let i = last; i >= 0 && match(state.routes[i].name); i--) count += 1;
+    if (count) return count;
+    state = state.routes[last]?.state;
+  }
+  return 0;
 }
 
 /**
@@ -57,13 +66,13 @@ function trailing(routes: RouteList, match: (name: string) => boolean) {
  * can continue underneath. Resolves once they've had time to close.
  */
 export function useCloseAuthRoutes() {
-  const navigation = useNavigation();
+  const rootNavigation = useNavigationContainerRef();
   return useCallback(async () => {
-    const count = trailing((navigation.getState()?.routes ?? []) as RouteList, isAuthRoute);
+    const count = trailing(rootNavigation.getRootState(), isAuthRoute);
     if (!count) return;
     router.dismiss(count);
     await new Promise((resolve) => setTimeout(resolve, Platform.OS === "web" ? 30 : 400));
-  }, [navigation]);
+  }, [rootNavigation]);
 }
 
 type Viewer = ReturnType<typeof useAccount>;
@@ -112,8 +121,11 @@ export function useGate() {
  */
 export function useFinishFlow() {
   const navigation = useNavigation();
+  const rootNavigation = useNavigationContainerRef();
   return useCallback(async () => {
-    const count = trailing((navigation.getState()?.routes ?? []) as RouteList, isFlowRoute);
+    // A dismissed screen can retain its old stack snapshot after browser
+    // Back resets the navigator. Count from the live container instead.
+    const count = trailing(rootNavigation.getRootState(), isFlowRoute);
     if (count) router.dismiss(count);
     // With none left to close, the viewer already closed them while the
     // sign-in finished (a swipe down, Back): going back now would close the
@@ -125,7 +137,7 @@ export function useFinishFlow() {
     const intent = await takePendingIntent();
     // After the sheets have closed, so the player and toast land on the page.
     if (intent) setTimeout(() => runIntent(intent), Platform.OS === "web" ? 60 : 450);
-  }, [navigation]);
+  }, [navigation, rootNavigation]);
 }
 
 /**

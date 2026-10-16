@@ -3,6 +3,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type ReactNode,
@@ -20,6 +21,11 @@ type Toast = { id: number; message: string; icon: IconName };
 type ShowToast = (message: string, icon?: IconName) => void;
 
 const ToastContext = createContext<ShowToast | null>(null);
+
+// Browser Back can replace the root layout while an account request is still
+// running. A retained callback must reach the newly mounted toast provider.
+let mountedToast: ShowToast | null = null;
+const dispatchToast: ShowToast = (message, icon) => mountedToast?.(message, icon);
 
 const ease = Easing.bezier(0.23, 1, 0.32, 1);
 const enter = FadeInUp.duration(200).easing(ease).withInitialValues({
@@ -47,6 +53,13 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     timer.current = setTimeout(() => setToast(null), 3200);
   }, []);
 
+  useLayoutEffect(() => {
+    mountedToast = show;
+    return () => {
+      if (mountedToast === show) mountedToast = null;
+    };
+  }, [show]);
+
   useEffect(
     () => () => {
       if (timer.current) clearTimeout(timer.current);
@@ -55,7 +68,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   );
 
   return (
-    <ToastContext.Provider value={show}>
+    <ToastContext.Provider value={dispatchToast}>
       {children}
       <ToastLayer toast={toast} />
     </ToastContext.Provider>
