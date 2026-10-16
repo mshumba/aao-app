@@ -93,7 +93,7 @@ export default function Privacy() {
           app stores your sign-in session (in the iPhone Keychain, Android’s
           secure storage, or your browser’s storage on the web), the topics you
           chose, your recent searches, whether you’ve seen the welcome
-          screens, which blessings you’ve already seen on Home, and which
+          screens, which blessings you’ve already seen, and which
           sermons you opened from a shared link. Signing out removes the
           session; the rest stays until you change it or remove the app.
         </P>

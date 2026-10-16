@@ -21,9 +21,8 @@ import type { Sermon } from "../data/sermons";
 import { Artwork, Avatar, ItalicTitle, Kicker, PlayPill, RoundButton, Wash, spokenKicker, spokenText, spokenTime } from "../kit";
 import { useReducedMotion } from "../motion";
 import { motion } from "../onboarding/parts";
-import { c, easeOut, font, fontSize, radius, shadows, textCap, type } from "../theme";
+import { c, easeOut, fontSize, radius, shadows, textCap, type } from "../theme";
 import { T, Tap, gradient, web, type WebKey } from "../ui";
-import { spokenBlessing, type Blessing } from "./blessing";
 import { greeting, heroKicker } from "./copy";
 
 /**
@@ -31,15 +30,22 @@ import { greeting, heroKicker } from "./copy";
  * as a pager the viewer moves (never on its own), each one's artwork
  * cropped to the preacher on the right and washed into the dark on the
  * left, where the greeting, the kicker and the title sit. Watch and Save act
- * on the sermon showing; the dots say which one it is.
+ * on the sermon showing; the dots say which one it is. (The blessing has
+ * its own screen: src/blessing.)
  *
  * The band runs under the status bar. Its height is the concept's 340pt on
  * a phone with a 54pt status bar, and grows only if a title needs a third
  * line, measured once for all four pages so swiping never changes it.
+ *
+ * On a wide window the dark band still runs edge to edge, but the artwork,
+ * like the words, keeps to Home's centred column (COLUMN): its right edge
+ * at the column's, fading into the dark beyond it.
  */
 
 /** The question field overlaps the hero's bottom edge by this much. */
 export const HERO_OVERLAP = 56;
+/** Home's page column, which the hero's words and artwork keep to. */
+export const COLUMN = 760;
 
 const AVATAR = 38;
 /** Kicker 16 + 6 + two lines of the masthead (41 each). */
@@ -58,8 +64,14 @@ const ART_BOTTOM_BLEED = 51;
 const ART_H = Math.round((ART_W * 9) / 16);
 /** The title column: beside the preacher's face, never across it. */
 const TITLE_MAX = 252;
-/** The blessing's column: a little wider than the title's, still clear of the face. */
-const BLESSING_MAX = 288;
+/**
+ * A wide window: the artwork fades into the dark band over this much either
+ * side of the column's right edge, once the band beyond is at least
+ * SIDE_MIN wide (narrower, it runs to the window's edge, as on a phone).
+ */
+const EDGE_FADE_IN = 40;
+const EDGE_FADE_OUT = 48;
+const SIDE_MIN = 48;
 /**
  * The masthead steps down for a long title: 38/41 when it fits on two
  * lines, else 34/37 on two, else 30/34 on up to three. The words never
@@ -77,17 +89,32 @@ const ART_WAIT_MS = 1200;
 /** "Loading the latest sermons" only if the library takes longer than this. */
 const LOADING_AFTER_MS = 400;
 
+/** Where Home's column sits in a window `width` wide: its left edge and width. */
+export function heroColumn(width: number) {
+  const w = Math.min(width, COLUMN);
+  return { left: Math.max(0, (width - COLUMN) / 2), width: w };
+}
+
 /**
  * The scrim across a page, as the concept draws it: dark to 51% of the
- * width (further when the title's longest line runs past that, `edge` in
- * points from the left), then fading out by 80%, so busy flyer lettering
- * never shows through the words and the face stays bright.
+ * column (further when the title's longest line runs past that, `edge` in
+ * points from the window's left), then fading out by 80%, so busy flyer
+ * lettering never shows through the words and the face stays bright. On a
+ * wide window the artwork then fades into the dark past the column's right
+ * edge, so it never ends in a hard line.
  */
 function heroScrim(edge: number | null, width: number) {
-  const d = Math.round(Math.max(width * 0.51, edge != null ? edge - 32 : 0));
-  const w = width;
+  const col = heroColumn(width);
+  const w = col.width;
+  const d = Math.round(col.left + Math.max(w * 0.51, edge != null ? edge - col.left - 32 : 0));
+  const right = col.left + w;
+  const side =
+    width - right >= SIDE_MIN
+      ? `linear-gradient(90deg, rgba(15,17,21,0) ${Math.round(right - EDGE_FADE_IN)}px, rgba(15,17,21,1) ${Math.round(right + EDGE_FADE_OUT)}px), `
+      : "";
   return (
     "linear-gradient(180deg, rgba(15,17,21,0.62) 0px, rgba(15,17,21,0) 130px), " +
+    side +
     `linear-gradient(90deg, rgba(15,17,21,0.99) 0px, rgba(15,17,21,0.98) ${d}px, rgba(15,17,21,0.6) ${Math.round(d + w * 0.1)}px, rgba(15,17,21,0.15) ${Math.round(d + w * 0.2)}px, rgba(15,17,21,0) ${Math.round(d + w * 0.29)}px), ` +
     "linear-gradient(180deg, rgba(15,17,21,0) 40%, rgba(15,17,21,0.5) 70%, rgba(15,17,21,0.3) 84%)"
   );
@@ -122,8 +149,6 @@ type HeroProps = {
   onToggleSave: (id: string) => void;
   /** Reports the hero's height (for the status bar's switch to dark text). */
   onHeight?: (height: number) => void;
-  /** Today's blessing, under the greeting (text only). */
-  blessing?: Blessing | null;
 };
 
 export const HomeHero = memo(function HomeHero({
@@ -138,7 +163,6 @@ export const HomeHero = memo(function HomeHero({
   onWatch,
   onToggleSave,
   onHeight,
-  blessing = null,
 }: HeroProps) {
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
@@ -150,7 +174,7 @@ export const HomeHero = memo(function HomeHero({
 
   const top = heroTop(insets.top);
   // Text lines up with the page column (760 wide at most), 24 in.
-  const inset = Math.max(0, (width - 760) / 2) + 24;
+  const inset = heroColumn(width).left + 24;
   const count = sermons.length;
 
   // Each page's kicker and title, measured; the tallest sets the height.
@@ -269,32 +293,31 @@ export const HomeHero = memo(function HomeHero({
         onLayout={onRow}
       >
         <View style={styles.greetingRow}>
-        <ItalicTitle
-          text={greeting(name)}
-          italicLast={!!name}
-          accessibilityRole="header"
-          {...web({ "aria-level": 1 })}
-          style={[type.greeting, styles.greeting, width < 360 && styles.greetingNarrow]}
-          maxFontSizeMultiplier={textCap.display}
-        />
-        {member ? (
-          <Avatar name={name} onPress={onAccount} testID="home-avatar" />
-        ) : (
-          <Tap
-            testID="home-sign-in"
-            accessibilityRole="button"
-            accessibilityLabel="Sign in"
-            onPress={onSignIn}
-            hitSlop={{ top: 4, bottom: 4 }}
-            style={styles.signIn}
-          >
-            <T style={styles.signInText} maxFontSizeMultiplier={textCap.chip}>
-              Sign in
-            </T>
-          </Tap>
-        )}
+          <ItalicTitle
+            text={greeting(name)}
+            italicLast={!!name}
+            accessibilityRole="header"
+            {...web({ "aria-level": 1 })}
+            style={[type.greeting, styles.greeting, width < 360 && styles.greetingNarrow]}
+            maxFontSizeMultiplier={textCap.display}
+          />
+          {member ? (
+            <Avatar name={name} onPress={onAccount} testID="home-avatar" />
+          ) : (
+            <Tap
+              testID="home-sign-in"
+              accessibilityRole="button"
+              accessibilityLabel="Sign in"
+              onPress={onSignIn}
+              hitSlop={{ top: 4, bottom: 4 }}
+              style={styles.signIn}
+            >
+              <T style={styles.signInText} maxFontSizeMultiplier={textCap.chip}>
+                Sign in
+              </T>
+            </Tap>
+          )}
         </View>
-        {blessing ? <BlessingLines blessing={blessing} width={Math.min(width - 2 * inset, BLESSING_MAX)} /> : null}
       </Rise>
 
       {count ? (
@@ -380,37 +403,6 @@ export const HomeHero = memo(function HomeHero({
             </View>
           ) : null}
         </Rise>
-      ) : null}
-    </View>
-  );
-});
-
-// ---- The blessing ----------------------------------------------------------------
-
-/**
- * Today's blessing under the greeting: Newsreader italic, never cut off (it
- * wraps; the band grows to hold it), and its Bible reference below in small
- * gold capitals when it has one. Text only: nothing to play or open. Read
- * as one sentence, "Blessing: …. Psalm 71:21".
- */
-const BlessingLines = memo(function BlessingLines({ blessing, width }: { blessing: Blessing; width: number }) {
-  const spoken = spokenBlessing(blessing);
-  return (
-    <View
-      testID="home-blessing"
-      style={[styles.blessing, { maxWidth: width }]}
-      accessible={Platform.OS !== "web"}
-      accessibilityLabel={spoken}
-    >
-      {/* Web: the word "Blessing" is read before it, unseen. */}
-      {Platform.OS === "web" ? <T style={styles.unseen}>Blessing:</T> : null}
-      <T style={styles.blessingText} maxFontSizeMultiplier={textCap.quote}>
-        {blessing.text}
-      </T>
-      {blessing.scriptureRef ? (
-        <T style={styles.blessingRef} maxFontSizeMultiplier={textCap.section}>
-          {blessing.scriptureRef}
-        </T>
       ) : null}
     </View>
   );
@@ -518,10 +510,13 @@ const HeroPage = memo(function HeroPage({
   const scrim = useMemo(() => gradient(heroScrim(edge, width)), [edge, width]);
 
   // The concept's crop, grown to cover a taller band (a three-line title), so
-  // the artwork's top edge never shows under the status bar.
+  // the artwork's top edge never shows under the status bar. Its right edge
+  // is the column's (the window's on a phone), plus the concept's bleed.
   const artH = Math.max(ART_H, height + ART_BOTTOM_BLEED + 12);
   const artW = Math.round((artH * 16) / 9);
   const bleed = Math.round((ART_RIGHT_BLEED * artW) / ART_W);
+  const col = heroColumn(width);
+  const artRight = col.left + col.width + bleed;
 
   const words = (
     <>
@@ -554,7 +549,8 @@ const HeroPage = memo(function HeroPage({
         load={load}
         onSettled={onArt}
         priority={first ? "high" : "low"}
-        style={[styles.art, { left: width + bleed - artW, top: height + ART_BOTTOM_BLEED - artH }]}
+        testID={first ? "hero-art" : undefined}
+        style={[styles.art, { left: artRight - artW, top: height + ART_BOTTOM_BLEED - artH }]}
       />
       <View style={[StyleSheet.absoluteFill, styles.noTouch, scrim]} aria-hidden />
       <Rise
@@ -698,12 +694,6 @@ function Rise({
   );
 }
 
-const legible = {
-  textShadowColor: "rgba(15,17,21,0.85)",
-  textShadowOffset: { width: 0, height: 1 },
-  textShadowRadius: 10,
-};
-
 const styles = StyleSheet.create({
   hero: { backgroundColor: c.media, overflow: "hidden" },
   // Each page crops its own artwork, so a neighbour's never shows through.
@@ -721,18 +711,6 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: 12,
   },
-  // Room below, so the reference never reads as part of the sermon's kicker.
-  blessing: { marginTop: 6, paddingBottom: 14, gap: 6 },
-  // Soft white italic, with a shadow that keeps it legible where a
-  // flyer's own lettering runs behind it.
-  blessingText: {
-    ...type.prose,
-    fontFamily: font.serifRegularItalic,
-    color: c.onMediaSoft,
-    ...legible,
-  },
-  blessingRef: { ...type.overline, color: c.goldOnMedia, ...legible },
-  unseen: { position: "absolute", width: 1, height: 1, overflow: "hidden", left: -1, top: 0 },
   greeting: { color: c.white, flexShrink: 1 },
   greetingNarrow: { fontSize: fontSize.heading, lineHeight: 26 },
   // Navy with the avatar's white ring, so it holds on bright artwork too.

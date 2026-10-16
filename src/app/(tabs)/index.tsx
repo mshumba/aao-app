@@ -13,6 +13,7 @@ import {
 import Animated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAccount } from "../../auth/AccountProvider";
+import { useBlessingOnOpen } from "../../blessing";
 import { catalogueMode, useCatalogue } from "../../catalogue/CatalogueProvider";
 import { seriesRails } from "../../data/sermons";
 import {
@@ -27,7 +28,6 @@ import {
   YourPath,
   YourPathPlaceholder,
   pathHref,
-  useBlessing,
   useSermonActions,
 } from "../../home";
 import { ChipRow, NeedChip, SearchField } from "../../kit";
@@ -63,10 +63,13 @@ type TabsNavigation = {
 
 /**
  * Home, as the approved Immersive concept's screen 01: a dark hero with the
- * greeting, today's blessing and the newest sermons, then on ivory the
- * question "What are you going through?" with common needs, the path you're
- * on (or paths to start), Continue watching, the sermons in your topics,
- * the latest sermons (See all: every sermon) and the conferences.
+ * greeting and the newest sermons, then on ivory the question "What are you
+ * going through?" with common needs, the path you're on (or paths to start),
+ * Continue watching, the sermons in your topics, the latest sermons (See
+ * all: every sermon) and the conferences.
+ *
+ * The blessing has its own screen, opened from here at a cold start and
+ * after 30 minutes or more away (src/blessing).
  */
 export default function Home() {
   usePageTitle("Home");
@@ -83,7 +86,8 @@ export default function Home() {
   const { paths, daysOf } = usePaths();
   const enrollment = useEnrollment();
   const active = enrollment.active;
-  const blessing = useBlessing();
+  // True while a cold start's blessing is being decided or opening.
+  const covered = useBlessingOnOpen();
 
   // The whole library, rather than the bundled sample of four.
   const library = catalogue.source !== "sample";
@@ -195,7 +199,6 @@ export default function Home() {
           onWatch={actions.watch}
           onToggleSave={actions.toggleSave}
           onHeight={setHeroHeight}
-          blessing={blessing}
         />
 
         <View style={styles.column}>
@@ -279,6 +282,10 @@ export default function Home() {
           ]}
         />
       ) : null}
+
+      {/* A cold start's blessing opens over Home; until it's up, Home stays
+          under the ivory the splash lifts onto, so it never flashes first. */}
+      {covered ? <View testID="home-cover" style={styles.cover} /> : null}
     </View>
   );
 }
@@ -291,6 +298,7 @@ const styles = StyleSheet.create({
   chips: { marginTop: 12 },
   offline: { gap: space.xs, marginTop: space.lg, paddingHorizontal: 24 },
   footer: { marginTop: 40, paddingHorizontal: 24 },
+  cover: { ...StyleSheet.absoluteFill, backgroundColor: c.bg },
   statusShade: {
     position: "absolute",
     top: 0,

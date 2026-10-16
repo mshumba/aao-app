@@ -1,84 +1,8 @@
-import type { Page } from "@playwright/test";
 import { SERMON, expect, rows, seedWatchProgress, shown, test } from "./fixtures";
 
-// The pages redesign: the blessing on Home, All sermons, "From your topics",
+// The pages redesign: All sermons, "From your topics",
 // Continue watching's See all, the privacy disclosures, and one look that
 // holds at 320pt.
-
-/** The five fixture blessings (src/home/blessing.ts), by their first words. */
-const BLESSINGS = [
-  "A little one will become a thousand",
-  "Arise shine for your light is come",
-  "The Lord increase your greatness",
-  "The hand of Jesus will rest upon you",
-  "His love shall be a covering around you",
-];
-
-async function blessingShown(page: Page) {
-  const block = shown(page.getByTestId("home-blessing"));
-  await expect(block).toBeVisible();
-  const text = (await block.textContent()) ?? "";
-  const which = BLESSINGS.findIndex((start) => text.includes(start));
-  expect(which, text).toBeGreaterThanOrEqual(0);
-  return { text, which };
-}
-
-test.describe("the blessing on Home", () => {
-  test("shows under the greeting, text only, with its Bible reference", async ({ page }) => {
-    await page.goto("/");
-    const block = shown(page.getByTestId("home-blessing"));
-    await expect(block).toBeVisible();
-    // Read as one sentence, starting with what it is.
-    expect((await block.textContent()) ?? "").toMatch(/^Blessing:/);
-    // Nothing to play or open.
-    await expect(block.getByRole("button")).toHaveCount(0);
-    await expect(block.getByRole("link")).toHaveCount(0);
-    // Under the greeting, above the sermon's title.
-    const greeting = page.getByRole("heading", { level: 1 });
-    expect((await block.boundingBox())!.y).toBeGreaterThan((await greeting.boundingBox())!.y);
-  });
-
-  test("a new one each time the app opens, none repeated until all are seen", async ({ page }) => {
-    await page.goto("/");
-    const seen: number[] = [];
-    for (let i = 0; i < BLESSINGS.length; i++) {
-      if (i) await page.reload();
-      seen.push((await blessingShown(page)).which);
-    }
-    expect(new Set(seen).size).toBe(BLESSINGS.length);
-    // The round starts again, never with the one just shown.
-    await page.reload();
-    expect((await blessingShown(page)).which).not.toBe(seen[seen.length - 1]);
-  });
-
-  test("coming back to the app brings a new one", async ({ page }) => {
-    await page.goto("/");
-    const first = await blessingShown(page);
-    for (const state of ["hidden", "visible"]) {
-      await page.evaluate((value) => {
-        Object.defineProperty(document, "visibilityState", { value, configurable: true });
-        Object.defineProperty(document, "hidden", { value: value === "hidden", configurable: true });
-        document.dispatchEvent(new Event("visibilitychange"));
-      }, state);
-      await page.waitForTimeout(150);
-    }
-    await expect.poll(async () => (await blessingShown(page)).which).not.toBe(first.which);
-  });
-
-  test("a reference shows in gold capitals when the blessing has one", async ({ page }) => {
-    // The first fixture is the only one left to see, so it's the one shown.
-    await page.addInitScript(() => {
-      localStorage.setItem(
-        "aao.blessings.seen.v1",
-        JSON.stringify(["bl-82336-67", "bl-80650-59", "bl-4867-64", "bl-49470-36"]),
-      );
-    });
-    await page.goto("/");
-    const block = shown(page.getByTestId("home-blessing"));
-    await expect(block).toContainText("Isaiah 60:22; Job 8:7");
-    await expect(block.getByText("Isaiah 60:22; Job 8:7")).toHaveCSS("text-transform", "uppercase");
-  });
-});
 
 test.describe("All sermons", () => {
   test("Latest's See all lists every sermon, newest first", async ({ page }) => {
