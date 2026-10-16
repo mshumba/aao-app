@@ -9,7 +9,20 @@ type YouTubePlayer = {
   pauseVideo: () => void;
   seekTo: (seconds: number, allowSeekAhead: boolean) => void;
   setPlaybackRate: (rate: number) => void;
+  unloadModule: (module: string) => void;
 };
+
+// Captions are off unless the viewer turns them on in the player (owner,
+// 16 Oct 2026). YouTube may load them as the player readies or as playback
+// first starts, so they're switched off at both.
+function captionsOff(p: YouTubePlayer | undefined) {
+  try {
+    p?.unloadModule("captions");
+    p?.unloadModule("cc");
+  } catch {
+    // Not loaded: nothing to switch off.
+  }
+}
 type YouTubeApi = {
   Player: new (
     el: HTMLDivElement,
@@ -82,6 +95,7 @@ export default function Embed({
   }));
   useEffect(() => {
     let disposed = false;
+    let captionsChecked = false;
     let timer: ReturnType<typeof setInterval> | undefined;
     const duration = () => {
       try {
@@ -105,6 +119,7 @@ export default function Embed({
             controls: 1,
             playsinline: 1,
             rel: 0,
+            cc_load_policy: 0,
             origin: window.location.origin,
           },
           // A player replaced by a new attempt (a retry, or a restart at the
@@ -115,6 +130,7 @@ export default function Embed({
             onReady: () => {
               if (disposed) return;
               ready.current = true;
+              captionsOff(player.current);
               callback.current({ type: "ready", duration: duration() });
             },
             onError: (e: { data: number }) => {
@@ -122,6 +138,10 @@ export default function Embed({
             },
             onStateChange: (e: { data: number }) => {
               if (disposed) return;
+              if (e.data === 1 && !captionsChecked) {
+                captionsChecked = true;
+                captionsOff(player.current);
+              }
               callback.current({
                 type: "state",
                 state: e.data,
