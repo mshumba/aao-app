@@ -54,6 +54,8 @@ type Session = {
    * focus, a shared time.
    */
   load: (sermon: Sermon, from?: number) => void;
+  /** Plays the loaded sermon, waiting for readiness when it is still loading. */
+  play: () => void;
   retry: () => void;
   close: () => void;
   /** Pause, and cancel a start still waiting for the player to load. */
@@ -270,6 +272,16 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     },
     [checkDay],
   );
+
+  // An explicit play request can arrive after hold cancelled the initial
+  // start, while the same embed is still loading. Keep that intent for ready;
+  // another hold (backgrounding or hiding the video) can still cancel it.
+  const play = useCallback(() => {
+    // A route's transition can settle after the app has already left focus.
+    if (AppState.currentState === "background") return;
+    if (phaseRef.current === "loading") autoplay.current = true;
+    else if (phaseRef.current === "ready") command({ type: "play" });
+  }, [command]);
 
   // The provider drops commands until it's ready, so a pause while loading
   // must also cancel the start that Watch queued.
@@ -556,6 +568,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       dockAboveTabs,
       setDockAboveTabs,
       load,
+      play,
       retry,
       close,
       hold,
@@ -579,6 +592,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       setStage,
       dockAboveTabs,
       load,
+      play,
       retry,
       close,
       hold,
@@ -602,7 +616,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       duration,
       rate,
       status,
-      play: () => command({ type: "play" }),
+      play,
       pause: hold,
       toggle: () => (playing ? hold() : command({ type: "play" })),
       seek: (s) => {
@@ -623,7 +637,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         command({ type: "rate", rate: next });
       },
     };
-  }, [state, seconds, duration, rate, status, command, hold, playing]);
+  }, [state, seconds, duration, rate, status, command, play, hold, playing]);
 
   return (
     <SessionContext.Provider value={session}>
