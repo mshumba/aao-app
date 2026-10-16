@@ -1,15 +1,18 @@
 /** Direct-execution entry point; importing this module never runs the job. */
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { importNewSermons, readConfig } from "./nightly-sermons-core.ts";
+import { ImportError, importNewSermons, readConfig, readOptions } from "./nightly-sermons-core.ts";
 
 async function main() {
-  console.log(JSON.stringify(await importNewSermons(readConfig(process.env))));
+  const options = readOptions(process.argv.slice(2));
+  console.log(JSON.stringify(await importNewSermons(readConfig(process.env), options)));
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   void main().catch((error: unknown) => {
-    console.error(error instanceof Error ? error.message : "Nightly sermon import failed");
+    console.error(JSON.stringify(error instanceof ImportError
+      ? { error: error.message, ...(error.summary ? { summary: error.summary } : {}) }
+      : { error: "Nightly sermon import failed" }));
     process.exitCode = 1;
   });
 }
