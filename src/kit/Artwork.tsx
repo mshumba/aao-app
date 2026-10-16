@@ -1,5 +1,5 @@
 import { requireOptionalNativeModule } from "expo";
-import { memo, useCallback, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import {
   Image as RNImage,
   PixelRatio,
@@ -20,7 +20,7 @@ import { T, web } from "./base";
  * build made before expo-image was added keeps working until it's rebuilt.
  */
 type ExpoImageType = typeof import("expo-image").Image;
-const ExpoImage: ExpoImageType | null =
+export const ExpoImage: ExpoImageType | null =
   Platform.OS === "web" || requireOptionalNativeModule("ExpoImage")
     ? // eslint-disable-next-line @typescript-eslint/no-require-imports
       (require("expo-image") as typeof import("expo-image")).Image
@@ -73,6 +73,62 @@ export function artUri(art: ArtSource) {
   return art.thumbnail || `https://i.ytimg.com/vi/${art.id}/hqdefault.jpg`;
 }
 
+// ---- What's already on this device -------------------------------------------------
+
+/**
+ * Copies drawn this session (expo-image keeps them in memory) or found in
+ * its disk cache: drawn at once, without the fade, which is only for art
+ * that has to be fetched. The web can't tell what the browser has cached,
+ * so there only this session's copies count.
+ */
+const onDevice = new Set<string>();
+const checking = new Map<string, Promise<boolean>>();
+const canCheck = Platform.OS !== "web" && !!ExpoImage;
+
+function inCache(uri: string): Promise<boolean> {
+  let check = checking.get(uri);
+  if (!check) {
+    check = ExpoImage!
+      .getCachePathAsync(uri)
+      .then(
+        (path) => {
+          if (path) onDevice.add(uri);
+          return !!path;
+        },
+        () => false,
+      )
+      .finally(() => checking.delete(uri));
+    checking.set(uri, check);
+  }
+  return check;
+}
+
+/** What's known at once: true, false, or null until the cache has been asked. */
+function knownNow(uri: string | null) {
+  if (!uri) return false;
+  return onDevice.has(uri) ? true : canCheck ? null : false;
+}
+
+/**
+ * Whether the art at `uri` is already on this device: true or false, or
+ * null for the moment asking expo-image's cache takes (a frame or so).
+ */
+export function useArtOnDevice(uri: string | null): boolean | null {
+  const [found, setFound] = useState(() => ({ uri, on: knownNow(uri) }));
+  const on = found.uri === uri ? found.on : knownNow(uri);
+  useEffect(() => {
+    if (!uri || on !== null) return;
+    let alive = true;
+    inCache(uri).then((hit) => {
+      if (alive) setFound({ uri, on: hit });
+    });
+    return () => {
+      alive = false;
+    };
+  }, [uri, on]);
+  return on;
+}
+
 const FadeImage = memo(function FadeImage({
   uri,
   recyclingKey,
@@ -87,21 +143,31 @@ const FadeImage = memo(function FadeImage({
   onLoad?: () => void;
 }) {
   const [loaded, setLoaded] = useState(false);
-  if (ExpoImage)
+  // Set once per copy (FadeImage is keyed by it): a changed transition
+  // would make expo-image load the image again.
+  const cached = useArtOnDevice(uri);
+  const onLoaded = useCallback(() => {
+    onDevice.add(uri);
+    onLoad?.();
+  }, [uri, onLoad]);
+  if (ExpoImage) {
+    // The tint for the moment the cache takes to answer.
+    if (cached === null) return null;
     return (
       <ExpoImage
         source={{ uri }}
         style={StyleSheet.absoluteFill}
         contentFit="cover"
-        transition={artFade}
+        transition={cached ? 0 : artFade}
         cachePolicy="memory-disk"
         recyclingKey={recyclingKey}
         priority={priority}
         onError={onError}
-        onLoad={onLoad}
+        onLoad={onLoaded}
         accessible={false}
       />
     );
+  }
   return (
     <AnimatedImage
       source={{ uri }}
@@ -152,8 +218,9 @@ export type ArtworkProps = {
 
 /**
  * Sermon artwork in a fixed 16:9 box, so nothing shifts as it loads: the
- * sermon's dark tint first, then the image fading in over 200ms. Decorative:
- * the row or card holding it carries the words.
+ * sermon's dark tint first, then the image, at once if it's already on the
+ * device, else fading in over 200ms. Decorative: the row or card holding it
+ * carries the words.
  */
 export const Artwork = memo(function Artwork({
   art,

@@ -17,10 +17,12 @@ const KBPS = 1024 / 8;
 const SLOW = { offline: false, latency: 150, downloadThroughput: 1600 * KBPS, uploadThroughput: 750 * KBPS };
 /**
  * How long after the app's script Home may take to be usable: first-load's
- * 1.8 s for the first page's heading, plus the hero's arrival (Watch rises
- * 300 ms after the page, over 360 ms). 1.4 to 1.5 s from the development
- * server on a laptop. Before, Watch's icon waited for the icon font (5 to 9 s
- * more in a production export on this link) and the words for the artwork.
+ * 1.8 s for the first page's heading, plus room for the hero to finish
+ * drawing under the start-up cover (its words no longer rise in; they rose
+ * 300 ms after the page, over 360 ms, until 16 October 2026). 1.4 to 1.5 s
+ * from the development server on a laptop then. Before, Watch's icon waited
+ * for the icon font (5 to 9 s more in a production export on this link) and
+ * the words for the artwork.
  */
 const HOME_AFTER_SCRIPT_MS = 2_500;
 
@@ -373,8 +375,9 @@ test.describe("the hero's artwork", () => {
     const hero = () => page.evaluate(() => (window as unknown as { __hero: { pager?: number; words?: number } }).__hero);
     await expect.poll(async () => (await hero()).words, { timeout: 15_000 }).toBeGreaterThan(0);
     const { pager, words } = await hero();
-    // Only the words' own arrival (up to 0.66 s), never the artwork's 4 s.
-    expect(words! - pager!).toBeLessThan(1_000);
+    // The words are there with the page (they no longer rise in), never
+    // waiting for the artwork's 4 s.
+    expect(words! - pager!).toBeLessThan(250);
     const sharpIn = () =>
       page.evaluate(() => {
         const img = document.querySelector<HTMLImageElement>('[data-testid="hero-art"] img');

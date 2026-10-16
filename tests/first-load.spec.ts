@@ -152,3 +152,63 @@ test.describe("fonts arriving after the first page", () => {
     expect(Math.abs(after.width - t.box.width) / after.width).toBeLessThan(0.06);
   });
 });
+
+// Home's hero, from its first frame on screen: the greeting, the title and
+// Watch already at full strength (nothing rises in on a delay), and the
+// band's height never changes after (the title finds its size under the
+// start-up cover).
+for (const viewer of ["guest", "member"] as Viewer[]) {
+  test.describe(`a ${viewer}'s Home`, () => {
+    test.use({ viewer });
+
+    test("shows its hero whole in the first frame, and its height never changes after", async ({ page }) => {
+      await page.addInitScript(() => {
+        type Frame = { at: number; height: number; faint: string[] };
+        const w = window as unknown as { __hero: Frame[] };
+        w.__hero = [];
+        const covered = (el: Element) => {
+          const r = el.getBoundingClientRect();
+          if (!r.width || !r.height) return true;
+          const hit = document.elementFromPoint(r.left + Math.min(8, r.width / 2), r.top + r.height / 2);
+          return !hit || !(el.contains(hit) || hit.contains(el));
+        };
+        const faint = (el: Element) => {
+          for (let a: Element | null = el; a; a = a.parentElement)
+            if (Number(getComputedStyle(a).opacity) < 1) return true;
+          return false;
+        };
+        const tick = () => {
+          const pager = document.querySelector('[data-testid="hero-pager"]');
+          const field = document.querySelector('[data-testid="home-search"]');
+          if (pager && field && !covered(field)) {
+            const parts = {
+              greeting: document.querySelector("h1"),
+              title: pager.querySelector('[role="button"]'),
+              watch: document.querySelector('[data-testid="hero-watch"]'),
+            };
+            w.__hero.push({
+              at: performance.now(),
+              height: pager.parentElement!.getBoundingClientRect().height,
+              faint: Object.entries(parts)
+                .filter(([, el]) => !el || faint(el))
+                .map(([name]) => name),
+            });
+          }
+          if (w.__hero.length < 60) requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      });
+      await page.goto("/");
+      await expect
+        .poll(() => page.evaluate(() => (window as unknown as { __hero: unknown[] }).__hero.length), {
+          timeout: 20_000,
+        })
+        .toBeGreaterThanOrEqual(60);
+      const frames = await page.evaluate(
+        () => (window as unknown as { __hero: { at: number; height: number; faint: string[] }[] }).__hero,
+      );
+      expect(frames[0].faint, "faint in Home's first frame").toEqual([]);
+      expect(new Set(frames.map((f) => f.height)).size, "the hero's heights").toBe(1);
+    });
+  });
+}

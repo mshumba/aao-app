@@ -1,4 +1,4 @@
-import { router, useIsFocused } from "expo-router";
+import { router, useIsFocused, useNavigation } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
@@ -25,7 +25,7 @@ import { motion } from "../onboarding/parts";
 import { c, easeOut, font, space, textCap, type } from "../theme";
 import { T, gradient, web } from "../ui";
 import { currentBlessing, primeBlessings, spokenBlessing, takeBlessing, type Blessing } from "./data";
-import { blessingIsOnScreen, setBlessingOnScreen, type Opening } from "./schedule";
+import { blessingAppeared, blessingIsOnScreen, setBlessingOnScreen, type Opening } from "./schedule";
 import { BlessingWall } from "./Wall";
 
 /** The words arrive over this long (a fade alone under Reduce Motion). */
@@ -34,6 +34,11 @@ const ENTER_REDUCED_MS = 250;
 /** Web: the screen fades away over Home this long before it closes. */
 const LEAVE_MS = 280;
 const LEAVE_REDUCED_MS = 180;
+/**
+ * At a launch, the screen waits this long at most for the wall's artwork
+ * (from the device's cache, usually in a moment) before it shows whole.
+ */
+const WALL_WAIT_MS = 500;
 
 /** From this window width (a tablet, a laptop) the blessing is set larger. */
 const WIDE = 700;
@@ -59,6 +64,11 @@ let leaving = false;
  * they ever need to (small phones, very large text). Continue, a swipe down
  * (native, when nothing scrolls), Escape (web) or the screen reader's
  * escape gesture all go on to the app with a gentle fade.
+ *
+ * At a launch the splash lifts straight onto the finished screen: nothing
+ * rises in, and the screen stays the splash's plain ivory until the wall's
+ * artwork is in (WALL_WAIT_MS at most), then shows whole. Coming back to the
+ * app, it fades in over Home and the words rise in.
  */
 export function BlessingScreen({ opening }: { opening: Opening | null }) {
   usePageTitle("A blessing for you");
@@ -73,6 +83,33 @@ export function BlessingScreen({ opening }: { opening: Opening | null }) {
   const [fading, setFading] = useState(false);
   const root = useRef<View>(null);
   const native = Platform.OS !== "web";
+  const navigation = useNavigation();
+
+  // ---- A launch: shown whole, once the wall's artwork is in -----------------------
+  const launch = opening === "launch";
+  const [whole, setWhole] = useState(!launch);
+  const onWall = useCallback(() => setWhole(true), []);
+  useEffect(() => {
+    if (whole) return;
+    const timer = setTimeout(() => setWhole(true), WALL_WAIT_MS);
+    return () => clearTimeout(timer);
+  }, [whole]);
+  // Native: the modal has been presented (mounted alone, it may not be on
+  // screen yet). Then Home's cover and the splash can go (schedule.ts).
+  const [presented, setPresented] = useState(!native);
+  useEffect(
+    () =>
+      navigation.addListener("transitionEnd" as never, ((e: { data?: { closing?: boolean } }) => {
+        if (!e.data?.closing) setPresented(true);
+      }) as never),
+    [navigation],
+  );
+  useEffect(() => {
+    if (!whole || !presented) return;
+    // One frame for the whole screen to be drawn.
+    const frame = requestAnimationFrame(blessingAppeared);
+    return () => cancelAnimationFrame(frame);
+  }, [whole, presented]);
 
   // ---- Leaving --------------------------------------------------------------------
   useEffect(() => {
@@ -185,6 +222,10 @@ export function BlessingScreen({ opening }: { opening: Opening | null }) {
           testID="blessing-screen"
           style={[
             styles.screen,
+            // A launch (native: the modal is above the splash): the splash's
+            // plain ivory until it can show whole. The web's start-up cover
+            // does this there.
+            native && !whole && styles.waiting,
             // Web, coming back to the app: the page fades in over Home (the
             // native modal fades itself). At a launch it's there at once.
             !native &&
@@ -219,14 +260,20 @@ export function BlessingScreen({ opening }: { opening: Opening | null }) {
               testID="blessing-band"
               style={[styles.band, { flexBasis: bandMin, minHeight: bandMin, maxHeight: bandMax }]}
             >
-              <BlessingWall reach={bandMax} reduced={reduced} />
+              <BlessingWall
+                reach={bandMax}
+                reduced={reduced}
+                enter={!launch}
+                shown={whole}
+                onReady={onWall}
+              />
               <View style={[StyleSheet.absoluteFill, styles.bandFade]} />
             </View>
 
             <View style={[styles.column, { maxWidth: column }, styles.words, wide && styles.wordsWide]}>
               {blessing && size ? (
                 <>
-                  <Rise delay={60} duration={enter} reduced={reduced}>
+                  <Rise play={!launch} delay={60} duration={enter} reduced={reduced}>
                     <ItalicTitle
                       nativeID="blessing-greeting"
                       text={greeting(name)}
@@ -237,7 +284,7 @@ export function BlessingScreen({ opening }: { opening: Opening | null }) {
                       maxFontSizeMultiplier={textCap.display}
                     />
                   </Rise>
-                  <Rise delay={160} duration={enter} reduced={reduced} style={styles.blessing}>
+                  <Rise play={!launch} delay={160} duration={enter} reduced={reduced} style={styles.blessing}>
                     {/* Said once, as "Blessing: …" below, so the label is unseen to screen readers. */}
                     <View
                       accessibilityElementsHidden
@@ -277,7 +324,7 @@ export function BlessingScreen({ opening }: { opening: Opening | null }) {
                       ) : null}
                     </View>
                   </Rise>
-                  <Rise delay={260} duration={enter} reduced={reduced} style={styles.byline}>
+                  <Rise play={!launch} delay={260} duration={enter} reduced={reduced} style={styles.byline}>
                     <View style={styles.bylineRule} />
                     <T style={styles.bylineText}>Apostle Arome Osayi</T>
                   </Rise>
@@ -303,7 +350,7 @@ export function BlessingScreen({ opening }: { opening: Opening | null }) {
             {blessing ? (
               // The welcome's "Get started" size on wide screens, lined up
               // with the words rather than stretched across the wider column.
-              <Rise delay={360} duration={enter} reduced={reduced} style={styles.continue}>
+              <Rise play={!launch} delay={360} duration={enter} reduced={reduced} style={styles.continue}>
                 <FlowButton
                   shape="rounded"
                   label="Continue"
@@ -369,14 +416,16 @@ const WIDE_SIZES = [
   [36, 44, -0.3],
 ] as const;
 
-/** Up 8pt as it fades in (a fade alone under Reduce Motion), once. */
+/** Up 8pt as it fades in (a fade alone under Reduce Motion), once; there at once unless `play`. */
 function Rise({
+  play,
   delay,
   duration,
   reduced,
   style,
   children,
 }: {
+  play: boolean;
   delay: number;
   duration: number;
   reduced: boolean;
@@ -387,7 +436,7 @@ function Rise({
     <Animated.View
       style={[
         style,
-        {
+        play && {
           animationName: reduced ? motion.fade : motion.rise,
           animationDuration: duration,
           animationDelay: delay,
@@ -424,6 +473,7 @@ function silenceOutside(root: HTMLElement) {
 const styles = StyleSheet.create({
   fill: { flex: 1 },
   screen: { flex: 1, backgroundColor: c.bg },
+  waiting: { opacity: 0 },
   // The band takes the room the words leave (between its limits), and the
   // words sit in the middle of whatever is left after that.
   scroll: { flexGrow: 1 },

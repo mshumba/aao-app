@@ -88,14 +88,15 @@ export function takeOpening() {
 // ---- Home's cover at a cold start ----------------------------------------------------
 
 /**
- * At a cold start Home stays covered in ivory (what the splash lifts onto)
- * while it decides whether the blessing opens, and until the blessing
- * screen is up if it does, so Home never flashes first.
+ * At a cold start Home stays covered while it decides whether the blessing
+ * opens, and until the blessing screen has appeared, finished, if it does;
+ * the splash stays up over all of it meanwhile (src/app/_layout.tsx), so
+ * it lifts straight onto the blessing or onto Home, never Home first.
  */
 export type Cover = "deciding" | "opening" | "done";
 
 /** Home stays covered this long at most while the blessing screen opens. */
-const OPENING_MAX_MS = 1200;
+const OPENING_MAX_MS = 2000;
 
 let cover: Cover = "deciding";
 let onScreen = false;
@@ -103,7 +104,7 @@ const coverListeners = new Set<() => void>();
 
 export function setCover(next: Cover) {
   if (cover === next || cover === "done") return;
-  cover = next === "opening" && onScreen ? "done" : next;
+  cover = next;
   if (cover === "opening") setTimeout(() => setCover("done"), OPENING_MAX_MS);
   emit(coverListeners);
 }
@@ -120,10 +121,18 @@ export function subscribeCover(listener: () => void) {
   };
 }
 
-/** The blessing screen is up (true) or has gone (false). */
+/** The blessing screen is mounted (true) or has gone (false). */
 export function setBlessingOnScreen(up: boolean) {
   onScreen = up;
-  if (up && cover === "opening") setCover("done");
+}
+
+/**
+ * The blessing screen opened at a launch is on screen with everything in
+ * it (native: its modal has been presented, which a mounted screen alone
+ * doesn't promise), so Home's cover and the splash can go.
+ */
+export function blessingAppeared() {
+  if (cover === "opening") setCover("done");
 }
 
 export function blessingIsOnScreen() {

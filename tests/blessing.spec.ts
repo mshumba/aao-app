@@ -327,21 +327,81 @@ test("a new one each time the app opens, none repeated until all six are seen", 
   expect(await blessingShown(page)).not.toBe(seen[seen.length - 1]);
 });
 
-test("the words rise in; with reduced motion they only fade", async ({ page }) => {
+test("at a launch the words are simply there; coming back they rise in, or only fade with reduced motion", async ({
+  page,
+}) => {
+  const start = new Date("2026-10-14T09:00:00").getTime();
+  await page.clock.setFixedTime(start);
   await page.goto("/");
+  await blessingShown(page);
+  // The splash (on the web, the start-up cover) lifts onto the finished
+  // screen: nothing rises in.
+  expect(await entranceFrames(page)).toBeNull();
+  await continueButton(page).click();
+  await onHome(page);
+
+  // Back after 31 minutes: the screen fades in over Home and the words rise.
+  await setVisible(page, false);
+  await page.clock.setFixedTime(start + 31 * MINUTE);
+  await setVisible(page, true);
   await blessingShown(page);
   let frames = await entranceFrames(page);
   expect(frames).toContain("opacity");
   expect(frames).toContain("translateY");
+  await continueButton(page).click();
+  await onHome(page);
 
+  // With reduced motion (from the next launch): there at once again, then a fade alone.
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.reload();
+  await blessingShown(page);
+  expect(await entranceFrames(page)).toBeNull();
+  await continueButton(page).click();
+  await onHome(page);
+  await setVisible(page, false);
+  await page.clock.setFixedTime(start + 62 * MINUTE);
+  await setVisible(page, true);
   await blessingShown(page);
   frames = await entranceFrames(page);
   expect(frames).toContain("opacity");
   expect(frames).not.toContain("transform");
   await continueButton(page).click();
   await onHome(page);
+});
+
+test("at a launch the blessing is the first thing drawn, whole, never Home first", async ({ page }) => {
+  // Every animation frame from the start: what's on screen and uncovered.
+  await page.addInitScript(() => {
+    const w = window as unknown as { __drawn: string[] };
+    w.__drawn = [];
+    const seen = (selector: string) => {
+      const el = document.querySelector(selector);
+      if (!el) return "none";
+      const r = el.getBoundingClientRect();
+      if (!r.width || !r.height || r.bottom < 0 || r.top > innerHeight) return "none";
+      const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      if (!hit || !(el.contains(hit) || hit.contains(el))) return "none";
+      for (let a: Element | null = el; a; a = a.parentElement)
+        if (Number(getComputedStyle(a).opacity) < 1) return "faint";
+      return "whole";
+    };
+    const tick = () => {
+      const home = seen('[data-testid="home-search"]');
+      const words = seen('[data-testid="blessing-text"]');
+      const go = seen('[data-testid="blessing-continue"]');
+      const state =
+        home !== "none" ? "home" : words === "whole" && go === "whole" ? "blessing" : words !== "none" || go !== "none" ? "part" : "cover";
+      if (w.__drawn[w.__drawn.length - 1] !== state) w.__drawn.push(state);
+      if (state !== "blessing" && performance.now() < 20_000) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  });
+  await page.goto("/");
+  await blessingShown(page);
+  const drawn = await page.evaluate(() => (window as unknown as { __drawn: string[] }).__drawn);
+  // Only the plain cover, then the whole blessing: no frame of Home, and
+  // none with the words or Continue still arriving.
+  expect(drawn).toEqual(["cover", "blessing"]);
 });
 
 test.describe("the longest blessing", () => {

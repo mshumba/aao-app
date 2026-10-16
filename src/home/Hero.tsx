@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   PixelRatio,
@@ -11,17 +11,15 @@ import {
   type LayoutChangeEvent,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
-  type StyleProp,
   type TextLayoutEventData,
-  type ViewStyle,
 } from "react-native";
 import Animated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { headline } from "../data/display";
 import type { Sermon } from "../data/sermons";
-import { Artwork, Avatar, ItalicTitle, Kicker, PlayPill, RoundButton, Wash, artUri, sizedArt, spokenKicker, spokenText, spokenTime } from "../kit";
+import { Artwork, Avatar, ItalicTitle, Kicker, PlayPill, RoundButton, Wash, artCandidates, artUri, sizedArt, spokenKicker, spokenText, spokenTime } from "../kit";
+import { useArtOnDevice } from "../kit/Artwork";
 import { useReducedMotion } from "../motion";
-import { motion } from "../onboarding/parts";
 import { artFade, c, easeOut, fontSize, radius, shadows, textCap, type } from "../theme";
 import { T, Tap, gradient, web, type WebKey } from "../ui";
 import { greeting, heroKicker } from "./copy";
@@ -83,12 +81,17 @@ const TITLE_STEPS = [
   { fontSize: fontSize.title, lineHeight: 37, letterSpacing: -0.6 },
   { fontSize: fontSize.question, lineHeight: 34, letterSpacing: -0.5 },
 ] as const;
-/** Later pages fetch their artwork once the viewer moves the pager, or after this. */
+/**
+ * Later pages fetch their artwork once the first page's is in (at once from
+ * the device's cache), the viewer moves the pager, or after this.
+ */
 const REST_MS = 2500;
 /**
- * The first page's artwork comes in two steps: YouTube's 320×180 copy
- * (about 12 KB) first, drawn at full size, then the sharp one (the 1280×720
- * WebP, about 100 KB) fading in over it. The words never wait for either.
+ * The first page's artwork, when it isn't on the device yet, comes in two
+ * steps: YouTube's 320×180 copy (about 12 KB) first, drawn at full size,
+ * then the sharp one (the 1280×720 WebP, about 100 KB) fading in over it.
+ * Already on the device, the sharp one is simply there. The words never
+ * wait for either.
  */
 const PREVIEW_PX = 320;
 /** "Loading the latest sermons" only if the library takes longer than this. */
@@ -135,8 +138,34 @@ export function heroHeight(top: number, body: number, row = AVATAR) {
   return top + Math.max(AVATAR, row) + 10 + Math.max(BODY_MIN, body) + 14 + ACTIONS + ACTIONS_BOTTOM;
 }
 
-// The words rise in once per launch, without waiting for the artwork.
-let introPlayed = false;
+// ---- Drawn in full, for the launch ------------------------------------------------
+
+/**
+ * Whether the hero has drawn itself in full once: every page's title at its
+ * final size (so the band's height won't change again) and, on iOS and
+ * Android, the first page's artwork. When the app opens onto Home, the
+ * splash waits for this (src/app/_layout.tsx), so it lifts onto a finished
+ * hero rather than one still settling.
+ */
+let drawn = false;
+const drawnListeners = new Set<() => void>();
+
+export function heroDrawn() {
+  return drawn;
+}
+
+export function onHeroDrawn(listener: () => void) {
+  drawnListeners.add(listener);
+  return () => {
+    drawnListeners.delete(listener);
+  };
+}
+
+function markDrawn() {
+  if (drawn) return;
+  drawn = true;
+  for (const listener of Array.from(drawnListeners)) listener();
+}
 
 type HeroProps = {
   /** Newest first; up to four. Empty while the catalogue loads. */
@@ -172,10 +201,6 @@ export const HomeHero = memo(function HomeHero({
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const reduced = useReducedMotion();
-  const [intro] = useState(() => !introPlayed);
-  useEffect(() => {
-    introPlayed = true;
-  }, []);
 
   const top = heroTop(insets.top);
   // Text lines up with the page column (760 wide at most), 24 in.
@@ -200,13 +225,30 @@ export const HomeHero = memo(function HomeHero({
     onHeight?.(height);
   }, [height, onHeight]);
 
-  // ---- Later pages' artwork waits until the viewer moves, or a moment passes -----
+  // ---- Later pages' artwork waits for the first's, the viewer, or a moment --------
   const [rest, setRest] = useState(false);
   useEffect(() => {
     if (rest) return;
     const timer = setTimeout(() => setRest(true), REST_MS);
     return () => clearTimeout(timer);
   }, [rest]);
+  // The first page's artwork drawn (either copy), and its sharp copy settled.
+  const [firstArt, setFirstArt] = useState(Platform.OS === "web");
+  const onFirstArt = useCallback(() => setFirstArt(true), []);
+  const onFirstSharp = useCallback(() => {
+    setFirstArt(true);
+    setRest(true);
+  }, []);
+
+  // ---- Drawn in full (see heroDrawn) ------------------------------------------------
+  const [fitted, setFitted] = useState<Record<string, true>>({});
+  const onFitted = useCallback((id: string) => {
+    setFitted((was) => (was[id] ? was : { ...was, [id]: true }));
+  }, []);
+  const settled = count > 0 && sermons.every((s) => fitted[s.id] && bodies[s.id] != null);
+  useEffect(() => {
+    if (settled && firstArt) markDrawn();
+  }, [settled, firstArt]);
 
   // ---- "Loading the latest sermons", only if it takes a while ---------------------
   const [slow, setSlow] = useState(false);
@@ -277,13 +319,7 @@ export const HomeHero = memo(function HomeHero({
     <View style={[styles.hero, { height }]} {...web({ dataSet: { dark: "true" } })}>
       {/* Greeting and the avatar (or Sign in), fixed over the pages. First, so
           screen readers and the keyboard meet the page's heading first. */}
-      <Rise
-        intro={intro}
-        reduced={reduced}
-        delay={120}
-        style={[styles.top, { top, left: inset, right: inset }]}
-        onLayout={onRow}
-      >
+      <View style={[styles.top, { top, left: inset, right: inset }]} onLayout={onRow}>
         <View style={styles.greetingRow}>
           <ItalicTitle
             text={greeting(name)}
@@ -310,7 +346,7 @@ export const HomeHero = memo(function HomeHero({
             </Tap>
           )}
         </View>
-      </Rise>
+      </View>
 
       {count ? (
         <ScrollView
@@ -336,10 +372,12 @@ export const HomeHero = memo(function HomeHero({
               current={i === index}
               first={i === 0}
               load={i === 0 || rest || i === index}
-              intro={intro && i === 0}
               reduced={reduced}
               onOpen={onOpen}
               onMeasure={measure}
+              onFitted={onFitted}
+              onArt={i === 0 ? onFirstArt : undefined}
+              onSharp={i === 0 ? onFirstSharp : undefined}
             />
           ))}
         </ScrollView>
@@ -358,12 +396,7 @@ export const HomeHero = memo(function HomeHero({
       <Wash kind="heroFade" band="bottom" height={68} />
 
       {current ? (
-        <Rise
-          intro={intro}
-          reduced={reduced}
-          delay={300}
-          style={[styles.actions, { left: inset, right: inset, bottom: ACTIONS_BOTTOM }]}
-        >
+        <View style={[styles.actions, { left: inset, right: inset, bottom: ACTIONS_BOTTOM }]}>
           <PlayPill
             testID="hero-watch"
             size="md"
@@ -389,7 +422,7 @@ export const HomeHero = memo(function HomeHero({
               <HeroDots count={count} index={index} onSelect={select} reduced={reduced} />
             </View>
           ) : null}
-        </Rise>
+        </View>
       ) : null}
     </View>
   );
@@ -411,10 +444,12 @@ const HeroPage = memo(function HeroPage({
   current,
   first,
   load,
-  intro,
   reduced,
   onOpen,
   onMeasure,
+  onFitted,
+  onArt,
+  onSharp,
 }: {
   sermon: Sermon;
   width: number;
@@ -422,12 +457,17 @@ const HeroPage = memo(function HeroPage({
   inset: number;
   current: boolean;
   first: boolean;
-  /** false: the tint only until the viewer moves the pager. */
+  /** false: the tint only, until the first page's art is in or the viewer moves the pager. */
   load: boolean;
-  intro: boolean;
   reduced: boolean;
   onOpen: (id: string) => void;
   onMeasure: (id: string, height: number) => void;
+  /** The title has found its size (see TITLE_STEPS). */
+  onFitted: (id: string) => void;
+  /** Some artwork is drawn (the small copy or the sharp one). */
+  onArt?: () => void;
+  /** The sharp copy has loaded (or can't). */
+  onSharp?: () => void;
 }) {
   const { fontScale } = useWindowDimensions();
   const kicker = useMemo(() => heroKicker(sermon), [sermon]);
@@ -451,6 +491,7 @@ const HeroPage = memo(function HeroPage({
         setFit({ key: fitKey, step: step + 1, edge: null });
         return;
       }
+      onFitted(sermon.id);
       // Web: the longest line, read from the text itself (no onTextLayout there).
       if (Platform.OS === "web" && typeof document !== "undefined") {
         const node = titleRef.current as unknown as HTMLElement | null;
@@ -469,7 +510,7 @@ const HeroPage = memo(function HeroPage({
         }
       }
     },
-    [step, fontScale, fitKey, inset],
+    [step, fontScale, fitKey, inset, onFitted, sermon.id],
   );
   const onTextLayout = useCallback(
     (e: NativeSyntheticEvent<TextLayoutEventData>) => {
@@ -501,14 +542,24 @@ const HeroPage = memo(function HeroPage({
   const artBox = { left: artRight - artW, top: height + ART_BOTTOM_BLEED - artH };
 
   // The first page: the small copy first, until the sharp one is in. Only
-  // when there is a smaller copy (YouTube's sd or maxres for the sharp one).
+  // when there is a smaller copy (YouTube's sd or maxres for the sharp one),
+  // and only when the sharp one isn't on the device already (then it's
+  // simply there; null while that's being checked, a frame or so).
   const previewW = Math.floor(PREVIEW_PX / PixelRatio.get());
   const uri = artUri(sermon);
   const sharpUri = sizedArt(uri, artW);
+  const sharpOnDevice = useArtOnDevice(first && load ? artCandidates(sermon, artW)[0] : null);
   const preview =
-    first && load && /(sd|maxres)default/.test(sharpUri) && sizedArt(uri, previewW) !== sharpUri;
+    first &&
+    load &&
+    sharpOnDevice === false &&
+    /(sd|maxres)default/.test(sharpUri) &&
+    sizedArt(uri, previewW) !== sharpUri;
   const [sharp, setSharp] = useState(false);
-  const onSharp = useCallback(() => setSharp(true), []);
+  const onSharpIn = useCallback(() => {
+    setSharp(true);
+    onSharp?.();
+  }, [onSharp]);
 
   const words = (
     <>
@@ -539,7 +590,7 @@ const HeroPage = memo(function HeroPage({
         radius={0}
         lift="none"
         load={load}
-        onSettled={preview ? onSharp : undefined}
+        onSettled={first ? onSharpIn : undefined}
         priority={first ? "high" : "low"}
         testID={first ? "hero-art" : undefined}
         style={[styles.art, artBox]}
@@ -567,6 +618,7 @@ const HeroPage = memo(function HeroPage({
             radius={0}
             lift="none"
             priority="high"
+            onSettled={onArt}
             style={{
               position: "absolute",
               left: (artW - previewW) / 2,
@@ -577,13 +629,7 @@ const HeroPage = memo(function HeroPage({
         </Animated.View>
       ) : null}
       <View style={[StyleSheet.absoluteFill, styles.noTouch, scrim]} aria-hidden />
-      <Rise
-        intro={intro}
-        reduced={reduced}
-        delay={200}
-        style={bodyBox}
-        onLayout={onLayout}
-      >
+      <View style={bodyBox} onLayout={onLayout}>
         {current ? (
           <Tap
             accessibilityRole="button"
@@ -598,7 +644,7 @@ const HeroPage = memo(function HeroPage({
         ) : (
           <View>{words}</View>
         )}
-      </Rise>
+      </View>
     </View>
   );
 });
@@ -668,48 +714,6 @@ const HeroDots = memo(function HeroDots({
   );
 });
 
-// ---- Arrival -----------------------------------------------------------------------
-
-/**
- * On the first Home of a launch: up 8pt as it fades in (a fade alone under
- * Reduce Motion), at once, whether or not the artwork is in yet (it fades
- * in behind the words when it arrives).
- */
-function Rise({
-  intro,
-  reduced,
-  delay,
-  style,
-  onLayout,
-  children,
-}: {
-  intro: boolean;
-  reduced: boolean;
-  delay: number;
-  style?: StyleProp<ViewStyle>;
-  onLayout?: (e: LayoutChangeEvent) => void;
-  children: ReactNode;
-}) {
-  return (
-    <Animated.View
-      onLayout={onLayout}
-      style={[
-        style,
-        { pointerEvents: "box-none" },
-        intro && {
-          animationName: reduced ? motion.fade : motion.rise,
-          animationDuration: reduced ? 200 : 360,
-          animationDelay: delay,
-          animationTimingFunction: easeOut,
-          animationFillMode: "backwards",
-        },
-      ]}
-    >
-      {children}
-    </Animated.View>
-  );
-}
-
 const styles = StyleSheet.create({
   hero: { backgroundColor: c.media, overflow: "hidden" },
   // Each page crops its own artwork, so a neighbour's never shows through.
@@ -719,6 +723,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     zIndex: 2,
     minHeight: AVATAR,
+    pointerEvents: "box-none",
   },
   greetingRow: {
     minHeight: AVATAR,
@@ -740,13 +745,14 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   signInText: { ...type.button, color: c.white },
-  body: { position: "absolute" },
+  body: { position: "absolute", pointerEvents: "box-none" },
   // The concept keeps the title off the preacher's face (TITLE_MAX).
   title: { color: c.white, marginTop: 6, alignSelf: "flex-start" },
   noTouch: { pointerEvents: "none" },
   spinner: { alignSelf: "flex-start", marginTop: 14 },
   actions: {
     position: "absolute",
+    pointerEvents: "box-none",
     flexDirection: "row",
     alignItems: "center",
     gap: 10,

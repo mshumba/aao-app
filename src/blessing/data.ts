@@ -21,6 +21,8 @@ const KEYS = {
   seen: "aao.blessings.seen.v1",
   /** The one shown last on this device, and when ({ id, at }). */
   last: "aao.blessings.last.v1",
+  /** The sermons (ids) on the wall at the next launch, fetched ahead (Wall.tsx). */
+  wall: "aao.blessings.wall.v1",
 };
 
 const TIMEOUT = 10_000;
@@ -125,6 +127,7 @@ let seen: string[] = [];
 let last: Shown | null = null;
 /** The one on the blessing screen now (or last), picked by takeBlessing. */
 let current: Blessing | null = null;
+let wall: string[] = [];
 let primed: Promise<void> | null = null;
 let refreshing: Promise<void> | null = null;
 let refreshedAt = 0;
@@ -135,18 +138,30 @@ let refreshedAt = 0;
  */
 export function primeBlessings(): Promise<void> {
   primed ??= (async () => {
-    const [kept, seenIds, shown] = await Promise.all([
+    const [kept, seenIds, shown, wallIds] = await Promise.all([
       learningMode === "local" ? fixtureBlessings : readJSON<unknown>(KEYS.all, []),
       readJSON<unknown>(KEYS.seen, []),
       readJSON<unknown>(KEYS.last, null),
+      readJSON<unknown>(KEYS.wall, []),
     ]);
     // A refresh that finished first has the newer list.
     if (!all.length) all = clean(kept);
     seen = Array.isArray(seenIds) ? seenIds.filter((id): id is string => typeof id === "string") : [];
     const s = shown as Partial<Shown> | null;
     last = s && typeof s.id === "string" && typeof s.at === "number" ? { id: s.id, at: s.at } : null;
+    wall = Array.isArray(wallIds) ? wallIds.filter((id): id is string => typeof id === "string") : [];
   })();
   return primed;
+}
+
+/** The wall's sermons (ids) for this launch, chosen and fetched at the last one; empty if none were. */
+export function keptWall(): readonly string[] {
+  return wall;
+}
+
+/** Keeps the wall for the next launch (this one's stays as it is). */
+export function keepWall(ids: string[]) {
+  void writeJSON(KEYS.wall, ids);
 }
 
 /**
