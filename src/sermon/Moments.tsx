@@ -170,7 +170,7 @@ function Rows({
 }
 
 const styles = StyleSheet.create({
-  header: { marginTop: 20, marginBottom: 6, marginHorizontal: 4 },
-  headerFirst: { marginBottom: 6, marginHorizontal: 4 },
+  header: { marginTop: 20, marginBottom: 6 },
+  headerFirst: { marginBottom: 6 },
   more: { marginTop: 4 },
 });

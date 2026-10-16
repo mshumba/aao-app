@@ -227,7 +227,7 @@ const styles = StyleSheet.create({
     ...tabular,
   },
   statusSlot: {
-    marginTop: space.sm,
+    minHeight: 0,
   },
   round: {
     width: 40,

@@ -367,28 +367,30 @@ const styles = StyleSheet.create({
   // Shown in the centre when it asks something of the viewer.
   status: {
     ...type.metaSmall,
-    color: c.onMediaSoft,
-    textAlign: "center",
+    color: c.muted,
+    textAlign: "left",
+    marginTop: 6,
   },
   // Announced, not shown, and out of the way of taps on the strip.
   quiet: {
     position: "absolute",
     opacity: 0,
+    marginTop: 0,
     pointerEvents: "none",
   },
   resume: {
     flexDirection: "row",
     flexWrap: "wrap",
     alignItems: "center",
-    justifyContent: "center",
     columnGap: 5,
+    marginTop: 6,
   },
-  resumeText: { ...type.metaSmall, color: c.onMediaMuted, pointerEvents: "none", ...tabular },
+  resumeText: { ...type.metaSmall, color: c.muted, pointerEvents: "none", ...tabular },
   startOver: { paddingVertical: 2, borderRadius: radius.sm },
   startOverText: {
     ...type.metaSmall,
     fontFamily: font.bold,
-    color: c.white,
+    color: c.accent,
     textDecorationLine: "underline",
   },
   // Two centred rows at every width: the transport, then the quiet actions.

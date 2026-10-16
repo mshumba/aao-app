@@ -28,7 +28,6 @@ export type SermonTabsProps = {
 export const SermonTabs = memo(function SermonTabs({
   activeTab,
   onChangeTab,
-  momentsCount,
   pathSlot,
   momentsSlot,
   aboutSlot,
@@ -62,10 +61,6 @@ export const SermonTabs = memo(function SermonTabs({
         {TAB_KEYS.map((key) => {
           const selected = activeTab === key;
           const label = key === "moments" ? "Moments" : "About";
-          const a11yLabel =
-            key === "moments" && momentsCount
-              ? `Moments, ${momentsCount} moment${momentsCount === 1 ? "" : "s"}`
-              : label;
           return (
             <Tap
               key={key}
@@ -74,7 +69,7 @@ export const SermonTabs = memo(function SermonTabs({
               }}
               testID={`sermon-tab-${key}`}
               accessibilityRole="tab"
-              accessibilityLabel={a11yLabel}
+              accessibilityLabel={label}
               accessibilityState={{ selected }}
               {...web({
                 "aria-selected": selected,
@@ -109,6 +104,17 @@ export const SermonTabs = memo(function SermonTabs({
 });
 
 /**
+ * Who preached it, then the occasion when the headline doesn't already say
+ * it: "Apostle Arome Osayi · Lioness Conference · Grand Finale".
+ */
+function byline(sermon: Sermon) {
+  const context = eventLine(sermon);
+  if (sermon.speaker) return context;
+  if (!context || context === sermon.channel || context === sermon.venue) return sermon.channel;
+  return `${sermon.channel} · ${context}`;
+}
+
+/**
  * Editorial description block at the top of the About tab: who preached the
  * message, the occasion/venue, and the date preached.
  */
@@ -120,12 +126,7 @@ export const SermonDescription = memo(function SermonDescription({
   /** Optional day theme when opened as part of a guided path. */
   pathTheme?: string | null;
 }) {
-  const context = eventLine(sermon);
-  const preacher = sermon.speaker || sermon.channel;
-  const occasion =
-    context && context !== preacher
-      ? `${preacher} · ${context}`
-      : preacher;
+  const occasion = byline(sermon);
 
   return (
     <View style={styles.descriptionBox} testID="sermon-description">
@@ -183,7 +184,6 @@ const styles = StyleSheet.create({
   descriptionBox: {
     gap: 4,
     marginBottom: space.lg,
-    marginHorizontal: 4,
   },
   themeLine: {
     ...type.prose,

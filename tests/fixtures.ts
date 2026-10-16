@@ -148,6 +148,9 @@ export async function fakeYouTube(
           self.pauseVideo = function () { yt.commands.push("pause"); pend.forEach(clearTimeout); pend = []; clearInterval(timer); emit(2); };
           self.seekTo = function (s) { yt.commands.push("seek:" + Math.round(s)); t = s; };
           self.setPlaybackRate = function (r) { yt.commands.push("rate:" + r); o.events.onPlaybackRateChange({ data: r }); };
+          self.loadModule = function (m) { yt.commands.push("module:load:" + m); };
+          self.unloadModule = function (m) { yt.commands.push("module:unload:" + m); };
+          self.setOption = function (m, k, v) { yt.commands.push("captions:" + (v && v.languageCode ? v.languageCode : "off")); };
         }
         setTimeout(function () { ${error ? `o.events.onError({ data: ${error} })` : "attach(); o.events.onReady()"}; }, ${readyAfter});
       } };

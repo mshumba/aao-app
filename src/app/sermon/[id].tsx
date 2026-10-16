@@ -1,5 +1,5 @@
 import { useLocalSearchParams, useNavigation } from "expo-router";
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Linking,
@@ -17,28 +17,25 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAccount, useProgressOf } from "../../auth/AccountProvider";
 import { useGate } from "../../auth/gate";
 import { useCatalogue } from "../../catalogue/CatalogueProvider";
-import { eventLine, headline } from "../../data/display";
+import { headline } from "../../data/display";
 import { Sermon, seriesSermons } from "../../data/sermons";
-import {
-  ItalicTitle,
-  Kicker,
-  Wash,
-  clockText,
-  leftText,
-  parseDuration,
-  spokenTime,
-} from "../../kit";
+import { Wash, clockText, parseDuration } from "../../kit";
 import { FocusedStatusBar } from "../../kit/FocusedStatusBar";
 import { useMoments } from "../../learning";
-import { STAGE_BAR, fullFrame, stageColumn } from "../../player/layout";
 import {
-  LiveBand,
-  PlayerCenter,
-  Transport,
-  type BandMarks,
-} from "../../player/NowPlaying";
-import { clock, usePlayback, usePlayerSession } from "../../player/PlayerProvider";
+  bumpStageFocusToggle,
+  fullFrame,
+  setStageOverlay,
+  stageColumn,
+  stageToggleRef,
+} from "../../player/layout";
+import { PlayerCenter, type BandMarks } from "../../player/NowPlaying";
+import { usePlayback, usePlayerSession } from "../../player/PlayerProvider";
 import { fraction, resumePoint } from "../../player/progress";
+import { DaysDrawer } from "../../player/stage/DaysDrawer";
+import { LightHeader } from "../../player/stage/LightHeader";
+import { SermonMeta } from "../../player/stage/SermonMeta";
+import { SermonDescription, SermonTabs, type SermonTabKey } from "../../player/stage/SermonTabs";
 import { useDockInset } from "../../player/useDockInset";
 import {
   clearWatchRequest,
@@ -49,16 +46,15 @@ import {
   usePageTitle,
   watchRequested,
 } from "../../navigation";
-import { SaveButton, ShareButton, WatchPill } from "../../sermon/Actions";
-import { MarkedCaption, SearchPill, StaticBand } from "../../sermon/Band";
+import { SearchPill } from "../../sermon/Band";
 import { MomentsSection } from "../../sermon/Moments";
-import { MoreMenu, SeriesRow, type MenuItem } from "../../sermon/MoreMenu";
+import { SeriesRow } from "../../sermon/MoreMenu";
 import { readSermonParams, type SermonParams } from "../../sermon/params";
 import { PathDayRow, useOpenPath, usePathDay } from "../../sermon/PathDay";
 import { AboutSermon, MoreSermons, TopicsSection } from "../../sermon/Sections";
-import { ErrorSlot, Poster, StageBar } from "../../sermon/Stage";
-import { c, radius, space, textCap, type } from "../../theme";
-import { Header, Page, StatePanel, T, dockScrollPadding, gradient, web } from "../../ui";
+import { ErrorSlot, Poster } from "../../sermon/Stage";
+import { c, space } from "../../theme";
+import { Header, Page, StatePanel, dockScrollPadding } from "../../ui";
 
 export default function SermonScreen() {
   const params = useLocalSearchParams<Record<string, string | string[]>>();
@@ -116,7 +112,10 @@ function useStage(id: string) {
         setDockAboveTabs(false);
         setStage(() => id);
       };
-      const hide = () => setStage((current) => (current === id ? null : current));
+      const hide = () => {
+        setStageOverlay({ fullscreen: false });
+        setStage((current) => (current === id ? null : current));
+      };
       const listen = (event: string, handler: (e: Transition) => void) =>
         navigation.addListener(event as never, handler as never);
       const unsubscribe = [
@@ -148,39 +147,10 @@ function useStage(id: string) {
 }
 
 /**
- * The navy light on the stage, centred just under the video (the concept's),
- * `y` points below the top of the box it's drawn in. When the video is
- * narrower than the window, it sits lower so it has faded out by the band's
- * top edge, beside the video.
- */
-const stageLight = (y: number) =>
-  `radial-gradient(420px 300px at 70% ${Math.round(y)}px, rgba(31,58,95,0.85) 0%, rgba(31,58,95,0) 70%)`;
-
-/** Under the pinned band and the stage bar: the page slides under, not against, them. */
-const BAND_FADE = "linear-gradient(180deg, rgba(15,17,21,0.85) 0%, rgba(15,17,21,0) 100%)";
-const BAR_FADE = "linear-gradient(180deg, rgba(15,17,21,0.6) 0%, rgba(15,17,21,0) 100%)";
-/** The playing band's height before it has measured itself (strip and times). */
-const BAND_GUESS = 40;
-
-/**
- * Keeps the last two words of a title together, so a line never ends with
- * one word alone ("Day Two / *Morning*"). The words are unchanged; only the
- * space between the last two can't break.
- */
-const keepLastTwo = (text: string) => text.replace(/ (\S+)$/, " $1");
-
-/** A byline's short parts ("Lioness Conference") never break inside. */
-const keepSegments = (text: string) =>
-  text
-    .split(" · ")
-    .map((part) => (part.length <= 24 ? part.replace(/ /g, " ") : part))
-    .join(" · ");
-
-/**
- * The sermon page, which is also Now Playing: a dark stage flush under the
- * status bar (the bar with Back and "…", the video, the band with its
- * moments, the title and the transport), then an ivory panel rising over it
- * (the path or series it belongs to, its moments, more sermons, details).
+ * The sermon page, which is also Now Playing: a light header above an
+ * edge-to-edge 16:9 video stage (with on-video Play/Pause, ±15s, scrubber,
+ * speed, CC and full-screen controls), then an ivory page below with the
+ * sermon title, Save and Share pills, and Moments | About tabs.
  */
 function NowPlayingScreen({ sermon, link }: { sermon: Sermon; link: SermonParams }) {
   usePageTitle(headline(sermon));
@@ -195,13 +165,12 @@ function NowPlayingScreen({ sermon, link }: { sermon: Sermon; link: SermonParams
   const go = useGo();
   const openPath = useOpenPath();
   const scroll = useRef<NativeScrollView>(null);
-  const toggle = useRef<View>(null);
   const about = useRef<View>(null);
-  // Watch's button is replaced by the transport, so focus moves to Play/Pause.
-  const [watched, setWatched] = useState(false);
-  // Bumped when playback jumps to a moment, so the band's thumb glides.
+  // Bumped when playback jumps to a moment, so the stage scrubber's thumb glides.
   const [glideKey, setGlideKey] = useState(0);
-  const [menu, setMenu] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<SermonTabKey>("moments");
+  const [pendingSeek, setPendingSeek] = useState<number | null>(null);
   useStage(sermon.id);
 
   const frame = fullFrame(window, insets);
@@ -211,21 +180,20 @@ function NowPlayingScreen({ sermon, link }: { sermon: Sermon; link: SermonParams
   const pinned = current && !failed;
 
   // ---- Scrolling ------------------------------------------------------------------------
-  // Where the title ends in the scroll content (summed from its ancestors'
-  // layouts, which each report a change on their own), so the bar can take
-  // the headline once it has scrolled away.
+  // Where the title ends in the scroll content, so the header bar can show
+  // the headline once it has scrolled away (when not already showing a path
+  // or series name).
   const offset = useRef(0);
-  const titleAt = useRef({ lit: 0, column: 0, meta: 0, title: 0 });
+  const titleAt = useRef({ panel: 0, column: 0, meta: 0, title: 0 });
   const [titleShown, setTitleShown] = useState(false);
-  const [scrolled, setScrolled] = useState(false);
-  const shownNow = useRef({ title: false, scrolled: false });
+  const shownNow = useRef(false);
   const reread = useCallback(() => {
     const t = titleAt.current;
-    const title = t.title > 0 && offset.current > t.lit + t.column + t.meta + t.title;
-    const moved = offset.current > 4;
-    if (title !== shownNow.current.title) setTitleShown(title);
-    if (moved !== shownNow.current.scrolled) setScrolled(moved);
-    shownNow.current = { title, scrolled: moved };
+    const title = t.title > 0 && offset.current > t.panel + t.column + t.meta + t.title;
+    if (title !== shownNow.current) {
+      shownNow.current = title;
+      setTitleShown(title);
+    }
   }, []);
   const onScroll = useCallback(
     (e: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -241,17 +209,15 @@ function NowPlayingScreen({ sermon, link }: { sermon: Sermon; link: SermonParams
     },
     [reread],
   );
-  const onLit = useCallback((e: LayoutChangeEvent) => record("lit", e.nativeEvent.layout.y), [record]);
+  const onPanel = useCallback((e: LayoutChangeEvent) => record("panel", e.nativeEvent.layout.y), [record]);
   const onColumn = useCallback((e: LayoutChangeEvent) => record("column", e.nativeEvent.layout.y), [record]);
   const onMeta = useCallback((e: LayoutChangeEvent) => record("meta", e.nativeEvent.layout.y), [record]);
   const onTitle = useCallback(
     (e: LayoutChangeEvent) => record("title", e.nativeEvent.layout.y + e.nativeEvent.layout.height),
     [record],
   );
-  // The video (and, while it plays, the band) leave the scroll content for
-  // the fixed slot above it as playback starts, and come back when it
-  // stops. The page keeps its place: what you tapped stays under your
-  // finger. (Browsers' scroll anchoring would otherwise move it.)
+  // The video leaves the scroll content for the fixed slot above it as
+  // playback starts, and comes back when it stops. The page keeps its place.
   useLayoutEffect(() => {
     if (offset.current <= 0) return;
     const y = offset.current;
@@ -259,13 +225,6 @@ function NowPlayingScreen({ sermon, link }: { sermon: Sermon; link: SermonParams
     const id = requestAnimationFrame(() => scroll.current?.scrollTo({ y, animated: false }));
     return () => cancelAnimationFrame(id);
   }, [pinned]);
-  // The playing band, fixed under the video, measures itself.
-  const [bandH, setBandH] = useState(BAND_GUESS);
-  const onBand = useCallback((e: LayoutChangeEvent) => {
-    const h = Math.round(e.nativeEvent.layout.height);
-    setBandH((was) => (Math.abs(was - h) < 1 ? was : h));
-  }, []);
-  const lightY = frame.width >= window.width ? 11 : 210;
 
   const { moments } = useMoments(sermon.id);
   const pathDay = usePathDay(sermon.id, link);
@@ -274,8 +233,7 @@ function NowPlayingScreen({ sermon, link }: { sermon: Sermon; link: SermonParams
   const saved = account.user ? progressFor(sermon.id) : null;
   const resumeAt = resumePoint(saved);
   // A place the link asks for (a moment, a shared time). Otherwise the
-  // player decides: where a member left off, or the beginning. A path day
-  // is the whole sermon, so it asks for no place of its own.
+  // player decides: where a member left off, or the beginning.
   const startAt = link.t;
 
   // Playing as a day of a path: the app-wide player keeps that, so the day
@@ -293,9 +251,6 @@ function NowPlayingScreen({ sermon, link }: { sermon: Sermon; link: SermonParams
   // What a guest asked for, kept through signing up: where to start, and
   // the path day it is (so the path starts with the new account).
   const dayOfPath = pathDay?.explicit ? { id: pathDay.path.id, day: pathDay.day.day } : undefined;
-  // The gate and the session change identity as they update; the handlers
-  // read the latest through a ref, so the parts of the page they're passed
-  // to stay memoised.
   const latest = useRef({ gate, session, dayOfPath });
   useLayoutEffect(() => {
     latest.current = { gate, session, dayOfPath };
@@ -304,7 +259,7 @@ function NowPlayingScreen({ sermon, link }: { sermon: Sermon; link: SermonParams
     (at?: number | null) => {
       const { gate, session, dayOfPath } = latest.current;
       if (!gate.require(watchIntent(sermon.id, at, dayOfPath))) return;
-      setWatched(true);
+      bumpStageFocusToggle();
       session.load(sermon, at ?? undefined);
     },
     [sermon],
@@ -328,7 +283,7 @@ function NowPlayingScreen({ sermon, link }: { sermon: Sermon; link: SermonParams
       session.load(sermon, startAt ?? undefined);
     // Continue means play even when this sermon is already paused in the
     // dock. A requested timestamp keeps its seek-then-play path below.
-    else if (current && startAt == null) session.play();
+    else if (current && startAt == null) session.playWhenReady();
     // Only when the request is first carried out.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playOnOpen, staged]);
@@ -363,10 +318,12 @@ function NowPlayingScreen({ sermon, link }: { sermon: Sermon; link: SermonParams
     };
   }, [moments, link.from, link.t, estimate]);
 
-  const marked = useMemo(
-    () => (moments.length ? <MarkedCaption count={moments.length} /> : null),
-    [moments.length],
-  );
+  // Share marks and glideKey with the full-size overlay in PlayerHost.
+  useLayoutEffect(() => {
+    if (!staged) return;
+    setStageOverlay({ marks, glideKey });
+  }, [staged, marks, glideKey]);
+
   const centerExtra = useMemo(
     () => (searchPill && link.q ? <SearchPill q={link.q} /> : null),
     [searchPill, link.q],
@@ -377,7 +334,7 @@ function NowPlayingScreen({ sermon, link }: { sermon: Sermon; link: SermonParams
     ? link.t != null
       ? `Shared with you · at ${clockText(link.t)}`
       : `Shared with you · ${sermon.date}`
-    : `${sermon.date} · ${sermon.duration}`;
+    : sermon.date;
 
   // Its series, in order: a pass over the whole library, so only when that changes.
   const { seriesKey } = sermon;
@@ -397,60 +354,137 @@ function NowPlayingScreen({ sermon, link }: { sermon: Sermon; link: SermonParams
     if (session.sermon?.id === sermon.id) session.watchOnYouTube();
     else Linking.openURL(sermon.source).catch(() => {});
   }, [sermon]);
-  // The menu's "About this sermon": brings the source line into view. It's
-  // measured when asked (moments arriving above it, or the video pinning,
-  // move it); asked before the push has settled, it waits for the line.
+
+  // "About this sermon" in the drawer: switches to the About tab and scrolls
+  // the source line into view.
   const aboutAsked = useRef(false);
-  const showAbout = useCallback(() => {
+  const scrollToAbout = useCallback(() => {
     const target = about.current;
     const view = scroll.current?.getNativeScrollRef();
     aboutAsked.current = !target || !view;
     if (!target || !view) return;
     target.measureInWindow((_x, y) => {
       view.measureInWindow((_vx, top) => {
-        scroll.current?.scrollTo({ y: Math.max(0, offset.current + y - top - space.lg), animated: true });
+        scroll.current?.scrollTo({
+          y: Math.max(0, offset.current + y - top - space.lg),
+          animated: true,
+        });
       });
     });
   }, []);
+  const showAbout = useCallback(() => {
+    setSettled(true);
+    setActiveTab("about");
+    aboutAsked.current = true;
+    requestAnimationFrame(scrollToAbout);
+  }, [scrollToAbout]);
   const onAbout = useCallback(() => {
-    if (aboutAsked.current) requestAnimationFrame(showAbout);
-  }, [showAbout]);
-  const openMenu = useCallback(() => setMenu(true), []);
-  const closeMenu = useCallback(() => setMenu(false), []);
+    if (aboutAsked.current) requestAnimationFrame(scrollToAbout);
+  }, [scrollToAbout]);
 
-  const pathId = pathDay?.path.id;
-  const pathName = pathDay?.path.name;
-  const menuItems = useMemo<MenuItem[]>(
-    () => [
-      { key: "youtube", label: "Open in YouTube", icon: "logo-youtube", onPress: openYouTube },
-      ...(pathId
-        ? [{ key: "path", label: `Go to ${pathName}`, icon: "route" as const, onPress: () => openPath(pathId) }]
-        : inSeries
-          ? [{ key: "series", label: `Go to ${seriesName}`, icon: "albums-outline" as const, onPress: openSeries }]
-          : []),
-      {
-        key: "about",
-        label: "About this sermon",
-        icon: "information-circle-outline",
-        onPress: showAbout,
-      },
-    ],
-    [openYouTube, pathId, pathName, openPath, inSeries, seriesName, openSeries, showAbout],
+  const handleChangeTab = useCallback((nextTab: SermonTabKey) => {
+    if (nextTab === "about") setSettled(true);
+    setActiveTab(nextTab);
+  }, []);
+
+  const handleSelectDay = useCallback(
+    (dayNum: number, targetSermonId: string) => {
+      if (!pathDay) return;
+      go.push({
+        pathname: "/sermon/[id]",
+        params: { id: targetSermonId, path: pathDay.path.id, day: String(dayNum) },
+      });
+    },
+    [go, pathDay],
   );
 
-  const sideGutter = (window.width - column) / 2;
+  const handleSelectMoment = useCallback(
+    (atSeconds: number) => {
+      if (current && !failed) {
+        setPendingSeek(atSeconds);
+      } else {
+        jumped();
+        start(atSeconds);
+      }
+    },
+    [current, failed, jumped, start],
+  );
+
+  const headerStaticTitle = pathDay?.path.name ?? (inSeries ? seriesName : null);
+  const rightLabel = pathDay ? "Days" : "Moments";
+  const rightHint = pathDay
+    ? `Opens the days in ${pathDay.path.name}`
+    : "Opens the moments and options for this sermon";
+
+  const statusNode = pinned ? (
+    <View key="live">
+      <PlayerCenter toggle={stageToggleRef} fallback={centerExtra} />
+    </View>
+  ) : centerExtra ? (
+    <View key="static">{centerExtra}</View>
+  ) : null;
+
+  const pathSlot = pathDay ? <PathDayRow ctx={pathDay} current={current} /> : null;
+
+  const momentsSlot = (
+    <MomentsSection
+      moments={moments}
+      current={current && !failed}
+      markedAt={link.t}
+      onStart={start}
+      onJump={jumped}
+      first={!pathDay}
+    />
+  );
+
+  const aboutSlot = (
+    <View>
+      <SermonDescription sermon={sermon} pathTheme={pathDay?.day.theme ?? null} />
+      {inSeries && !pathDay ? (
+        <SeriesRow
+          name={seriesName!}
+          part={series.findIndex((s) => s.id === sermon.id) + 1 || null}
+          total={series.length}
+          fan={fan}
+          onPress={openSeries}
+        />
+      ) : null}
+      {settled ? (
+        <>
+          <AboutSermon
+            ref={about}
+            sermon={sermon}
+            onYouTube={openYouTube}
+            onLayout={onAbout}
+            first={false}
+          />
+          <TopicsSection sermon={sermon} />
+          <MoreSermons
+            sermon={sermon}
+            sermons={catalogue.sermons}
+            seriesName={inSeries && pathDay ? seriesName! : null}
+            onSeries={openSeries}
+          />
+        </>
+      ) : null}
+    </View>
+  );
 
   return (
     <View style={styles.screen}>
-      {/* Light clock and icons over the dark stage, while this is in front. */}
-      <FocusedStatusBar style="light" animated={false} />
-      <View style={{ height: insets.top }} />
-      <StageBar
+      <FocusedStatusBar style="dark" animated={false} />
+      <View style={{ height: insets.top, backgroundColor: c.bg }} />
+      <LightHeader
         width={column}
+        title={headerStaticTitle}
+        scrollTitle={headline(sermon)}
+        scrollTitleShown={titleShown}
+        onBack={go.back}
+        onRightPress={() => setDrawerOpen(true)}
+        rightLabel={rightLabel}
+        rightHint={rightHint}
         skipToPlayer={pinned}
-        onMore={openMenu}
-        title={headline(sermon)}
-        titleShown={titleShown}
+        onSkipToPlayer={session.focusPlayer}
       />
 
       {/* Fixed slot the app-wide player fills while this sermon plays.
@@ -459,21 +493,6 @@ function NowPlayingScreen({ sermon, link }: { sermon: Sermon; link: SermonParams
       {pinned && (
         <View style={{ marginLeft: frame.left, width: frame.width, height: frame.height }}>
           <View style={[styles.slot, { borderRadius: frame.radius }]} testID="player-slot" />
-        </View>
-      )}
-      {/* While it plays, the band stays at the video's foot: the thumb, the
-          moments and the time are always in view, and the page slides under
-          a short fade. */}
-      {pinned && (
-        <View style={[styles.pinnedBand, gradient(stageLight(lightY))]} onLayout={onBand}>
-          <View style={{ marginLeft: frame.left, width: frame.width }}>
-            <LiveBand
-              marks={marks}
-              glideKey={glideKey}
-              center={<PlayerCenter toggle={toggle} fallback={centerExtra} />}
-            />
-          </View>
-          <View style={[styles.underFade, { height: 12, opacity: scrolled ? 1 : 0 }, gradient(BAND_FADE)]} />
         </View>
       )}
 
@@ -485,125 +504,54 @@ function NowPlayingScreen({ sermon, link }: { sermon: Sermon; link: SermonParams
         style={[styles.scroll, dockScrollPadding(dock)]}
         contentContainerStyle={{ paddingBottom: 48 + insets.bottom + dock }}
       >
-        <View style={styles.stage}>
-          {/* Dark above the content too, so pulling down shows the stage. */}
-          <View style={styles.overscroll} />
-          {!pinned && (
-            <View style={{ marginLeft: frame.left, width: frame.width }}>
-              {failed ? (
-                <ErrorSlot width={frame.width} height={frame.height} />
-              ) : (
-                <Poster sermon={sermon} width={frame.width} height={frame.height} radius={frame.radius} onPress={watch} />
-              )}
-            </View>
-          )}
-          <View
-            style={[styles.lit, gradient(stageLight(pinned ? lightY - bandH : lightY))]}
-            onLayout={onLit}
-          >
-            {pinned ? null : (
-              <View style={{ marginLeft: frame.left, width: frame.width }}>
-                <StaticBand
-                  marks={marks}
-                  position={startAt != null ? startAt / (estimate || 1) : resumeAt && saved ? fraction(saved) : null}
-                  arrive={startAt != null}
-                  center={centerExtra ?? marked}
-                />
-              </View>
-            )}
-            <View style={[styles.column, { width: column }]} onLayout={onColumn}>
-              <StageHeading sermon={sermon} kicker={kicker} onLayout={onMeta} onTitle={onTitle} />
-              <View style={styles.actions}>
-                {current && !failed ? (
-                  <Transport toggle={toggle} focusTransport={watched}>
-                    <SaveButton sermon={sermon} bare />
-                    <ShareButton sermon={sermon} bare />
-                  </Transport>
-                ) : (
-                  <View style={styles.preplay}>
-                    {!failed ? (
-                      <View style={styles.watchSlot}>
-                        <WatchButton
-                          startAt={startAt}
-                          resumeAt={resumeAt}
-                          watched={saved && resumeAt ? fraction(saved) : 0}
-                          left={saved ? saved.durationSeconds - resumeAt : 0}
-                          guest={!gate.canWatch(sermon.id)}
-                          onPress={watch}
-                        />
-                      </View>
-                    ) : (
-                      <View style={{ flex: 1 }} />
-                    )}
-                    <View style={styles.acts}>
-                      <SaveButton sermon={sermon} />
-                      <ShareButton sermon={sermon} />
-                    </View>
-                  </View>
-                )}
-              </View>
-            </View>
-          </View>
-        </View>
-
-        <View style={styles.panel}>
-          <View style={[styles.panelInner, { width: column }]}>
-            {pathDay ? (
-              <PathDayRow ctx={pathDay} current={current} />
-            ) : inSeries ? (
-              <SeriesRow
-                name={seriesName!}
-                part={series.findIndex((s) => s.id === sermon.id) + 1 || null}
-                total={series.length}
-                fan={fan}
-                onPress={openSeries}
+        {!pinned && (
+          <View style={{ marginLeft: frame.left, width: frame.width }}>
+            {failed ? (
+              <ErrorSlot width={frame.width} height={frame.height} />
+            ) : (
+              <Poster
+                sermon={sermon}
+                width={frame.width}
+                height={frame.height}
+                radius={frame.radius}
+                startAt={startAt}
+                resumeAt={resumeAt}
+                watched={saved && resumeAt ? fraction(saved) : 0}
+                left={saved ? saved.durationSeconds - resumeAt : 0}
+                guest={!gate.canWatch(sermon.id)}
+                marks={marks}
+                onPress={watch}
               />
-            ) : null}
+            )}
+          </View>
+        )}
 
-            <MomentsSection
-              moments={moments}
-              current={current && !failed}
-              markedAt={link.t}
-              onStart={start}
-              onJump={jumped}
-              first={!pathDay && !inSeries}
+        <View style={styles.panel} onLayout={onPanel}>
+          <View style={[styles.panelInner, { width: column }]} onLayout={onColumn}>
+            <SermonMeta
+              sermon={sermon}
+              kicker={kicker}
+              statusSlot={statusNode}
+              onLayout={onMeta}
+              onTitleLayout={onTitle}
             />
 
-            {/* This sermon's own details first, then where to go next. */}
-            {settled ? (
-              <>
-                <AboutSermon
-                  ref={about}
-                  sermon={sermon}
-                  onYouTube={openYouTube}
-                  onLayout={onAbout}
-                  first={!pathDay && !inSeries && !moments.length}
-                />
-                <TopicsSection sermon={sermon} />
-                <MoreSermons
-                  sermon={sermon}
-                  sermons={catalogue.sermons}
-                  seriesName={inSeries && pathDay ? seriesName! : null}
-                  onSeries={openSeries}
-                />
-              </>
-            ) : null}
+            <SermonTabs
+              activeTab={activeTab}
+              onChangeTab={handleChangeTab}
+              momentsCount={moments.length}
+              pathSlot={pathSlot}
+              momentsSlot={momentsSlot}
+              aboutSlot={aboutSlot}
+              bleedHorizontal={space.s20}
+            />
           </View>
         </View>
       </ScrollView>
 
-      {/* Once the page moves, it slides under the stage bar through a short fade. */}
-      {!pinned ? (
-        <View
-          style={[
-            styles.underFade,
-            { top: insets.top + STAGE_BAR, height: 10, opacity: scrolled ? 1 : 0 },
-            gradient(BAR_FADE),
-          ]}
-        />
-      ) : null}
       {/* The page melts into ivory above the home indicator. */}
       <Wash kind="pageEnd" band="bottom" height={44} />
+
       {seekOnOpen != null ? (
         <SeekOnce
           at={seekOnOpen}
@@ -613,28 +561,29 @@ function NowPlayingScreen({ sermon, link }: { sermon: Sermon; link: SermonParams
           }}
         />
       ) : null}
-      <MoreMenu
-        visible={menu}
-        onClose={closeMenu}
-        items={menuItems}
-        top={insets.top + 46}
-        right={sideGutter + space.lg}
+      {pendingSeek != null ? (
+        <SeekOnce
+          at={pendingSeek}
+          onDone={() => {
+            setPendingSeek(null);
+            jumped();
+          }}
+        />
+      ) : null}
+
+      <DaysDrawer
+        visible={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        pathDay={pathDay}
+        moments={moments}
+        onSelectDay={handleSelectDay}
+        onOpenPath={openPath}
+        onSelectMoment={handleSelectMoment}
+        onOpenYouTube={openYouTube}
+        onShowAbout={showAbout}
       />
     </View>
   );
-}
-
-/**
- * Who preached it, then the occasion when the headline doesn't already say
- * it: "Apostle Arome Osayi · Lioness Conference · Grand Finale". The venue
- * alone ("The Votage") isn't worth the line.
- */
-function byline(sermon: Sermon) {
-  const context = eventLine(sermon);
-  // Named preachers lead eventLine already.
-  if (sermon.speaker) return context;
-  if (!context || context === sermon.channel || context === sermon.venue) return sermon.channel;
-  return `${sermon.channel} · ${context}`;
 }
 
 /** Watching this sermon, as the gate carries it through signing up. */
@@ -642,100 +591,12 @@ function watchIntent(sermonId: string, at?: number | null, path?: { id: string; 
   return { kind: "watch", sermonId, at: at ?? undefined, path } as const;
 }
 
-/**
- * The kicker, the headline (the page's h1, its last two words kept
- * together) and who preached it, on the stage under the band.
- */
-const StageHeading = memo(function StageHeading({
-  sermon,
-  kicker,
-  onLayout,
-  onTitle,
-}: {
-  sermon: Sermon;
-  kicker: string;
-  onLayout: (e: LayoutChangeEvent) => void;
-  /** The headline's own layout, so the bar can take it once it scrolls away. */
-  onTitle: (e: LayoutChangeEvent) => void;
-}) {
-  return (
-    <View style={styles.meta} onLayout={onLayout}>
-      <Kicker tone="onMedia">{kicker}</Kicker>
-      <ItalicTitle
-        text={keepLastTwo(headline(sermon))}
-        accessibilityLabel={headline(sermon)}
-        italicLast
-        accessibilityRole="header"
-        {...web({ "aria-level": 1 })}
-        onLayout={onTitle}
-        style={styles.title}
-        maxFontSizeMultiplier={textCap.display}
-      />
-      <T style={styles.byline}>{keepSegments(byline(sermon))}</T>
-    </View>
-  );
-});
-
 /** Front first: this sermon, then the part after it (or before, at the end). */
 function seriesFan(series: Sermon[], sermon: Sermon) {
   const i = series.findIndex((s) => s.id === sermon.id);
   const other = series[i + 1] ?? series[i - 1];
   return other ? [sermon, other] : [sermon];
 }
-
-/**
- * The stage's call to play before the player loads. It says where it starts,
- * always in the whole sermon (a path day included): "Watch" (the kicker
- * above gives the length), "Resume · 1 hr 16 min left" (with how far in),
- * "Play from 34:12".
- */
-const WatchButton = memo(function WatchButton({
-  startAt,
-  resumeAt,
-  watched,
-  left,
-  guest,
-  onPress,
-}: {
-  startAt: number | null;
-  resumeAt: number;
-  watched: number;
-  left: number;
-  guest: boolean;
-  onPress: () => void;
-}) {
-  // A guest is asked for a free account first; the sermon starts once they
-  // have one.
-  const ask = guest ? "Asks you to create a free account first" : undefined;
-  if (startAt != null)
-    return (
-      <WatchPill
-        label={`Play from ${clockText(startAt)}`}
-        accessibilityLabel={`Play from ${spokenTime(startAt)}`}
-        hint={ask ?? `Starts the sermon at ${spokenTime(startAt)}`}
-        onPress={onPress}
-      />
-    );
-  if (resumeAt)
-    return (
-      <WatchPill
-        label="Resume"
-        detail={left > 0 ? leftText(left) : null}
-        accessibilityLabel={`Resume at ${clock(resumeAt)}`}
-        hint={ask ?? "Plays the sermon from where you left off"}
-        progress={watched}
-        onPress={onPress}
-      />
-    );
-  return (
-    <WatchPill
-      label="Watch"
-      accessibilityLabel="Watch sermon"
-      hint={ask ?? "Starts the sermon in the YouTube player"}
-      onPress={onPress}
-    />
-  );
-});
 
 /** Moves the loaded sermon to `at` and plays, once the player is ready. */
 function SeekOnce({ at, onDone }: { at: number; onDone: () => void }) {
@@ -749,52 +610,21 @@ function SeekOnce({ at, onDone }: { at: number; onDone: () => void }) {
     onDone();
     // Once, when ready.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready]);
+  }, [ready, at]);
   return null;
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: c.media },
+  screen: { flex: 1, backgroundColor: c.bg },
   loading: { paddingVertical: space.xxl, alignItems: "center" },
   slot: { flex: 1, backgroundColor: c.media },
-  // Ivory behind the content, so the end of the page (and an overscroll)
-  // is the panel's colour; the stage brings its own dark.
   scroll: { flex: 1, backgroundColor: c.bg },
-  stage: { backgroundColor: c.media },
-  overscroll: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    top: -1000,
-    height: 1000,
-    backgroundColor: c.media,
-  },
-  // The navy light under the video, behind the band, title and transport.
-  // Its foot runs under the panel's rounded corners.
-  lit: { paddingBottom: 18 + radius.r28 },
-  column: { alignSelf: "center", paddingHorizontal: space.xl },
-  meta: { marginTop: 4 },
-  title: { ...type.sermonTitle, color: c.white, marginTop: 8 },
-  byline: {
-    fontFamily: type.meta.fontFamily,
-    fontSize: 13.5,
-    lineHeight: 19,
-    color: "rgba(255,255,255,0.76)",
-    marginTop: 4,
-  },
-  actions: { marginTop: 10, minHeight: 56, justifyContent: "center" },
-  // One row: the play control takes what the round actions leave.
-  preplay: { flexDirection: "row", alignItems: "center", gap: 12 },
-  watchSlot: { flex: 1, minWidth: 0 },
-  acts: { flexDirection: "row", alignItems: "center", gap: 10 },
-  // Over the page below it (drawn after it), so the fade can hang off its foot.
-  pinnedBand: { backgroundColor: c.media, zIndex: 2 },
-  underFade: { position: "absolute", left: 0, right: 0, top: "100%", pointerEvents: "none", zIndex: 2 },
   panel: {
-    marginTop: -radius.r28,
     backgroundColor: c.bg,
-    borderTopLeftRadius: radius.r28,
-    borderTopRightRadius: radius.r28,
   },
-  panelInner: { alignSelf: "center", paddingHorizontal: space.s20, paddingTop: space.xl },
+  panelInner: {
+    alignSelf: "center",
+    paddingHorizontal: space.s20,
+    paddingTop: space.lg,
+  },
 });

@@ -1,14 +1,16 @@
-import { memo, type Ref } from "react";
+import { memo, useState, type Ref } from "react";
 import { Platform, StyleSheet, View } from "react-native";
 import Animated from "react-native-reanimated";
 import { RoundButton } from "../../kit";
 import { c, easeOut, radius, space, type } from "../../theme";
-import { T, Tap, web } from "../../ui";
+import { T, Tap } from "../../ui";
 import { PlaylistIcon } from "./icons";
 
 export const LIGHT_HEADER_HEIGHT = 56;
 
 export type LightHeaderProps = {
+  /** Column width on wide viewports. */
+  width?: number;
   /** Path or series name centred in the header (null/empty for a lone sermon). */
   title?: string | null;
   /** Optional fallback title that fades in only after the main title scrolls out of view. */
@@ -31,6 +33,7 @@ export type LightHeaderProps = {
  * right a round button that opens the path's days or the sermon's moments.
  */
 export const LightHeader = memo(function LightHeader({
+  width,
   title,
   scrollTitle,
   scrollTitleShown = false,
@@ -46,69 +49,70 @@ export const LightHeader = memo(function LightHeader({
   const dynamicTitle = !staticTitle && scrollTitle ? scrollTitle : null;
 
   return (
-    <View style={styles.bar}>
-      <RoundButton
-        tone="surface"
-        size={40}
-        icon="chevron-back"
-        iconSize={20}
-        label="Back"
-        onPress={onBack}
-      />
-      {skipToPlayer && Platform.OS === "web" && onSkipToPlayer ? (
-        <SkipToPlayer onPress={onSkipToPlayer} />
-      ) : null}
-      <View
-        style={styles.titleSlot}
-        accessible={!!staticTitle}
-        accessibilityRole={staticTitle ? "header" : undefined}
-      >
-        {staticTitle ? (
-          <T style={styles.title} numberOfLines={1} maxFontSizeMultiplier={1.25}>
-            {staticTitle}
-          </T>
-        ) : dynamicTitle ? (
-          <Animated.View
-            style={{
-              alignSelf: "stretch",
-              opacity: scrollTitleShown ? 1 : 0,
-              transitionProperty: "opacity",
-              transitionDuration: 200,
-              transitionTimingFunction: easeOut,
-            }}
-            accessible={false}
-            importantForAccessibility="no-hide-descendants"
-          >
-            <T style={styles.title} numberOfLines={1} aria-hidden maxFontSizeMultiplier={1.2}>
-              {dynamicTitle}
-            </T>
-          </Animated.View>
-        ) : null}
-      </View>
-      <View ref={rightRef} collapsable={false}>
+    <View style={styles.barWrap}>
+      <View style={[styles.bar, width ? { width } : null]}>
         <RoundButton
           tone="surface"
           size={40}
-          label={rightLabel}
-          hint={rightHint}
-          onPress={onRightPress}
-          testID="stage-header-right"
-        >
-          <PlaylistIcon size={20} color={c.text} />
-        </RoundButton>
+          icon="chevron-back"
+          iconSize={20}
+          label="Back"
+          onPress={onBack}
+        />
+        {skipToPlayer && Platform.OS === "web" && onSkipToPlayer ? (
+          <SkipToPlayer onPress={onSkipToPlayer} />
+        ) : null}
+        <View style={styles.titleSlot}>
+          {staticTitle ? (
+            <T style={styles.title} numberOfLines={1} maxFontSizeMultiplier={1.25}>
+              {staticTitle}
+            </T>
+          ) : dynamicTitle ? (
+            <Animated.View
+              style={{
+                alignSelf: "stretch",
+                opacity: scrollTitleShown ? 1 : 0,
+                transitionProperty: "opacity",
+                transitionDuration: 200,
+                transitionTimingFunction: easeOut,
+              }}
+              accessible={false}
+              importantForAccessibility="no-hide-descendants"
+            >
+              <T style={styles.title} numberOfLines={1} aria-hidden maxFontSizeMultiplier={1.2}>
+                {dynamicTitle}
+              </T>
+            </Animated.View>
+          ) : null}
+        </View>
+        <View ref={rightRef} collapsable={false}>
+          <RoundButton
+            tone="surface"
+            size={40}
+            label={rightLabel}
+            hint={rightHint}
+            onPress={onRightPress}
+            testID="stage-header-right"
+          >
+            <PlaylistIcon size={20} color={c.text} />
+          </RoundButton>
+        </View>
       </View>
     </View>
   );
 });
 
 function SkipToPlayer({ onPress }: { onPress: () => void }) {
+  const [focused, setFocused] = useState(false);
   return (
     <Tap
       accessibilityRole="button"
       accessibilityLabel="Go to video player"
       onPress={onPress}
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
       feedback="dim"
-      style={styles.skipLink}
+      style={[styles.skipLink, !focused && styles.offscreen]}
     >
       <T style={styles.skipLinkText}>Go to video player</T>
     </Tap>
@@ -116,12 +120,17 @@ function SkipToPlayer({ onPress }: { onPress: () => void }) {
 }
 
 const styles = StyleSheet.create({
+  barWrap: {
+    backgroundColor: c.bg,
+    zIndex: 3,
+  },
   bar: {
     height: LIGHT_HEADER_HEIGHT,
+    alignSelf: "center",
+    width: "100%",
     paddingHorizontal: space.lg,
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: c.bg,
   },
   titleSlot: {
     flex: 1,
@@ -137,22 +146,23 @@ const styles = StyleSheet.create({
   },
   skipLink: {
     position: "absolute",
-    left: -10000,
+    left: space.lg + 48,
+    minHeight: 36,
+    paddingHorizontal: 14,
+    borderRadius: radius.pill,
+    backgroundColor: c.surface,
+    borderWidth: 1,
+    borderColor: c.border,
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 10,
+  },
+  offscreen: {
+    left: -9999,
     width: 1,
     height: 1,
     overflow: "hidden",
-    borderRadius: radius.pill,
-    backgroundColor: c.surface,
-    ...web({
-      ":focus": {
-        left: 64,
-        top: 6,
-        width: "auto",
-        height: 44,
-        paddingHorizontal: space.md,
-        zIndex: 10,
-      },
-    }),
+    opacity: 0,
   },
   skipLinkText: {
     ...type.label,

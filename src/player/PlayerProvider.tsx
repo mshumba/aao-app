@@ -55,7 +55,7 @@ type Session = {
    */
   load: (sermon: Sermon, from?: number) => void;
   /** Plays the loaded sermon, waiting for readiness when it is still loading. */
-  play: () => void;
+  playWhenReady: () => void;
   retry: () => void;
   close: () => void;
   /** Pause, and cancel a start still waiting for the player to load. */
@@ -84,6 +84,7 @@ type Playback = {
   seconds: number;
   duration: number;
   rate: number;
+  captionsOn: boolean;
   status: string;
   play: () => void;
   pause: () => void;
@@ -91,6 +92,7 @@ type Playback = {
   seek: (seconds: number) => void;
   skip: (delta: number) => void;
   cycleRate: () => void;
+  toggleCaptions: () => void;
 };
 
 const SessionContext = createContext<Session | null>(null);
@@ -194,6 +196,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const [seconds, setSeconds] = useState(0);
   const [duration, setDuration] = useState(0);
   const [rate, setRate] = useState(1);
+  const [captionsOn, setCaptionsOn] = useState(false);
   const [status, setStatus] = useState("");
   const [started, setStarted] = useState(false);
   const position = useRef(0);
@@ -279,15 +282,45 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     [checkDay],
   );
 
+  // Shared helper that sends play and watches for refused autoplay so both
+  // initial ready-autoplay and playWhenReady surface the "Tap play in the video
+  // to start" / "Still loading..." guidance when the browser blocks playback.
+  const startWithCheck = useCallback(() => {
+    clearBlockedCheck();
+    if (latestState.current !== 1) starting.current = true;
+    blocked.current = false;
+    const check = (first: boolean) => {
+      blockedCheck.current = setTimeout(
+        () => {
+          const s = latestState.current;
+          if (s === 1 || s === 0) {
+            starting.current = false;
+            return;
+          }
+          if (s === 3 && first) {
+            setStatus(STILL);
+            return check(false);
+          }
+          starting.current = false;
+          blocked.current = true;
+          setStatus(BLOCKED);
+        },
+        first ? 3000 : 5000,
+      );
+    };
+    check(true);
+    command({ type: "play" });
+  }, [clearBlockedCheck, command]);
+
   // An explicit play request can arrive after hold cancelled the initial
   // start, while the same embed is still loading. Keep that intent for ready;
   // another hold (backgrounding or hiding the video) can still cancel it.
-  const play = useCallback(() => {
+  const playWhenReady = useCallback(() => {
     // A route's transition can settle after the app has already left focus.
     if (AppState.currentState === "background") return;
     if (phaseRef.current === "loading") autoplay.current = true;
-    else if (phaseRef.current === "ready") command({ type: "play" });
-  }, [command]);
+    else if (phaseRef.current === "ready") startWithCheck();
+  }, [startWithCheck]);
 
   // The provider drops commands until it's ready, so a pause while loading
   // must also cancel the start that Watch queued.
@@ -340,6 +373,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     setSeconds(Math.floor(from));
     setDuration(0);
     setRate(1);
+    setCaptionsOn(false);
     setStatus(LOADING);
     // iOS has no live regions, so the loading step is announced there.
     if (Platform.OS === "ios")
@@ -423,6 +457,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     setPhase("idle");
     setError(null);
     setCover("off");
+    setCaptionsOn(false);
     setStatus("");
     setState(-1);
   }, [clearBlockedCheck, persist, setPhase]);
@@ -456,25 +491,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         // actually plays, keep saying it's loading; if it hasn't played after
         // a few seconds, say what to do.
         if (autoplay.current && AppState.currentState !== "background") {
-          starting.current = true;
-          const check = (first: boolean) => {
-            blockedCheck.current = setTimeout(
-              () => {
-                const s = latestState.current;
-                if (s === 1 || s === 0) return;
-                if (s === 3 && first) {
-                  setStatus(STILL);
-                  return check(false);
-                }
-                starting.current = false;
-                blocked.current = true;
-                setStatus(BLOCKED);
-              },
-              first ? 3000 : 5000,
-            );
-          };
-          check(true);
-          command({ type: "play" });
+          startWithCheck();
         } else setStatus(READY);
         autoplay.current = false;
         return;
@@ -510,7 +527,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       if (starting.current) return;
       setStatus(blocked.current ? BLOCKED : statusFor(e.state));
     },
-    [command, fail, clearBlockedCheck, persist, checkDay, setPhase],
+    [command, fail, clearBlockedCheck, persist, checkDay, setPhase, startWithCheck],
   );
 
   // Loading can't hang forever.
@@ -586,7 +603,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       dockAboveTabs,
       setDockAboveTabs,
       load,
-      play,
+      playWhenReady,
       retry,
       close,
       hold,
@@ -610,7 +627,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       setStage,
       dockAboveTabs,
       load,
-      play,
+      playWhenReady,
       retry,
       close,
       hold,
@@ -644,6 +661,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       seconds,
       duration,
       rate,
+      captionsOn,
       status,
       play: () => command({ type: "play" }),
       pause: hold,
@@ -655,8 +673,13 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         setRate(next);
         command({ type: "rate", rate: next });
       },
+      toggleCaptions: () => {
+        const next = !captionsOn;
+        setCaptionsOn(next);
+        command({ type: "captions", enabled: next });
+      },
     };
-  }, [state, seconds, duration, rate, status, command, hold, playing]);
+  }, [state, seconds, duration, rate, captionsOn, status, command, hold, playing]);
 
   return (
     <SessionContext.Provider value={session}>
