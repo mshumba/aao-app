@@ -3,7 +3,6 @@ import { Linking, StyleSheet, View } from "react-native";
 import { space, type } from "../theme";
 import {
   Header,
-  Notice,
   Page,
   PageTitle,
   SectionHeading,
@@ -30,7 +29,6 @@ export default function Privacy() {
         title="Privacy Policy"
         lead="What AAO collects, why, and how to delete it. AAO is a free app for finding and watching public sermons."
       />
-      <Notice>Draft for review before public release.</Notice>
 
       <Section title="What AAO collects">
         <P>
@@ -208,12 +206,11 @@ export default function Privacy() {
       </Section>
 
       <Section title="Contact">
-        {/* PLACEHOLDER: add a contact email before public release. */}
-        <P>[Contact details to be added before public release.]</P>
+        <P>Email support@aaolearning.com.</P>
       </Section>
 
       <T style={[s.meta, { marginTop: space.xxl }]}>
-        Draft of 15 October 2026
+        Last updated 15 October 2026
       </T>
     </Page>
   );

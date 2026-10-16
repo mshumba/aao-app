@@ -3,7 +3,6 @@ import { Linking, StyleSheet, View } from "react-native";
 import { space, type } from "../theme";
 import {
   Header,
-  Notice,
   Page,
   PageTitle,
   SectionHeading,
@@ -26,7 +25,6 @@ export default function Terms() {
         title="Terms of Use"
         lead="The rules for using AAO. By creating an account, you agree to them."
       />
-      <Notice>Draft for review before public release.</Notice>
 
       <Section title="Free to use">
         <P>
@@ -97,12 +95,11 @@ export default function Terms() {
       </Section>
 
       <Section title="Contact">
-        {/* PLACEHOLDER: add a contact email before public release. */}
-        <P>[Contact details to be added before public release.]</P>
+        <P>Email support@aaolearning.com.</P>
       </Section>
 
       <T style={[s.meta, { marginTop: space.xxl }]}>
-        Draft of 14 October 2026
+        Last updated 14 October 2026
       </T>
     </Page>
   );
