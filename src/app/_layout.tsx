@@ -8,6 +8,7 @@ import { Platform, StyleSheet, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { AccountProvider, useAccount } from "../auth/AccountProvider";
 import { IntentRunner } from "../auth/gate";
+import { blessingPresentation } from "../blessing/presentation";
 import { CatalogueProvider, useCatalogue } from "../catalogue/CatalogueProvider";
 import { useAppFonts } from "../fonts";
 import { LearningProvider } from "../learning";
@@ -124,6 +125,8 @@ function Screens() {
         options={{ animation: "fade", gestureEnabled: false }}
       />
       <Stack.Screen name="onboarding/done" options={{ gestureEnabled: false }} />
+      {/* The blessing on opening the app: over everything, no swipe back. */}
+      <Stack.Screen name="blessing" options={blessingPresentation} />
       <Stack.Screen name="join" options={sheet} />
       <Stack.Screen name="auth/email" options={modal} />
       <Stack.Screen name="auth/password" options={modal} />

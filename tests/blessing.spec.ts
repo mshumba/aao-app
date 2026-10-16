@@ -1,11 +1,11 @@
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 import { HABIT, SERMON, expect, seedStorage, shown, tab, test } from "./fixtures";
 
 // The blessing on its own screen (15 October 2026): at a cold start and
 // after 30 minutes or more away, never over a link, the welcome or a quick
 // switch away; text only, with its Bible reference; Continue goes on to Home.
 
-/** The five fixture blessings (src/blessing/data.ts). */
+/** The six fixture blessings (src/blessing/data.ts); the last is the longest of all. */
 const BLESSINGS = [
   {
     id: "bl-9994-0",
@@ -28,7 +28,34 @@ const BLESSINGS = [
     ref: null,
   },
   { id: "bl-49470-36", text: "His love shall be a covering around you.", ref: null },
+  {
+    id: "bl-62623-32",
+    text: "The Lord shall guide thee continually and satisfy thy soul in drought, and make fat thy bones, and thou shall be like a watered garden, and like a spring of water whose waters fail not.",
+    ref: "Isaiah 58:11",
+  },
 ];
+const LONGEST = BLESSINGS.length - 1;
+
+/** Only this fixture blessing is left to see, so it's the one that shows. */
+async function onlyLeft(page: Page, which: number) {
+  await seedStorage(
+    page,
+    { "aao.blessings.seen.v1": BLESSINGS.filter((_, i) => i !== which).map((b) => b.id) },
+    "seen",
+  );
+}
+
+/** Once the words and Continue have finished arriving. */
+async function settled(page: Page) {
+  await page.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished.catch(() => {}))));
+}
+
+type Box = { x: number; y: number; width: number; height: number };
+async function box(locator: Locator): Promise<Box> {
+  const found = await locator.boundingBox();
+  expect(found).not.toBeNull();
+  return found!;
+}
 
 const EVENING = new Date("2026-10-14T19:30:00");
 const MINUTE = 60_000;
@@ -122,15 +149,24 @@ test.describe("in the evening", () => {
     await expect(
       screen.getByRole("heading", { level: 1, name: "Good evening, Mufaro", exact: true }),
     ).toBeVisible();
-    await expect(screen.getByText("A blessing for you")).toHaveCSS("text-transform", "uppercase");
+    // One gold label, above; the Bible reference below it is quieter: the
+    // page's serif, upright, in grey, not a second set of gold capitals.
+    const label = screen.getByText("A blessing for you");
+    await expect(label).toHaveCSS("text-transform", "uppercase");
     const reference = page.getByTestId("blessing-reference");
     await expect(reference).toHaveText(BLESSINGS[0].ref!);
-    await expect(reference).toHaveCSS("text-transform", "uppercase");
+    await expect(reference).toHaveCSS("text-transform", "none");
+    await expect(reference).toHaveCSS("font-family", /Newsreader_400Regular$/);
+    await expect(reference).not.toHaveCSS("color", await label.evaluate((el) => getComputedStyle(el).color));
     await expect(screen.getByText("Apostle Arome Osayi")).toBeVisible();
-    // Never cut off: the whole blessing shows, in large Newsreader italic.
+    // Never cut off: the whole blessing shows, in large Newsreader italic,
+    // clearly larger than the greeting above it.
     const words = page.getByTestId("blessing-text");
     await expect(words).toHaveCSS("font-family", /Newsreader_\d+\w*_Italic/);
-    expect(parseFloat(await words.evaluate((el) => getComputedStyle(el).fontSize))).toBeGreaterThanOrEqual(24);
+    const size = (locator: Locator) => locator.evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
+    const greetingSize = await size(screen.getByRole("heading", { level: 1 }));
+    expect(greetingSize).toBeLessThanOrEqual(24);
+    expect(await size(words)).toBeGreaterThanOrEqual(greetingSize * 1.15);
     expect(await words.evaluate((el) => el.scrollHeight <= el.clientHeight + 1)).toBe(true);
     // Read as "Blessing: ….", then focus is on Continue, the one control.
     await expect(screen).toHaveAccessibleName("Good evening, Mufaro");
@@ -140,9 +176,18 @@ test.describe("in the evening", () => {
     await expect(continueButton(page)).toBeFocused();
     await expect(screen.getByRole("button")).toHaveCount(1);
     await expect(screen.getByRole("link")).toHaveCount(0);
-    // Continue at the bottom, in thumb's reach.
-    const button = (await continueButton(page).boundingBox())!;
+    // Continue at the bottom, in thumb's reach: the welcome's "Get started"
+    // (flat, rounded, the column's full width), not a shadowed pill.
+    await settled(page);
+    const button = await box(continueButton(page));
     expect(button.y + button.height).toBeGreaterThan(844 * 0.85);
+    expect(button.y + button.height).toBeLessThanOrEqual(844);
+    expect(button.width).toBe((await box(words)).width);
+    await expect(continueButton(page)).toHaveCSS("border-radius", "12px");
+    await expect(continueButton(page)).toHaveCSS("box-shadow", "none");
+    // The artwork fades into the page before the words begin.
+    const band = await box(page.getByTestId("blessing-band"));
+    expect((await box(screen.getByRole("heading", { level: 1 }))).y).toBeGreaterThanOrEqual(band.y + band.height);
 
     await continueButton(page).click();
     await onHome(page);
@@ -269,7 +314,7 @@ test("coming back after 30 minutes mid-sermon leaves the sermon alone", async ({
   await expect(blessingScreen(page)).toHaveCount(0);
 });
 
-test("a new one each time the app opens, none repeated until all five are seen", async ({ page }) => {
+test("a new one each time the app opens, none repeated until all six are seen", async ({ page }) => {
   await page.goto("/");
   const seen: number[] = [];
   for (let i = 0; i < BLESSINGS.length; i++) {
@@ -297,6 +342,80 @@ test("the words rise in; with reduced motion they only fade", async ({ page }) =
   expect(frames).not.toContain("transform");
   await continueButton(page).click();
   await onHome(page);
+});
+
+test.describe("the longest blessing", () => {
+  // Small phones, a laptop window at 200% zoom: the words never sit on the
+  // artwork, and Continue never leaves the screen.
+  for (const [width, height] of [
+    [320, 568],
+    [360, 640],
+    [375, 667],
+    [640, 400],
+  ] as const) {
+    test.describe(`at ${width}x${height}`, () => {
+      test.use({ viewport: { width, height } });
+
+      test("the words start below the artwork and Continue stays on screen", async ({ page }) => {
+        await onlyLeft(page, LONGEST);
+        await page.goto("/");
+        expect(await blessingShown(page)).toBe(LONGEST);
+        await settled(page);
+        const screen = blessingScreen(page);
+        const heading = screen.getByRole("heading", { level: 1 });
+        const band = await box(page.getByTestId("blessing-band"));
+        expect((await box(heading)).y).toBeGreaterThanOrEqual(band.y + band.height);
+        const before = await box(continueButton(page));
+        expect(before.y).toBeGreaterThanOrEqual(0);
+        expect(before.y + before.height).toBeLessThanOrEqual(height);
+        // However far the words scroll, Continue stays put, and the last of
+        // them (the Apostle's name) comes into view above it.
+        await page.getByTestId("blessing-text").hover();
+        await page.mouse.wheel(0, 2000);
+        const byline = screen.getByText("Apostle Arome Osayi");
+        await expect
+          .poll(async () => {
+            const end = await box(byline);
+            return end.y + end.height;
+          })
+          .toBeLessThanOrEqual(before.y);
+        expect(await box(continueButton(page))).toEqual(before);
+        // Still clearly led by the blessing, even this long on a small phone.
+        const size = (locator: Locator) => locator.evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
+        expect(await size(page.getByTestId("blessing-text"))).toBeGreaterThanOrEqual(1.15 * (await size(heading)));
+        await continueButton(page).click();
+        await onHome(page);
+      });
+    });
+  }
+});
+
+test.describe("on a laptop", () => {
+  test.use({ viewport: { width: 1280, height: 800 } });
+
+  test("the blessing is set larger, about 30 characters a line", async ({ page }) => {
+    await onlyLeft(page, LONGEST);
+    await page.goto("/");
+    expect(await blessingShown(page)).toBe(LONGEST);
+    await settled(page);
+    const words = page.getByTestId("blessing-text");
+    const { size, lines } = await words.evaluate((el) => {
+      const style = getComputedStyle(el);
+      return {
+        size: parseFloat(style.fontSize),
+        lines: Math.round(el.getBoundingClientRect().height / parseFloat(style.lineHeight)),
+      };
+    });
+    expect(size).toBeGreaterThanOrEqual(34);
+    const perLine = BLESSINGS[LONGEST].text.length / lines;
+    expect(perLine).toBeGreaterThanOrEqual(26);
+    expect(perLine).toBeLessThanOrEqual(36);
+    // Continue spans the same column as the words.
+    const button = await box(continueButton(page));
+    const heading = await box(blessingScreen(page).getByRole("heading", { level: 1 }));
+    expect(button.x).toBe(heading.x);
+    expect(button.y + button.height).toBeLessThanOrEqual(800);
+  });
 });
 
 test.describe("Home's hero on a wide window", () => {

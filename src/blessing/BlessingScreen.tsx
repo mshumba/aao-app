@@ -7,23 +7,26 @@ import {
   StyleSheet,
   View,
   useWindowDimensions,
+  type LayoutChangeEvent,
   type StyleProp,
+  type TextStyle,
   type ViewStyle,
 } from "react-native";
 import { Directions, Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
 import Animated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAccount } from "../auth/AccountProvider";
+import { FlowButton } from "../auth/ui";
 import { greeting } from "../home/copy";
-import { ItalicTitle, Kicker, PlayPill } from "../kit";
+import { ItalicTitle, Kicker } from "../kit";
 import { useReducedMotion } from "../motion";
 import { usePageTitle } from "../navigation";
-import { ArtworkCollage } from "../onboarding/ArtworkCollage";
 import { motion } from "../onboarding/parts";
-import { c, easeOut, font, fontSize, space, textCap, type } from "../theme";
-import { T, web } from "../ui";
+import { c, easeOut, font, space, textCap, type } from "../theme";
+import { T, gradient, web } from "../ui";
 import { currentBlessing, primeBlessings, spokenBlessing, takeBlessing, type Blessing } from "./data";
 import { blessingIsOnScreen, setBlessingOnScreen, type Opening } from "./schedule";
+import { BlessingWall } from "./Wall";
 
 /** The words arrive over this long (a fade alone under Reduce Motion). */
 const ENTER_MS = 400;
@@ -31,6 +34,14 @@ const ENTER_REDUCED_MS = 250;
 /** Web: the screen fades away over Home this long before it closes. */
 const LEAVE_MS = 280;
 const LEAVE_REDUCED_MS = 180;
+
+/** From this window width (a tablet, a laptop) the blessing is set larger. */
+const WIDE = 700;
+/** The words' column: the welcome's on a phone, a little wider on a laptop. */
+const COLUMN = 560;
+const COLUMN_WIDE = 640;
+/** The phone column the type sizes are set for (a 390pt phone). */
+const PHONE_MEASURE = 390 - 2 * space.gutter;
 
 // Whether the blessing screen showing is already on its way out (one at a time).
 let leaving = false;
@@ -41,15 +52,19 @@ let leaving = false;
  * blessing in large Newsreader italic with its Bible reference, the
  * Apostle's name, and one way on. Text only: nothing to play or open.
  *
- * In the welcome's style: the ivory page under a quiet band of the sermons'
- * artwork. Continue, a swipe down, Escape (web) or the screen reader's
+ * In the welcome's style: its wall of the sermons' artwork, in soft focus
+ * (src/blessing/Wall.tsx), as a band that fades into the ivory page before
+ * the words begin, and the welcome's button.
+ * Continue stays on screen, below the words, which scroll above it if
+ * they ever need to (small phones, very large text). Continue, a swipe down
+ * (native, when nothing scrolls), Escape (web) or the screen reader's
  * escape gesture all go on to the app with a gentle fade.
  */
 export function BlessingScreen({ opening }: { opening: Opening | null }) {
   usePageTitle("A blessing for you");
   const account = useAccount();
   const insets = useSafeAreaInsets();
-  const { height } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
   const focused = useIsFocused();
   // The entrance plays once, as it started, even if the setting changes.
   const live = useReducedMotion();
@@ -124,22 +139,41 @@ export function BlessingScreen({ opening }: { opening: Opening | null }) {
     };
   }, [native, focused, shown, leave]);
 
-  // ---- A swipe down goes on, as Continue does (native: on the web it would
-  // fight the page's own scrolling, and Escape or Continue do it) ----------------
+  // ---- Whether the words scroll (small phones, very large text) ------------------
+  const [viewport, setViewport] = useState(0);
+  const [content, setContent] = useState(0);
+  const scrolls = viewport > 0 && content > viewport + 1;
+  const onViewport = useCallback((event: LayoutChangeEvent) => {
+    setViewport(Math.round(event.nativeEvent.layout.height));
+  }, []);
+  const onContent = useCallback((_: number, h: number) => setContent(Math.round(h)), []);
+
+  // ---- A swipe down goes on, as Continue does: native only (on the web it
+  // would fight the page's own scrolling, and Escape or Continue do it), and
+  // only while nothing scrolls, so pulling the words back down never closes
+  // the screen by mistake. Continue is always on screen either way. --------
   const fling = useMemo(
     () =>
       Gesture.Fling()
-        .enabled(native)
+        .enabled(native && !scrolls)
         .direction(Directions.DOWN)
         .runOnJS(true)
         .onStart(() => leave()),
-    [native, leave],
+    [native, scrolls, leave],
   );
 
   const name = account.user ? account.displayName?.trim() || null : null;
   const spoken = blessing ? spokenBlessing(blessing) : "";
-  // The sermons' wall, kept low and quiet: a soft band above the words.
-  const band = Math.round(Math.min(260, Math.max(150, height * 0.26))) + insets.top;
+  const wide = width >= WIDE;
+  const column = wide ? COLUMN_WIDE : COLUMN;
+  const measure = Math.min(width, column) - 2 * space.gutter;
+  const size = blessing ? sizeFor(blessing.text, wide, measure) : null;
+  const greetingSize = greetingFor(wide, measure);
+  // The sermons' wall: as tall as the room the words leave allows, within
+  // these limits. It fades fully into the page above the words, and when
+  // they need more room it gives way first (down to a sliver).
+  const bandMin = Math.round(Math.min(96, Math.max(48, height * 0.14))) + insets.top;
+  const bandMax = Math.round(Math.min(340, Math.max(160, height * 0.4))) + insets.top;
   const enter = reduced ? ENTER_REDUCED_MS : ENTER_MS;
 
   return (
@@ -173,17 +207,24 @@ export function BlessingScreen({ opening }: { opening: Opening | null }) {
           accessibilityViewIsModal
           onAccessibilityEscape={leave}
         >
-          <View style={[styles.band, { height: band }]}>
-            <ArtworkCollage reduced={reduced} />
-          </View>
-
           <ScrollView
+            style={styles.fill}
             bounces={false}
             overScrollMode="never"
-            contentContainerStyle={[styles.scroll, { paddingTop: Math.round(band * 0.62) }]}
+            onLayout={onViewport}
+            onContentSizeChange={onContent}
+            contentContainerStyle={styles.scroll}
           >
-            <View style={[styles.column, styles.words]}>
-              {blessing ? (
+            <View
+              testID="blessing-band"
+              style={[styles.band, { flexBasis: bandMin, minHeight: bandMin, maxHeight: bandMax }]}
+            >
+              <BlessingWall reach={bandMax} reduced={reduced} />
+              <View style={[StyleSheet.absoluteFill, styles.bandFade]} />
+            </View>
+
+            <View style={[styles.column, { maxWidth: column }, styles.words, wide && styles.wordsWide]}>
+              {blessing && size ? (
                 <>
                   <Rise delay={60} duration={enter} reduced={reduced}>
                     <ItalicTitle
@@ -192,7 +233,7 @@ export function BlessingScreen({ opening }: { opening: Opening | null }) {
                       italicLast={!!name}
                       accessibilityRole="header"
                       {...web({ "aria-level": 1 })}
-                      style={[type.greeting, styles.greeting]}
+                      style={[type.greeting, styles.greeting, greetingSize]}
                       maxFontSizeMultiplier={textCap.display}
                     />
                   </Rise>
@@ -216,19 +257,19 @@ export function BlessingScreen({ opening }: { opening: Opening | null }) {
                       accessible={native}
                       accessibilityLabel={native ? spoken : undefined}
                       {...web({ "aria-hidden": true })}
-                      style={styles.blessingWords}
+                      style={[styles.blessingWords, wide && styles.blessingWordsWide]}
                     >
                       <T
                         testID="blessing-text"
-                        style={[styles.blessingText, sizeFor(blessing.text)]}
-                        maxFontSizeMultiplier={textCap.quote}
+                        style={[styles.blessingText, size]}
+                        maxFontSizeMultiplier={textCap.display}
                       >
                         {blessing.text}
                       </T>
                       {blessing.scriptureRef ? (
                         <T
                           testID="blessing-reference"
-                          style={styles.reference}
+                          style={[styles.reference, wide && styles.referenceWide]}
                           maxFontSizeMultiplier={textCap.section}
                         >
                           {blessing.scriptureRef}
@@ -243,28 +284,33 @@ export function BlessingScreen({ opening }: { opening: Opening | null }) {
                 </>
               ) : null}
             </View>
-
-            <View
-              style={[
-                styles.column,
-                styles.actions,
-                { paddingBottom: Math.max(insets.bottom, space.lg) + space.sm },
-              ]}
-            >
-              {blessing ? (
-                <Rise delay={360} duration={enter} reduced={reduced}>
-                  <PlayPill
-                    testID="blessing-continue"
-                    tone="navy"
-                    size="lg"
-                    icon="none"
-                    label="Continue"
-                    onPress={leave}
-                  />
-                </Rise>
-              ) : null}
-            </View>
           </ScrollView>
+
+          {/* Native: words scrolled up stay clear of the clock. */}
+          {scrolls && insets.top > 0 ? (
+            <View style={[styles.statusScrim, { height: insets.top + space.md }]} />
+          ) : null}
+
+          <View
+            style={[
+              styles.column,
+              styles.actions,
+              { maxWidth: column, paddingBottom: Math.max(insets.bottom, space.lg) + space.sm },
+            ]}
+          >
+            {/* Words scrolling under Continue fade out rather than cut off. */}
+            {scrolls ? <View style={styles.actionsFade} /> : null}
+            {blessing ? (
+              <Rise delay={360} duration={enter} reduced={reduced}>
+                <FlowButton
+                  shape="rounded"
+                  label="Continue"
+                  testID="blessing-continue"
+                  onPress={leave}
+                />
+              </Rise>
+            ) : null}
+          </View>
         </Animated.View>
       </GestureDetector>
     </GestureHandlerRootView>
@@ -272,16 +318,54 @@ export function BlessingScreen({ opening }: { opening: Opening | null }) {
 }
 
 /**
- * The blessing's size: as large as reads well for its length, so the longest
- * (185 characters) still takes five lines at most on a 390pt phone and none
- * is ever cut off.
+ * The blessing's size: large enough to lead the screen, stepping down with
+ * its length so the longer ones still sit comfortably. On a 390pt phone the
+ * shortest (40 characters) takes two lines at 36pt and the longest (185) six
+ * at 26pt; on a narrower phone the type steps down a little (to 0.86× at
+ * most) rather than run to more lines: seven at 22pt on a 320pt phone. From
+ * 700pt wide (a tablet, a laptop) it's set larger, 36 to 46pt, in a measure
+ * of about 30 characters a line: the longest takes six lines there. Nothing
+ * is ever cut off: the words scroll above Continue if they must.
  */
-function sizeFor(text: string) {
+function sizeFor(text: string, wide: boolean, measure: number): TextStyle {
   const n = text.length;
-  if (n <= 90) return styles.sizeLarge;
-  if (n <= 130) return styles.sizeMedium;
-  return styles.sizeSmall;
+  const step = n <= 64 ? 0 : n <= 110 ? 1 : n <= 150 ? 2 : 3;
+  const [fontSize, lineHeight, letterSpacing] = (wide ? WIDE_SIZES : PHONE_SIZES)[step];
+  const scale = narrowing(wide, measure);
+  return {
+    fontSize: Math.round(fontSize * scale),
+    lineHeight: Math.round(lineHeight * scale),
+    letterSpacing,
+    // About 30 characters a line.
+    maxWidth: wide ? Math.round(fontSize * 13.5) : undefined,
+  };
 }
+
+/** The greeting: a step below the blessing, and smaller with it on a narrow phone. */
+function greetingFor(wide: boolean, measure: number): TextStyle {
+  if (wide) return { fontSize: 24, lineHeight: 30 };
+  const scale = narrowing(wide, measure);
+  return { fontSize: Math.round(22 * scale), lineHeight: Math.round(28 * scale) };
+}
+
+/** Narrower than a 390pt phone, the type steps down a little (to 0.86× at most). */
+function narrowing(wide: boolean, measure: number) {
+  return wide ? 1 : Math.min(1, Math.max(0.86, measure / PHONE_MEASURE));
+}
+
+/** [size, line height, tracking] by length: up to 64, 110, 150 characters, longer. */
+const PHONE_SIZES = [
+  [36, 44, -0.5],
+  [32, 40, -0.4],
+  [28, 36, -0.3],
+  [26, 34, -0.2],
+] as const;
+const WIDE_SIZES = [
+  [46, 54, -0.6],
+  [42, 50, -0.5],
+  [38, 46, -0.4],
+  [36, 44, -0.3],
+] as const;
 
 /** Up 8pt as it fades in (a fade alone under Reduce Motion), once. */
 function Rise({
@@ -338,27 +422,58 @@ function silenceOutside(root: HTMLElement) {
 const styles = StyleSheet.create({
   fill: { flex: 1 },
   screen: { flex: 1, backgroundColor: c.bg },
-  band: { position: "absolute", top: 0, left: 0, right: 0, opacity: 0.5 },
+  // The band takes the room the words leave (between its limits), and the
+  // words sit in the middle of whatever is left after that.
   scroll: { flexGrow: 1 },
+  band: { flexGrow: 4, flexShrink: 0, overflow: "hidden" },
+  // Under the clock, a light wash; then the artwork; then fully the page
+  // before the words begin, whatever the band's height.
+  bandFade: gradient(
+    `linear-gradient(180deg, ${c.bg}cc 0%, ${c.bg}00 22%, ${c.bg}00 46%, ${c.bg}99 70%, ${c.bg}f0 88%, ${c.bg} 100%)`,
+  ),
   column: {
     width: "100%",
-    maxWidth: 560,
     alignSelf: "center",
     paddingHorizontal: space.gutter,
   },
-  // The words sit in the middle of the room the band and Continue leave.
-  words: { flexGrow: 1, justifyContent: "center", gap: space.xxl, paddingVertical: space.xl },
+  words: {
+    flexGrow: 1,
+    flexShrink: 0,
+    justifyContent: "center",
+    gap: 28,
+    paddingTop: space.sm,
+    paddingBottom: space.xl,
+  },
+  wordsWide: { gap: 36 },
   greeting: { color: c.text },
   blessing: { gap: space.md },
-  blessingWords: { gap: space.lg },
+  blessingWords: { gap: space.md },
+  blessingWordsWide: { gap: space.lg },
   blessingText: { fontFamily: font.serifRegularItalic, color: c.text },
-  sizeLarge: { fontSize: fontSize.question, lineHeight: 38, letterSpacing: -0.4 },
-  sizeMedium: { fontSize: fontSize.sermon, lineHeight: 35, letterSpacing: -0.3 },
-  sizeSmall: { fontSize: fontSize.section, lineHeight: 32, letterSpacing: -0.2 },
-  reference: { ...type.overline, color: c.gold },
-  byline: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: -space.sm },
+  // Quieter than the label above: the page's own serif, upright, in grey.
+  reference: { fontFamily: font.serifRegular, fontSize: 17, lineHeight: 24, color: c.muted },
+  referenceWide: { fontSize: 19, lineHeight: 26 },
+  byline: { flexDirection: "row", alignItems: "center", gap: 10 },
   bylineRule: { width: 20, height: 1.5, borderRadius: 1, backgroundColor: c.gold },
   bylineText: { ...type.meta, color: c.muted },
-  actions: { paddingTop: space.lg },
+  statusScrim: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    pointerEvents: "none",
+    ...gradient(`linear-gradient(180deg, ${c.bg} 70%, ${c.bg}00 100%)`),
+  },
+  // The welcome's "Get started": flat, rounded, the column's full width.
+  actions: { paddingTop: space.md },
+  actionsFade: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: -space.xl,
+    height: space.xl,
+    pointerEvents: "none",
+    ...gradient(`linear-gradient(180deg, ${c.bg}00 0%, ${c.bg} 100%)`),
+  },
   unseen: { position: "absolute", width: 1, height: 1, overflow: "hidden", left: -1, top: 0 },
 });

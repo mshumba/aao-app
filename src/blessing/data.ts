@@ -28,8 +28,10 @@ const TIMEOUT = 10_000;
 const REFRESH_MS = 6 * 60 * 60 * 1000;
 
 /**
- * TEST DATA for the on-device mode (EXPO_PUBLIC_AUTH_MODE=local): five of
- * the approved blessings, word for word, with and without a reference.
+ * TEST DATA for the on-device mode (EXPO_PUBLIC_AUTH_MODE=local): six of
+ * the approved blessings, word for word, with and without a reference. The
+ * last is the longest of all of them (185 characters), so the screen's
+ * tightest layout can be seen and tested.
  */
 export const fixtureBlessings: Blessing[] = [
   {
@@ -56,6 +58,11 @@ export const fixtureBlessings: Blessing[] = [
     id: "bl-49470-36",
     text: "His love shall be a covering around you.",
     scriptureRef: null,
+  },
+  {
+    id: "bl-62623-32",
+    text: "The Lord shall guide thee continually and satisfy thy soul in drought, and make fat thy bones, and thou shall be like a watered garden, and like a spring of water whose waters fail not.",
+    scriptureRef: "Isaiah 58:11",
   },
 ];
 

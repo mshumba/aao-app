@@ -17,4 +17,5 @@ export {
 } from "./data";
 export { AWAY_MS, dueOpening, takeOpening, type Opening } from "./schedule";
 export { BlessingScreen } from "./BlessingScreen";
+export { blessingPresentation } from "./presentation";
 export { useBlessingOnOpen } from "./useBlessingOnOpen";

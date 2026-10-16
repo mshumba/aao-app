@@ -73,6 +73,11 @@ export function markOpening(why: Opening) {
   opening = why;
 }
 
+/** How the blessing screen now opening was asked for, without taking it (see blessingPresentation). */
+export function peekOpening() {
+  return opening;
+}
+
 /** How the blessing screen now opening was asked for (once; null for a link straight to it). */
 export function takeOpening() {
   const why = opening;
