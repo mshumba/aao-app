@@ -11,10 +11,10 @@ import { FONT_FILES, type FontFamily } from "./files";
  * real files download meanwhile and replace the stand-ins in one go, so the
  * page changes face once and the words stay where they are.
  *
- * The app waits up to WAIT_MS for the real files first: a repeat visit has
- * them cached and never shows the stand-ins.
+ * The app gives real files a 400 ms grace period: cached files can appear
+ * immediately, while a cold visit reveals the matched stand-ins sooner.
  */
-const WAIT_MS = 600;
+const WAIT_MS = 400;
 
 const SANS = ["Arial", "ArialMT", "Roboto", "Helvetica", "Liberation Sans", "LiberationSans"];
 const SANS_BOLD = ["Arial Bold", "Arial-BoldMT", "Roboto Bold", "Roboto-Bold", "Helvetica Bold", "Helvetica-Bold", "Liberation Sans Bold", "LiberationSans-Bold"];

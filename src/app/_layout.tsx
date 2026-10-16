@@ -67,7 +67,7 @@ export const unstable_settings = { anchor: "(tabs)" };
 
 function RootLayout() {
   // Native: the fonts ship in the app and the splash stays until they're in.
-  // Web: at most 600 ms, then size-matched stand-ins until the files arrive
+  // Web: at most 400 ms, then size-matched stand-ins until the files arrive
   // (src/fonts). Web has no native splash, so it shows a plain ivory frame
   // meanwhile. Only the screens wait: the session, the library and the
   // paths load from the device alongside the fonts.

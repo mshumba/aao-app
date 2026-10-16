@@ -6,7 +6,7 @@ import { FONT_FILES } from "./files";
  * start-up waits for them under the native splash (the layout keeps it up
  * until this is true). A failed load doesn't hold the app back; the system
  * font stands in. The web has its own version (index.web.ts) that never
- * waits more than 600 ms.
+ * waits more than 400 ms.
  */
 export function useAppFonts(): boolean {
   const [loaded, error] = useFonts(FONT_FILES);

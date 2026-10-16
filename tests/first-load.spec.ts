@@ -17,7 +17,7 @@ const SLOW = {
  * show. The script is the same size whatever start-up does (2.5 MB gzipped
  * from the development server, 1.1 MB from a production export), so the
  * bound starts when it finishes downloading. Fonts may hold the first frame
- * for at most 600 ms; running the script, reading the saved session and
+ * for at most 400 ms; running the script, reading the saved session and
  * library and drawing the first screen took 200 to 550 ms more on a laptop
  * (0.8 s after the script in a production export, 1.1 s from the development
  * server), and the rest is room for a slower machine. While the first frame
