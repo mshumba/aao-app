@@ -39,7 +39,7 @@ import {
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
 import { CategoryId, getCategory } from "./data/categories";
-import { eventLine, headline } from "./data/display";
+import { eventLine, eventParts, headline } from "./data/display";
 import { Sermon, sermonCategoryIds } from "./data/sermons";
 import { useReducedMotion } from "./motion";
 import { useGo, usePageTitle } from "./navigation";
@@ -1114,6 +1114,9 @@ export const SermonRow = memo(function SermonRow({
   const art = rowArtWidth(width);
   const stacked = useStackedRows(art);
   const top = kicker === undefined ? eventLine(sermon) : kicker;
+  // Kept to one line beside the artwork: the event gives way, and the
+  // session ("Day 2 Morning") that tells a gathering's rows apart stays.
+  const split = kicker === undefined && !stacked ? eventParts(sermon) : null;
   const label = sermonLabel(sermon, lead, title === undefined ? undefined : { title, kicker: top });
   return (
     <Tap
@@ -1140,7 +1143,16 @@ export const SermonRow = memo(function SermonRow({
         priority="low"
       />
       <View style={s.rowBody}>
-        {top ? (
+        {split?.session ? (
+          <View style={s.rowKickerLine}>
+            <T style={[s.rowKicker, s.rowKickerLead]} numberOfLines={1} maxFontSizeMultiplier={textCap.section}>
+              {split.lead}
+            </T>
+            <T style={[s.rowKicker, s.rowKickerSession]} numberOfLines={1} maxFontSizeMultiplier={textCap.section}>
+              {`\u00a0·\u00a0${nowrap(split.session)}`}
+            </T>
+          </View>
+        ) : top ? (
           <T style={s.rowKicker} numberOfLines={stacked ? undefined : 1} maxFontSizeMultiplier={textCap.section}>
             {top}
           </T>
@@ -1439,6 +1451,10 @@ export const s = StyleSheet.create({
   // One line, tracked a little tighter than other eyebrows so an event's
   // name fits beside the artwork.
   rowKicker: { ...type.overline, letterSpacing: 0.4, color: c.gold },
+  rowKickerLine: { flexDirection: "row", minWidth: 0 },
+  // The event shortens first; the session never does, unless it alone is too wide.
+  rowKickerLead: { flexShrink: 1, minWidth: 0 },
+  rowKickerSession: { flexShrink: 0, maxWidth: "100%" },
   rowMeta: { ...type.meta, color: c.muted, ...tabular },
   rowDetail: { ...type.meta, fontFamily: font.bold, color: c.accent, ...tabular },
   /** A sermon's title in any list (SermonTitle `list`). */

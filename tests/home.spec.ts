@@ -451,6 +451,8 @@ test.describe("a new account", () => {
     const confetti = page.getByTestId("welcome-confetti");
     await expect(confetti).toBeVisible();
     await expect(page.getByTestId("toast")).toContainText("Welcome, Google. Day 1 is ready.");
+    // Its last two words keep together: "ready." never sits alone on a narrow phone.
+    expect(await page.getByTestId("toast").textContent()).toContain("Day\u00a01 is\u00a0ready.");
     await expect(page.getByTestId("start-here")).toBeVisible();
     await expect(confetti).toHaveCount(0, { timeout: 3000 });
     expect(await confettiShown(page)).toBe(1);

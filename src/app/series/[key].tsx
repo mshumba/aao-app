@@ -36,7 +36,8 @@ import { Header, Heading, Icon, Page, SermonRow, StatePanel, T, Tap, c, pressedT
  * session shares, each with a ring for how much of it has been watched;
  * and a call to play the first session, or continue the first one begun
  * ("Continue Day 2 · Evening"). A gathering with one session a day lists
- * "Day 1", "Day 2"… each with its date.
+ * "Day 1", "Day 2"… each with its date. A day with no preached date shows
+ * the day it went up (see sessionDays).
  */
 export default function SeriesScreen() {
   const params = useLocalSearchParams<{ key: string | string[] }>();
@@ -180,8 +181,9 @@ const SessionLine = memo(function SessionLine({
   const part = begun(watch);
   const time = timeOf(row, watch);
   const meta = [row.label, date && sessionDate(date), time].filter(Boolean).join(" · ");
+  // A day's one plain session is named by its day: "Day 1", said once.
   const spoken = [
-    day ? `${day}, ${row.title}` : spokenKicker(row.title),
+    day ? (row.title === day ? day : `${day}, ${row.title}`) : spokenKicker(row.title),
     row.label && spokenKicker(row.label),
     date && sessionDate(date, true),
     time && spokenDuration(time),
@@ -285,7 +287,7 @@ function ctaWords(row: SessionRow, day: string | null, grouped: boolean, time: s
   const session = row.sermon.session ?? "";
   const { day: named, rest } = splitSession(session);
   const what = grouped
-    ? row.title === "Message"
+    ? row.title === "Message" || row.title === day
       ? ""
       : row.title
     : row.title !== sessionLabel(session)

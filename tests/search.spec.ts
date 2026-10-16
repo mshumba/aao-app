@@ -180,6 +180,26 @@ test("typing suggests needs and sermon titles; finding moments waits for Return"
   await expect(again).toHaveCount(0);
 });
 
+test("the question folds away for results and comes back whole when the field is cleared", async ({ page }) => {
+  await page.goto("/search");
+  const question = page.getByTestId("search-question");
+  await expect(shown(page.getByRole("heading", { level: 1, name: "What are you going through?" }))).toBeVisible();
+  const open = (await question.boundingBox())!.height;
+  expect(open).toBeGreaterThan(60);
+  await field(page).fill(NEED);
+  await field(page).press("Enter");
+  await expect(results(page)).toHaveCount(6);
+  const height = async () => (await question.boundingBox())?.height ?? 0;
+  await expect.poll(height).toBe(0);
+  // Folded, the field sits at the top; screen readers still have the question.
+  await expect(page.getByRole("heading", { level: 1, name: "What are you going through?" })).toHaveCount(1);
+  await page.getByRole("button", { name: "Clear", exact: true }).click();
+  await expect.poll(height).toBe(open);
+  await expect(shown(page.getByRole("heading", { level: 1, name: "What are you going through?" }))).toBeVisible();
+  // Settled at its natural height, not held at the measured one.
+  expect(await question.evaluate((el) => el.style.height)).toBe("");
+});
+
 test("a related need searches again for that need", async ({ page }) => {
   await page.goto(`/search?q=${encodeURIComponent(NEED)}`);
   await expect(results(page)).toHaveCount(6);

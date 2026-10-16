@@ -1,7 +1,6 @@
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState, type ComponentProps } from "react";
 import {
   Platform,
-  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -11,7 +10,17 @@ import {
   type StyleProp,
   type ViewStyle,
 } from "react-native";
+import Animated, {
+  Extrapolation,
+  interpolate,
+  useAnimatedRef,
+  useAnimatedStyle,
+  useScrollOffset,
+  useSharedValue,
+  type SharedValue,
+} from "react-native-reanimated";
 import { Artwork, RoundButton, clockText, spokenTime, type ArtSource } from "../kit";
+import { keepLastWord } from "../kit/paths";
 import { Spark } from "../kit/Spark";
 import { c, font, fontSize, radius, shadows, space, tabular, textCap, type } from "../theme";
 import { Icon, T, Tap, gradient, moveFocus, nowrap, web, type WebKey } from "../ui";
@@ -29,10 +38,15 @@ import type { DayState } from "./model";
  * state: today white and lifted, with how far through the sermon you are, a
  * key moment that plays from that moment and a ring to mark the day done;
  * a day done on sand with a check on its artwork; a day ahead an outline
- * with a lock and its artwork faded. Each card is one button to assistive
- * tech, its label composed by the screen; on the web the arrow keys move
- * between cards, and on a wide window arrows under the row, at the
- * column's end, scroll it.
+ * with a lock and its artwork faded. Each card is as tall as what it says
+ * (a one-line theme leaves no empty line under it); the row keeps its
+ * tallest card's height, so the page under it never moves. A card's words
+ * fade as it slides to the row's edge (on the UI thread, from the row's
+ * scroll), so the next day peeks with its lock, artwork and key moment's
+ * spark, never clipped words ("Let S"); they come back as it slides in.
+ * Each card is one button to assistive tech, its label composed by the
+ * screen; on the web the arrow keys move between cards, and on a wide
+ * window arrows under the row, at the column's end, scroll it.
  */
 export type DayItem = {
   day: number;
@@ -64,9 +78,9 @@ export type DayItem = {
 };
 
 const GAP = 12;
-/** The lines a card holds room for: the theme's and the headline's (narrow cards' smaller). */
-const THEME_LINE = type.pathName.lineHeight;
+/** A narrow card's theme line. */
 const NARROW_THEME_LINE = 23;
+/** The headline's line, which every card holds two of (narrow cards' smaller). */
 const HEAD_LINE = 20;
 const NARROW_HEAD_LINE = 18;
 /** How much of the next card shows at the row's edge on a phone: its artwork, whole. */
@@ -75,6 +89,22 @@ const PEEK = 56;
 const MAX_CARD = 340;
 /** Arrows under the row from this width (a mouse, usually). */
 const ARROWS_FROM = 700;
+/** Under this width a card's "Opens after Day 3" sits under its theme, not in its eyebrow. */
+const NARROW_CARD = 280;
+/** About how wide one character of the eyebrow is (13pt bold capitals, tracked). */
+const EYEBROW_EM = 7.4;
+/** The card's padding, either side. */
+const CARD_PAD = 16;
+
+type AnimatedViewStyle = ComponentProps<typeof Animated.View>["style"];
+
+/**
+ * A card's words are gone while no more than this of it shows past the
+ * peek, and back once this much more does: they dissolve as it slides to
+ * the edge rather than reading as clipped words.
+ */
+const WORDS_GONE = 4;
+const WORDS_BACK = 120;
 
 /**
  * Web: the browser snaps the row a card at a time (snapToInterval is
@@ -121,10 +151,17 @@ export const DayCarousel = memo(function DayCarousel({
   // Beside a centred column, the row's start: it runs on to the window's edge.
   const side = Math.max(0, (width - column) / 2);
   const step = card + GAP;
+  // How much of the next card shows at the row's end, and how wide the row's
+  // window is (beside a centred column it runs on to the window's edge).
+  const peek = column - space.gutter - card - GAP;
+  const view = width - side;
   const index = Math.max(0, days.findIndex((d) => d.day === focus));
   const offset = index * step;
 
-  const scroller = useRef<ScrollView>(null);
+  const scroller = useAnimatedRef<Animated.ScrollView>();
+  // The row's scroll on the UI thread, for the cards' words (WORDS_GONE).
+  const scrollX = useSharedValue(offset);
+  useScrollOffset(scroller, scrollX);
   const x = useRef(offset);
   // Where the arrows last sent the row, and how far it can go: a second
   // press while it's still moving counts on from there, not from wherever
@@ -138,7 +175,7 @@ export const DayCarousel = memo(function DayCarousel({
     if (!active || placed.current === offset) return;
     scroller.current?.scrollTo({ x: offset, animated: placed.current != null });
     placed.current = offset;
-  }, [offset, active]);
+  }, [offset, active, scroller]);
 
   // Artwork loads for the cards in sight and either side, then for the rest
   // as the row is scrolled to them.
@@ -186,7 +223,7 @@ export const DayCarousel = memo(function DayCarousel({
   return (
     <View style={[{ marginLeft: side }, style]}>
       <View style={styles.rowFrame}>
-        <ScrollView
+        <Animated.ScrollView
           ref={scroller}
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -199,7 +236,9 @@ export const DayCarousel = memo(function DayCarousel({
           onScrollBeginDrag={() => {
             aim.current = null;
           }}
-          scrollEventThrottle={32}
+          // Every frame, for the words' fade on the UI thread; the handler
+          // here only renders when the cards in reach or the arrows change.
+          scrollEventThrottle={16}
           style={snapRow}
           contentContainerStyle={styles.row}
           testID="path-days"
@@ -216,9 +255,13 @@ export const DayCarousel = memo(function DayCarousel({
               load={i >= reach.from && i <= reach.to}
               onKey={onKey}
               register={register}
+              scrollX={scrollX}
+              start={space.gutter + i * step}
+              view={view}
+              peek={peek}
             />
           ))}
-        </ScrollView>
+        </Animated.ScrollView>
         {/* The cut-off cards at the edges fade into the page. */}
         <View style={[styles.fade, styles.fadeEnd]} />
         <View style={[styles.fade, styles.fadeStart]} />
@@ -269,6 +312,10 @@ const DayCard = memo(function DayCard({
   load,
   onKey,
   register,
+  scrollX,
+  start,
+  view,
+  peek,
 }: {
   item: DayItem;
   index: number;
@@ -281,20 +328,42 @@ const DayCard = memo(function DayCard({
   load: boolean;
   onKey: (index: number, e: WebKey) => void;
   register: (index: number, node: View | null) => void;
+  /** The row's scroll, its window's width and its peek, and where this card starts in it. */
+  scrollX: SharedValue<number>;
+  start: number;
+  view: number;
+  peek: number;
 }) {
   const { day, name, status, theme, title, pending, meta, state, art, progress = 0, keyMoment } = item;
   const today = state === "today";
   const done = state === "done";
   const ahead = state === "upcoming";
-  const narrow = width < 280;
+  const narrow = width < NARROW_CARD;
   const thumb = narrow ? 72 : 96;
-  const key = keyMoment ? <KeyLine moment={keyMoment} /> : null;
-  // Every card holds two lines for the theme, and two for the headline over
-  // its length beside the artwork, so the cards match without a gap; large
-  // text lets them run on.
-  const room = (height: number) => (big ? null : { minHeight: height * textScale });
-  const themeLines = room(2 * (narrow ? NARROW_THEME_LINE : THEME_LINE));
-  const sermonLines = room(2 * (narrow ? NARROW_HEAD_LINE : HEAD_LINE) + type.meta.lineHeight);
+  // Its words, while it's at the row's end, fade (its icons and artwork stay).
+  const words = useAnimatedStyle(() => {
+    const shown = view - (start - scrollX.get());
+    return {
+      opacity: interpolate(shown, [peek + WORDS_GONE, peek + WORDS_BACK], [0, 1], Extrapolation.CLAMP),
+    };
+  });
+  const key = keyMoment ? <KeyLine moment={keyMoment} words={words} /> : null;
+  // Two lines for the headline over its length beside the artwork, so the
+  // artwork's row is the same on every card; large text lets them run on.
+  // The theme takes the lines it needs: a one-line theme leaves no empty
+  // line under it, and its card ends sooner.
+  const sermonLines = big
+    ? null
+    : { minHeight: (2 * (narrow ? NARROW_HEAD_LINE : HEAD_LINE) + type.meta.lineHeight) * textScale };
+  // "Opens after Day 3" moves under the theme, as quiet meta, on a narrow
+  // card or wherever "DAY 4 · OPENS AFTER DAY 3" wouldn't keep to one line.
+  const eyebrowRoom = width - 2 * CARD_PAD - (ahead ? 20 : 0) - (mark ? 30 : 0);
+  const statusBelow =
+    item.locked && status && (narrow || `${name} · ${status}`.length * EYEBROW_EM * textScale > eyebrowRoom)
+      ? status
+      : null;
+  const eyebrow =
+    status && !statusBelow ? `${nowrap(name)} · ${status.replace(/\b\w+ \d+\b/g, nowrap)}` : nowrap(name);
   return (
     <View style={[styles.card, { width }, styles[state], snapCard]}>
       <Tap
@@ -312,22 +381,32 @@ const DayCard = memo(function DayCard({
         <View style={styles.lead}>
           <View style={[styles.nameRow, mark && styles.nameRowMark]}>
             {ahead ? <Icon name="lock-closed-outline" size={14} color={c.muted} /> : null}
+            <Animated.View style={[styles.nameWords, words]}>
+              <T
+                style={[styles.name, { color: today ? c.gold : done ? c.accent : c.muted }]}
+                numberOfLines={big ? 3 : 2}
+                maxFontSizeMultiplier={textCap.section}
+              >
+                {/* "Opens after Day 3" never leaves its "3" alone on a line. */}
+                {eyebrow}
+              </T>
+            </Animated.View>
+          </View>
+          <Animated.View style={words}>
+            {/* Never one word alone on its last line ("…from your / own"). */}
             <T
-              style={[styles.name, { color: today ? c.gold : done ? c.accent : c.muted }]}
-              numberOfLines={big ? 3 : 2}
+              style={[styles.theme, narrow && styles.themeNarrow, done && styles.muted]}
+              numberOfLines={big ? 5 : 2}
               maxFontSizeMultiplier={textCap.section}
             >
-              {/* "Opens after Day 3" never leaves its "3" alone on a line. */}
-              {status ? `${nowrap(name)} · ${status.replace(/\b\w+ \d+\b/g, nowrap)}` : name}
+              {keepLastWord(theme || title).text}
             </T>
-          </View>
-          <T
-            style={[styles.theme, narrow && styles.themeNarrow, done && styles.muted, themeLines]}
-            numberOfLines={big ? 5 : 2}
-            maxFontSizeMultiplier={textCap.section}
-          >
-            {theme || title}
-          </T>
+            {statusBelow ? (
+              <T style={[type.meta, styles.muted, styles.statusBelow]} maxFontSizeMultiplier={textCap.section}>
+                {statusBelow.replace(/\b\w+ \d+\b/g, nowrap)}
+              </T>
+            ) : null}
+          </Animated.View>
         </View>
         <View style={[styles.sermon, big && styles.sermonStacked]}>
           <View style={ahead && styles.artAhead}>
@@ -394,24 +473,30 @@ const DayCard = memo(function DayCard({
   );
 });
 
-/** "✦ Key moment 53:44 · Victory over sin": the title exactly as the editor wrote it. */
-function KeyLine({ moment }: { moment: { at: number; title: string } }) {
+/**
+ * "✦ Key moment 53:44 · Victory over sin": the title exactly as the editor
+ * wrote it. Its words fade with the card's (`words`); the spark stays.
+ */
+function KeyLine({ moment, words }: { moment: { at: number; title: string }; words: AnimatedViewStyle }) {
   return (
     <>
       <Spark size={14} style={styles.spark} />
-      <T style={[type.meta, styles.muted, { flex: 1 }]} numberOfLines={1}>
-        {"Key moment "}
-        <Text style={styles.keyTime}>{clockText(moment.at)}</Text>
-        {" · "}
-        {moment.title}
-      </T>
+      <Animated.View style={[styles.keyWords, words]}>
+        <T style={[type.meta, styles.muted]} numberOfLines={1}>
+          {"Key moment "}
+          <Text style={styles.keyTime}>{clockText(moment.at)}</Text>
+          {" · "}
+          {moment.title}
+        </T>
+      </Animated.View>
     </>
   );
 }
 
 const styles = StyleSheet.create({
-  // Room for today's shadow, which the row would otherwise clip.
-  row: { gap: GAP, paddingHorizontal: space.gutter, paddingTop: 12, paddingBottom: 32 },
+  // Room for today's shadow, which the row would otherwise clip. Each card
+  // its own height: a one-line theme's card ends sooner.
+  row: { gap: GAP, paddingHorizontal: space.gutter, paddingTop: 12, paddingBottom: 32, alignItems: "flex-start" },
   rowFrame: { marginTop: -12, marginBottom: -20 },
   // Over the row's ends: the page's ivory, from clear.
   fade: { position: "absolute", top: 0, bottom: 0, pointerEvents: "none" },
@@ -422,15 +507,17 @@ const styles = StyleSheet.create({
   today: { backgroundColor: c.surface, boxShadow: shadows.lifted },
   done: { backgroundColor: c.feature },
   upcoming: { boxShadow: `inset 0 0 0 1px ${c.border}` },
-  cardTap: { flexGrow: 1, padding: 16, paddingBottom: 14 },
+  cardTap: { flexGrow: 1, padding: CARD_PAD, paddingBottom: 14 },
   lead: { paddingBottom: 14 },
   nameRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   // Clear of today's ring.
   nameRowMark: { paddingRight: 30 },
-  name: { ...type.overline, flexShrink: 1, ...tabular },
+  nameWords: { flexShrink: 1 },
+  name: { ...type.overline, ...tabular },
   // The day's line leads, in the page's serif.
   theme: { ...type.pathName, color: c.text, marginTop: 6 },
   themeNarrow: { fontSize: fontSize.heading, lineHeight: NARROW_THEME_LINE },
+  statusBelow: { marginTop: 4 },
   sermon: { flexDirection: "row", alignItems: "center", gap: 10 },
   sermonStacked: { flexDirection: "column", alignItems: "stretch" },
   artAhead: { opacity: 0.55 },
@@ -462,6 +549,7 @@ const styles = StyleSheet.create({
     borderTopColor: c.divider,
   },
   spark: { marginTop: 2 },
+  keyWords: { flex: 1, minWidth: 0 },
   // Today's: a button of its own under the card's, 36pt and more to touch.
   keyButton: { marginTop: 0, marginHorizontal: 16, paddingBottom: 12 },
   keyTime: { fontFamily: font.bold, color: c.accent, ...tabular },

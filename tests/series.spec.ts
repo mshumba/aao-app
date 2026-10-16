@@ -219,7 +219,10 @@ test("a gathering's page goes by day, each session by its time of day", async ({
   await expect(days.nth(1)).toHaveAccessibleName("Day 2, Wednesday 23 September");
   const rows = shown(page.getByTestId("sermon-row"));
   await expect(rows).toHaveCount(3);
-  await expect(rows.nth(0)).toHaveAccessibleName("Day 1, Message. 1 hour 47 minutes.");
+  // A day's one plain session is named by its day, said once (no placeholder "Message").
+  await expect(rows.nth(0)).toHaveAccessibleName("Day 1. 1 hour 47 minutes.");
+  await expect(rows.nth(0)).toContainText("Day 1");
+  await expect(rows.nth(0)).not.toContainText("Message");
   await expect(rows.nth(1)).toHaveAccessibleName("Day 2, Morning. 2 hours 49 minutes.");
   await expect(rows.nth(2)).toHaveAccessibleName("Day 2, Grand Finale. 2 hours 28 minutes.");
   await expect(rows.nth(1)).toContainText("Morning");
@@ -244,7 +247,7 @@ test("a gathering's sessions show what's been watched, and the call continues th
   await fakeYouTube(page, { duration: 10195 });
   await page.goto("/series/apostolic-shift-2026");
   const rows = shown(page.getByTestId("sermon-row"));
-  await expect(rows.nth(0)).toHaveAccessibleName("Day 1, Message. 1 hour 47 minutes. Watched.");
+  await expect(rows.nth(0)).toHaveAccessibleName("Day 1. 1 hour 47 minutes. Watched.");
   await expect(rows.nth(1)).toHaveAccessibleName("Day 2, Morning. 1 hour 42 minutes left.");
   await expect(rows.nth(1)).toContainText("1 hr 42 min left");
   const cta = page.getByTestId("series-cta");
@@ -276,7 +279,8 @@ test("a gathering's days: a session joins its day, or the day it was preached", 
   const { grouped, days } = sessionDays(list, "IEC 2024");
   expect(grouped).toBe(true);
   expect(days.map((d) => [d.day, d.date, d.rows.map((row) => row.title)])).toEqual([
-    ["Day 1", "2024-05-20", ["Message"]],
+    // A day's one plain session reads as the event named it, not "Message".
+    ["Day 1", "2024-05-20", ["Day 1"]],
     ["Day 2", "2024-05-21", ["Morning", "Evening"]],
     // The finale was preached on the last day: it's that day's.
     ["Day 7", "2024-05-26", ["Hospital Dedication", "Morning", "Grand Finale"]],
@@ -303,9 +307,48 @@ test("a gathering's days: a session joins its day, or the day it was preached", 
     ["2025-04-04", ["Day 1"]],
     ["2025-04-05", ["Day 2"]],
   ]);
-  // A session the uploads alone date has no date to show.
-  const undated = sessionDays([at("Day 3", "", "Peniel: Day 3", { preached_on: null })], "Peniel 2023");
-  expect(undated.days[0].date).toBeNull();
+  // A session with no preached date shows the day it went up.
+  const undated = sessionDays(
+    [at("Day 3", "", "Peniel: Day 3", { preached_on: null, published_at: "2023-08-17T19:00:00+00:00" })],
+    "Peniel 2023",
+  );
+  expect(undated.days[0]).toMatchObject({ date: "2023-08-17", uploaded: true });
   expect(isGathering(list)).toBe(true);
   expect(isGathering([...list, at("", "2024-05-27", "Sunday Service", { session: null })])).toBe(false);
+});
+
+test("a gathering's day with no preached date shows the day it went up, when that keeps the days in order", () => {
+  // Cameroon for Jesus 2026, as the catalogue has it: Day 2 has no preached
+  // date, only its upload's, the evening before Day 3.
+  const day = (session: string, preached: string | null, uploaded: string, id: string) =>
+    sermon({
+      youtube_id: id,
+      headline: "Cameroon for Jesus",
+      event: "Crusade & Conference",
+      session,
+      preached_on: preached,
+      published_at: uploaded,
+    });
+  const cameroon = [
+    day("Day 2 Evening", null, "2026-10-01T19:59:46+00:00", "jR6CGTpchHU"),
+    day("Day 3 Evening", "2026-10-02", "2026-10-02T20:20:21+00:00", "RaMM7qY3238"),
+    day("Day 4 Morning", "2026-10-03", "2026-10-03T11:33:18+00:00", "syNnTn9A_hM"),
+    day("Day 4 Evening", "2026-10-03", "2026-10-03T20:27:37+00:00", "KEkKL6DhktM"),
+  ];
+  const { grouped, days } = sessionDays(cameroon, CAMEROON);
+  expect(grouped).toBe(true);
+  expect(days.map((d) => [d.day, d.date, !!d.uploaded])).toEqual([
+    ["Day 2", "2026-10-01", true],
+    ["Day 3", "2026-10-02", false],
+    ["Day 4", "2026-10-03", false],
+  ]);
+  // In the same words as the preached days.
+  expect(sessionDate(days[0].date!)).toBe("Thu 1 Oct");
+  // An upload that came after the next day was preached would put the days
+  // out of order: that day shows no date.
+  const late = sessionDays(
+    [day("Day 2 Evening", null, "2026-10-03T08:00:00+00:00", "lateUpload1"), ...cameroon.slice(1)],
+    CAMEROON,
+  );
+  expect(late.days[0].date).toBeNull();
 });

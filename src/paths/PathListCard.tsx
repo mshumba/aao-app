@@ -24,7 +24,10 @@ const fanScale = (tileH: number) => (tileH - 6) / fanSize("card").height;
  * then the name in serif, the one-line promise and "7 days · ◷ 18h" ("12
  * teachings" for a series), or, once started, where you are on it. A
  * hairline parts it from the row above (`first`: none). One element to
- * assistive tech.
+ * assistive tech. A row the list hasn't brought near the screen yet draws
+ * its tile's navy alone (`fanned` false), as while its artwork loads, and
+ * its fan once it's close: a long list doesn't draw every row's three
+ * posters on its first open.
  */
 export const PathListCard = memo(function PathListCard({
   path,
@@ -33,6 +36,7 @@ export const PathListCard = memo(function PathListCard({
   length,
   progress,
   first = false,
+  fanned = true,
   onPress,
   style,
 }: {
@@ -45,6 +49,8 @@ export const PathListCard = memo(function PathListCard({
   progress: ListProgress;
   /** The first row under its heading: no hairline above it. */
   first?: boolean;
+  /** Its tile draws the fan (true unless the list holds it back until it's near). */
+  fanned?: boolean;
   onPress: () => void;
   style?: StyleProp<ViewStyle>;
 }) {
@@ -83,7 +89,7 @@ export const PathListCard = memo(function PathListCard({
         {...web({ dataSet: { dark: "true" } })}
       >
         <Wash kind="pathCover" />
-        <CardFan sermons={fan} size="card" scale={fanScale(tile.h)} />
+        {fanned ? <CardFan sermons={fan} size="card" scale={fanScale(tile.h)} /> : null}
       </View>
       <View style={styles.text}>
         <ItalicTitle

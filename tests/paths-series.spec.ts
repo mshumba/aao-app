@@ -38,6 +38,8 @@ test("a teaching series' page counts teachings, and plays each one whole", async
   await expect(page.getByRole("heading", { level: 1, name: "Knowing the Holy Spirit" })).toBeVisible();
   const cover = page.getByTestId("path-cover");
   await expect(cover).toContainText("Teaching series · 4 teachings");
+  // Counted once: the kicker has the teachings, the line under the title the length.
+  expect((await cover.innerText()).match(/4 teachings/gi)).toHaveLength(1);
   await expect(shown(page.getByText("Why this series", { exact: true }))).toBeVisible();
   const first = shown(page.getByTestId("path-day-1")).first();
   await expect(first).toContainText("Teaching 1 · Start here");

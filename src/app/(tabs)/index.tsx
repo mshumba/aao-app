@@ -56,7 +56,7 @@ import { useDockInset } from "../../player/useDockInset";
 import type { CategoryId } from "../../data/categories";
 import { c, easeOut, space } from "../../theme";
 import { useToast } from "../../toast";
-import { Notice, TextButton, dockScrollPadding, gradient } from "../../ui";
+import { Notice, TextButton, dockScrollPadding, gradient, nowrap } from "../../ui";
 
 // The hero shows the four newest; "Latest" the next six.
 const HERO = 4;
@@ -356,10 +356,14 @@ const HomeChrome = memo(function HomeChrome({ ref }: { ref: Ref<Chrome> }) {
   );
 });
 
-/** What a new account's welcome says comes next: "Welcome, Mufaro. Day 1 is ready." */
+/**
+ * What a new account's welcome says comes next: "Welcome, Mufaro. Day 1 is
+ * ready." Its last two words keep together (a narrow phone otherwise leaves
+ * "ready." alone on the second line), as does "Day 1".
+ */
 function welcomeLine(name: string | null, next: string) {
   const first = name?.trim().split(/\s+/)[0];
-  return first ? `Welcome, ${first}. ${next} is ready.` : "Welcome. Your first path is ready.";
+  return first ? `Welcome, ${first}. ${nowrap(next)} is\u00a0ready.` : "Welcome. Your first path is\u00a0ready.";
 }
 
 /**

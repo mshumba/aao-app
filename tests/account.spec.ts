@@ -325,6 +325,18 @@ test.describe("guest", () => {
     await expect(page.getByRole("heading", { name: "Welcome back" })).toBeVisible();
   });
 
+  test("a guest's Account is headed as a profile is, over the invitation", async ({ page }) => {
+    await page.goto("/account");
+    const title = shown(page.getByRole("heading", { level: 1, name: "Account", exact: true }));
+    await expect(title).toBeVisible();
+    await expect(shown(page.getByText("Not signed in", { exact: true }))).toBeVisible();
+    // The page has one title; the sand card's is a section under it.
+    await expect(shown(page.getByRole("heading", { level: 1 }))).toHaveCount(1);
+    const invite = shown(page.getByRole("heading", { level: 2, name: "Create your free account" }));
+    await expect(invite).toBeVisible();
+    expect((await title.boundingBox())!.y).toBeLessThan((await invite.boundingBox())!.y);
+  });
+
   test("policies are reachable from Account", async ({ page }) => {
     await page.goto("/account");
     await page.getByRole("button", { name: "Privacy Policy" }).click();

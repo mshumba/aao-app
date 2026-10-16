@@ -8,9 +8,43 @@ import { HABIT, expect, seedPathProgress, shown, storedPathProgress, test } from
 // "Breaking free from habitual sin", has 7 days and 18 hours of sermons.
 
 const ORDER_SET = "Order set by the ministry";
+/** The pinned header's band under the status bar (CoverPage's BAND, no inset on the web). */
+const BAND = 12 + 52;
 
 function day(page: Page, n: number) {
   return shown(page.getByTestId(`path-day-${n}`)).first();
+}
+
+/** How opaque an element is drawn, with every layer it sits in. */
+function drawnOpacity(page: Page, n: number, text: RegExp | string) {
+  return day(page, n)
+    .getByText(text)
+    .first()
+    .evaluate((el) => {
+      let opacity = 1;
+      for (let node: Element | null = el; node; node = node.parentElement)
+        opacity *= Number(getComputedStyle(node).opacity);
+      return Math.round(opacity * 100) / 100;
+    });
+}
+
+/**
+ * Where the page comes to rest at its foot: either the light header shows,
+ * whole, or the cover's title sits wholly below it (never under Back).
+ */
+async function restsClear(page: Page) {
+  await page.mouse.move(page.viewportSize()!.width / 2, page.viewportSize()!.height / 2);
+  await page.mouse.wheel(0, 4000);
+  await page.waitForTimeout(400);
+  return page.evaluate((band) => {
+    const shownEl = (els: Element[]) =>
+      els.find((el) => !el.closest('[aria-hidden="true"]') && el.getBoundingClientRect().height > 0);
+    const header = shownEl([...document.querySelectorAll('[data-testid="cover-band"]')]);
+    const title = shownEl([...document.querySelectorAll('[role="heading"][aria-level="1"]')]);
+    if (!header || !title) return "missing";
+    if (getComputedStyle(header).opacity === "1") return "header";
+    return title.getBoundingClientRect().top >= band ? "clear" : "under";
+  }, BAND);
 }
 
 /** The colour a day's card is drawn on (the card holds the day's button). */
@@ -36,7 +70,11 @@ test("before a path starts, its cover gives its days and length, with no empty s
   const cover = page.getByTestId("path-cover").first();
   const line = cover.getByRole("img", { name: "7 days, not started. About 18 hours." });
   await expect(line).toBeVisible();
-  await expect(line).toHaveText(/^7 days\s*·\s*18h$/);
+  // The kicker counts the days; the line under the title gives the length
+  // alone, so "7 days" is said once.
+  await expect(cover).toContainText("Guided path · 7 days");
+  await expect(line).toHaveText(/^18h$/);
+  expect((await cover.innerText()).match(/7 days/gi)).toHaveLength(1);
   expect(await segments(page)).toBe(0);
   // Started, the segments are back, with where you are.
   await seedPathProgress(page, { [HABIT]: [1, 2] });
@@ -68,6 +106,45 @@ test.describe("part way through", () => {
       );
     for (const n of [4, 5, 6, 7]) expect(await locks(n)).toBe(1);
     expect(await locks(3)).toBe(0);
+  });
+
+  test("the next day peeks with its lock and artwork, its words faded out", async ({ page }) => {
+    await page.goto(`/path/${HABIT}`);
+    await expect(day(page, 3)).toContainText("Stop sin while it is");
+    // Day 4 at the row's edge: no clipped words ("Find / boo"), but its lock shows.
+    await expect.poll(() => drawnOpacity(page, 4, /^Find the flesh/)).toBe(0);
+    await expect.poll(() => drawnOpacity(page, 4, /^Day.4/)).toBe(0);
+    expect(await drawnOpacity(page, 3, /^Stop sin while it is/)).toBe(1);
+    const lock = day(page, 4).locator("svg").first();
+    expect(
+      await lock.evaluate((el) => {
+        let opacity = 1;
+        for (let node: Element | null = el; node; node = node.parentElement)
+          opacity *= Number(getComputedStyle(node).opacity);
+        return opacity;
+      }),
+    ).toBe(1);
+    // Slid in, its words come back; Day 5's go.
+    await page.getByTestId("path-days").first().evaluate((el) => {
+      el.scrollLeft += (el.firstElementChild!.children[2] as HTMLElement).offsetWidth + 12;
+    });
+    await expect.poll(() => drawnOpacity(page, 4, /^Find the flesh/)).toBe(1);
+    await expect.poll(() => drawnOpacity(page, 5, /^Gain mastery/)).toBe(0);
+  });
+
+  test("on a narrow card, “Opens after Day 3” sits under the theme", async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 568 });
+    await page.goto(`/path/${HABIT}`);
+    // The eyebrow keeps to its one line, "DAY 4"; the theme starts where the others do.
+    const eyebrow = day(page, 4).getByText(/^Day.4$/);
+    const opens = day(page, 4).getByText("Opens after Day 3", { exact: true });
+    const theme = day(page, 4).getByText(/^Find the flesh/);
+    await expect(opens).toHaveCount(1);
+    const [e, o, t] = [(await eyebrow.boundingBox())!, (await opens.boundingBox())!, (await theme.boundingBox())!];
+    expect(e.height).toBeLessThan(20);
+    expect(o.y).toBeGreaterThanOrEqual(t.y + t.height - 1);
+    const other = (await day(page, 3).getByText(/^Stop sin while it is/).boundingBox())!;
+    expect(Math.abs(t.y - other.y)).toBeLessThan(1);
   });
 
   test("today's ring marks the day done, and takes a press just beside it", async ({ page }) => {
@@ -130,6 +207,42 @@ test.describe("part way through", () => {
     await expect(back).toHaveCSS("background-color", "rgb(255, 255, 255)");
     await expect(page.getByTestId("path-share")).toHaveCSS("background-color", "rgb(255, 255, 255)");
   });
+});
+
+test("a day's card is as tall as its theme: one line leaves no empty line under it", async ({ page }) => {
+  await page.goto(`/path/${HABIT}`);
+  // "Lay aside every weight" keeps to one line at 375pt; Day 3's theme takes two.
+  const one = day(page, 1).getByText("Lay aside every weight", { exact: true });
+  const two = day(page, 3).getByText(/^Stop sin while it is/);
+  await expect(one).toBeVisible();
+  const [a, b] = [(await one.boundingBox())!, (await two.boundingBox())!];
+  expect(a.height).toBeLessThan(30);
+  expect(b.height).toBeGreaterThan(45);
+  // Its sermon follows straight on (no reserved second line), and its card
+  // ends sooner than Day 3's.
+  const sermon = (await day(page, 1).getByText("Apostolic Shift: Day One", { exact: true }).boundingBox())!;
+  expect(sermon.y - (a.y + a.height)).toBeLessThan(24);
+  expect((await day(page, 1).boundingBox())!.height).toBeLessThan((await day(page, 3).boundingBox())!.height);
+});
+
+test("short pages rest with the header whole or the title clear of Back, never under it", async ({ page }) => {
+  // The reported phone: 375×667 stopped with Back over the title.
+  await page.goto(`/path/${HABIT}`);
+  await expect(day(page, 1)).toBeVisible();
+  expect(await restsClear(page)).not.toBe("under");
+  for (const height of [560, 580, 600, 620, 640, 667, 700, 760]) {
+    await page.setViewportSize({ width: 375, height });
+    await page.waitForTimeout(300);
+    expect([height, await restsClear(page)]).not.toEqual([height, "under"]);
+  }
+  await page.setViewportSize({ width: 375, height: 667 });
+  await page.goto("/series/apostolic-shift-2026");
+  await expect(page.getByTestId("series-page")).toBeVisible();
+  for (const height of [480, 500, 520, 540, 560, 580, 600, 620]) {
+    await page.setViewportSize({ width: 375, height });
+    await page.waitForTimeout(300);
+    expect([height, await restsClear(page)]).not.toEqual([height, "under"]);
+  }
 });
 
 test("a series page pins the same header once its title has gone", async ({ page }) => {

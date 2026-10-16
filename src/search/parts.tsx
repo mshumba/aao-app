@@ -40,8 +40,9 @@ export const ListHeading = memo(function ListHeading({
 }) {
   return (
     <View style={styles.heading}>
+      {/* Wrapping beside the count, its last word never stands alone. */}
       <Heading level={2} style={styles.headingTitle} maxFontSizeMultiplier={textCap.section}>
-        {title}
+        {title.replace(/ (?=\S+$)/, "\u00a0")}
       </Heading>
       {action ? (
         <View style={styles.headingAction}>
@@ -439,20 +440,18 @@ export function LiveStatus({ text }: { text: string }) {
 }
 
 const styles = StyleSheet.create({
-  // On a narrow phone the count moves to its own line rather than breaking
-  // the title.
+  // The count stays on the title's first line: on a narrow phone ("Moments
+  // that speak to this" at 320pt) the title wraps beside it instead.
   heading: {
     flexDirection: "row",
-    flexWrap: "wrap",
     alignItems: "baseline",
     justifyContent: "space-between",
     columnGap: 12,
-    rowGap: 2,
     paddingHorizontal: 24,
     marginTop: 22,
     marginBottom: 12,
   },
-  headingTitle: { ...type.sectionSmall, color: c.text, flexShrink: 0, maxWidth: "100%" },
+  headingTitle: { ...type.sectionSmall, color: c.text, flexShrink: 1, minWidth: 0 },
   countWrap: { marginLeft: "auto" },
   headingAction: { marginVertical: -14 },
   // The count keeps to one line; the title wraps instead.

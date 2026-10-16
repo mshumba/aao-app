@@ -76,11 +76,15 @@ test("the guided paths list carries no draft label", async ({ page }) => {
   const guided = shown(page.getByTestId("guided-path"));
   await expect(guided).toHaveCount(2);
   const wait = guided.filter({ hasText: "Learning to wait on God" });
-  // Under "Guided paths", each leads with its length, not "Guided path" again.
-  await expect(wait).toContainText("5 days");
+  // Under "Guided paths", never "Guided path" again; before it's started,
+  // the path's promise (once started, where you are).
   await expect(wait).not.toContainText(/guided path/i);
-  // Before it's started, the path's promise; once started, where you are.
   await expect(wait).toContainText("Five days on staying faithful when God's promise seems slow.");
+  // The promise gives the length, so no "5 days" over it says it twice.
+  await expect(wait).not.toContainText(/5 days/i);
+  await expect(wait).toHaveAccessibleName(
+    /^Learning to wait on God\. Five days on staying faithful when God.s promise seems slow\.?$/,
+  );
   await expect(wait).not.toContainText(/Draft|awaiting/);
   await expect(wait).not.toContainText(ORDER_SET);
   await expect(guided.filter({ hasText: "Breaking free from habitual sin" })).not.toContainText("Draft");
@@ -111,6 +115,24 @@ test("more moments matched than are listed: the count says Top 6", async ({ page
   await expect(page.getByText("Top 6", { exact: true })).toBeVisible();
   // Screen readers hear how many matched in all.
   await expect(shown(page.getByText("Top 6 of 40 moments", { exact: true }))).toHaveCount(1);
+});
+
+test("on a narrow phone the count stays on the heading's line, the title wrapping beside it", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 568 });
+  await setFake(page, { matched: 40 });
+  await search(page, NEED);
+  await expect(results(page)).toHaveCount(6);
+  const title = shown(page.getByRole("heading", { level: 2, name: "Moments that speak to this" }));
+  // (Seen only, as above: hidden from screen readers on the web.)
+  const count = page.getByText("Top 6", { exact: true }).filter({ visible: true });
+  const [t, n] = [(await title.boundingBox())!, (await count.boundingBox())!];
+  // Beside the title's first line (27pt), not under it, and inside the page.
+  expect(n.y).toBeLessThan(t.y + 27);
+  expect(n.x).toBeGreaterThanOrEqual(t.x + t.width);
+  expect(n.x + n.width).toBeLessThanOrEqual(320 - 24 + 1);
+  // The title's last word never stands alone on its second line.
+  expect(t.height).toBeGreaterThan(40);
+  expect(await title.evaluate((el) => el.textContent)).toBe("Moments that speak to\u00a0this");
 });
 
 test("a moment whose quote doesn't pass is listed after the quoted ones, never as an empty card", async ({

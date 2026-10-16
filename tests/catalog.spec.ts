@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import { editorialHeadlines } from "../src/catalogue/editorial";
 import { parseTitle } from "../src/catalogue/parseTitle";
 import { categories } from "../src/data/categories";
-import { eventLine, headline } from "../src/data/display";
+import { eventLine, eventParts, headline } from "../src/data/display";
 import { assignments } from "../src/data/edification";
 import {
   relatedSermons,
@@ -152,6 +152,32 @@ test("event lines name guest ministers and skip what the headline says", () => {
     venue: "RCN Houston TX",
   });
   expect(eventLine(fast)).toBe("RCN Houston TX");
+});
+
+test("a row's one-line kicker keeps the session apart, so the event is what shortens", () => {
+  // "Lioness Conference · Grand Finale".
+  expect(eventParts(sermons[0])).toEqual({ lead: "Lioness Conference", session: "Grand Finale" });
+  const day = toSermon({
+    ...sampleRecords[0],
+    youtube_id: "cdefghijklm",
+    headline: "The Power of Agreement",
+    event: "Gathering of Nations 2026",
+    session: "Day 2 Morning",
+    speaker: null,
+  });
+  expect(eventParts(day)).toEqual({ lead: "Gathering of Nations 2026", session: "Day 2 Morning" });
+  expect(eventLine(day)).toBe("Gathering of Nations 2026 · Day 2 Morning");
+  // A guest minister leads, and shortens with the event.
+  expect(eventParts({ ...day, speaker: "Rev. Anthony Audu" })).toEqual({
+    lead: "Rev. Anthony Audu · Gathering of Nations 2026",
+    session: "Day 2 Morning",
+  });
+  // A session on its own is the whole line, as is a venue with nothing else.
+  expect(eventParts({ ...day, event: null })).toEqual({ lead: "Day 2 Morning", session: null });
+  expect(eventParts({ ...day, event: null, session: null, venue: "RCN Houston TX" })).toEqual({
+    lead: "RCN Houston TX",
+    session: null,
+  });
 });
 
 test("series rails and related sermons follow the series order", () => {

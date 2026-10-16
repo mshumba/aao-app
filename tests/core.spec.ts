@@ -95,6 +95,28 @@ test("sermon rows give this year's dates without the year, older ones with it", 
   await expect(shown(page.getByTestId("sermon-row")).first()).toContainText("27 Sep 2026 · 3 hr 35 min");
 });
 
+test("on a narrow phone a row's kicker shortens the event, never the session", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 568 });
+  await page.goto("/sermons");
+  const row = shown(page.getByTestId("sermon-row")).first();
+  const session = row.getByText("· Grand Finale", { exact: true });
+  // The kicker's first part (the artwork's fallback names the event too).
+  const event = session.locator("xpath=preceding-sibling::*[1]");
+  await expect(event).toHaveText("Lioness Conference");
+  await expect(session).toBeVisible();
+  const cut = (el: HTMLElement) => el.scrollWidth > el.clientWidth;
+  // The event gives way…
+  expect(await event.evaluate(cut)).toBe(true);
+  // …and the session that tells a gathering's rows apart shows whole, on the same line.
+  expect(await session.evaluate(cut)).toBe(false);
+  const [e, t] = [(await event.boundingBox())!, (await session.boundingBox())!];
+  expect(Math.abs(e.y - t.y)).toBeLessThan(2);
+  expect(t.x).toBeGreaterThan(e.x);
+  expect(t.x + t.width).toBeLessThanOrEqual(320 - 16 + 1);
+  // Read in full.
+  await expect(row).toHaveAccessibleName(/^Pray Without Ceasing\. Lioness Conference · Grand Finale, /);
+});
+
 test("unavailable sermon gives a route back to browse", async ({ page }) => {
   await page.goto("/sermon/not-a-real-id");
   await expect(

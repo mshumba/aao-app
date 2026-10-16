@@ -75,8 +75,9 @@ export type SessionRow = {
   sermon: Sermon;
   /**
    * Under a day: "Morning", "Grand Finale", a message's own title
-   * ("Hospital Dedication"), or "Message" for the day's one message.
-   * Without days: the session whole, "Day 2 · Evening" (as seriesRows).
+   * ("Hospital Dedication"), or for the day's one plain session the session
+   * as the event names it ("Day 1"). Without days: the session whole, "Day
+   * 2 · Evening" (as seriesRows).
    */
   title: string;
   /** A guest preacher, and the time of day under a message's own title. */
@@ -86,8 +87,13 @@ export type SessionRow = {
 export type SessionDay = {
   /** "Day 2"; null for a session not named by its day ("Grand Finale" on a day of its own). */
   day: string | null;
-  /** The day it was preached (YYYY-MM-DD); null when only an upload's date is known. */
+  /**
+   * The day it was preached (YYYY-MM-DD), else the day it went up when that
+   * keeps the days in order (see datedByUpload); null when neither does.
+   */
   date: string | null;
+  /** `date` is the upload's, not a preached date. */
+  uploaded?: boolean;
   rows: SessionRow[];
 };
 
@@ -103,8 +109,10 @@ export function isGathering(list: readonly Sermon[]) {
  * apart from the next run's); one that isn't ("Grand Finale") joins the day
  * it was preached on, else has its own. Under a day a session reads as its
  * time of day; a real message title stays, its time of day under it; a
- * day's one plain session is its "Message"; and sessions that would read
- * alike are told apart in order ("Evening · Part 2").
+ * day's one plain session reads as the event named it ("Day 1", not a
+ * placeholder "Message"); and sessions that would read alike are told
+ * apart in order ("Evening · Part 2"). A day with no preached date shows
+ * the day it went up, when that sits between its neighbours' dates.
  *
  * `grouped` is false when no day has more than one session: the rows then
  * read as their whole session ("Day 3", as seriesRows has them), each with
@@ -132,6 +140,7 @@ export function sessionDays(list: readonly Sermon[], seriesName: string | null) 
       whole.push([row]);
     }
   }
+  datedByUpload(days);
   const grouped = days.some((d) => d.rows.length > 1);
   if (!grouped) return { grouped, days: days.map((d, i) => ({ ...d, rows: whole[i] })) };
   for (const d of days) {
@@ -139,11 +148,33 @@ export function sessionDays(list: readonly Sermon[], seriesName: string | null) 
     for (const row of d.rows) counts.set(row.title, (counts.get(row.title) ?? 0) + 1);
     const seen = new Map<string, number>();
     d.rows = d.rows.map((row) => {
-      if (counts.get(row.title)! < 2) return row.title ? row : { ...row, title: "Message" };
+      if (counts.get(row.title)! < 2)
+        return row.title ? row : { ...row, title: sessionLabel(row.sermon.session ?? "") || "Message" };
       const n = (seen.get(row.title) ?? 0) + 1;
       seen.set(row.title, n);
       return { ...row, title: row.title ? `${row.title} · Part ${n}` : `Part ${n}` };
     });
   }
   return { grouped, days };
+}
+
+/**
+ * A day with no preached date (Cameroon 2026's Day 2) shows the day its
+ * first session went up, in the same "Thu 1 Oct": honest, as it's that
+ * day's own upload, and usually the day itself for a livestream. Only when
+ * it sits after the day before's date and before the next's; an upload
+ * that came late would put the days out of order, so that day shows none.
+ */
+function datedByUpload(days: SessionDay[]) {
+  days.forEach((d, i) => {
+    if (d.date) return;
+    // With no preached date, a sermon's day is its upload's.
+    const up = d.rows[0]?.sermon.day;
+    if (!up) return;
+    const before = days.slice(0, i).reverse().find((x) => x.date)?.date;
+    const after = days.slice(i + 1).find((x) => x.date)?.date;
+    if ((before && up <= before) || (after && up >= after)) return;
+    d.date = up;
+    d.uploaded = true;
+  });
 }

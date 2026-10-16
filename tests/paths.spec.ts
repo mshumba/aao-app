@@ -120,7 +120,8 @@ test("a day's theme and title wrap between words, never mid-word", async ({ page
   // The narrowest phone the app supports, where the longest themes wrap.
   await page.setViewportSize({ width: 320, height: 800 });
   await page.goto(`/path/${WAIT}`);
-  const theme = day(page, 2).getByText(/He makes everything beautiful in its time/i);
+  // Its last two words kept together ("…in its / time" never happens).
+  const theme = day(page, 2).getByText(/He makes everything beautiful in its\s+time/i);
   const title = day(page, 4).getByText("Apostolic Shift: Day Two Morning", { exact: true });
   for (const text of [theme, title]) {
     await expect(text).toBeVisible();
@@ -130,6 +131,7 @@ test("a day's theme and title wrap between words, never mid-word", async ({ page
     // On more than one line, broken between words.
     expect(((await text.boundingBox())?.height ?? 0)).toBeGreaterThan(24);
   }
+  expect(await theme.textContent()).toMatch(/its\u00a0time$/);
   // A card's name never breaks inside "Day 1".
   const name = day(page, 1).getByText(/^Day.1 · Start here$/);
   expect(await name.textContent()).toBe("Day\u00a01 · Start here");
@@ -637,4 +639,22 @@ test("a link to a path that doesn't exist says so and offers every path", async 
   await page.getByRole("button", { name: "See all paths", exact: true }).click();
   await expect(page).toHaveURL(/\/paths$/);
   await expect(page.getByRole("heading", { level: 1, name: "Paths" })).toBeVisible();
+});
+
+test("a path's name never leaves its last word alone on a line", async ({ page }) => {
+  await seedPathProgress(page, { [HABIT]: [1, 2] });
+  await page.setViewportSize({ width: 320, height: 568 });
+  const glued = /habitual sin$/;
+  // Home's card, the Paths tab's masthead and the path's own cover.
+  await page.goto("/");
+  const home = page.getByTestId("your-path").getByText(/^Breaking free from/);
+  expect(await home.textContent()).toMatch(glued);
+  await page.goto("/paths");
+  const mast = shown(page.getByTestId("paths-active")).getByText(/^Breaking free from/);
+  expect(await mast.textContent()).toMatch(glued);
+  await page.goto(`/path/${HABIT}`);
+  const cover = page.getByRole("heading", { level: 1, name: "Breaking free from habitual sin" });
+  expect(await cover.textContent()).toMatch(glued);
+  // Today's theme too: "Stop sin while it is a thought".
+  expect(await day(page, 3).getByText(/^Stop sin while it is/).textContent()).toMatch(/a thought$/);
 });

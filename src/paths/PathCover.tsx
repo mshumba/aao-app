@@ -1,6 +1,7 @@
 import { memo } from "react";
 import { StyleSheet, View, useWindowDimensions, type LayoutChangeEvent } from "react-native";
 import { CardFan, ItalicTitle, Kicker, PathProgress, Wash, fanSize, type ArtSource } from "../kit";
+import { keepLastWord } from "../kit/paths";
 import type { Path } from "../learning";
 import { totalTime } from "../learning/format";
 import { c, tabular, textCap, type } from "../theme";
@@ -36,11 +37,13 @@ export function coverTop(width: number) {
 /**
  * The path page's dark cover (concept screen 03): navy light over near
  * black, a fan of the path's sermons (today's in front), "GUIDED PATH · 7
- * MESSAGES" ("TEACHING SERIES · 12 TEACHINGS"), the name in serif with its
+ * DAYS" ("TEACHING SERIES · 12 TEACHINGS"), the name in serif with its
  * italic phrase, and once it's started the days as segments with "Day 3 of
  * 7 · [clock] 18h" under them (the sermons, whole, once their lengths are
- * known); before that, just "7 days · [clock] 18h". It runs under the status
- * bar; the back and share buttons float above it (the screen draws them).
+ * known); before that, just "[clock] 18h", as the kicker has already
+ * counted the days (the Paths tab's masthead says it the same way). It
+ * runs under the status bar; the back and share buttons float above it
+ * (the screen draws them).
  */
 export const PathCover = memo(function PathCover({
   path,
@@ -53,7 +56,7 @@ export const PathCover = memo(function PathCover({
   length,
   topInset,
   onLayout,
-  onTitleBottom,
+  onWordsLayout,
 }: {
   path: Path;
   fan: readonly ArtSource[];
@@ -68,19 +71,25 @@ export const PathCover = memo(function PathCover({
   length?: number | null;
   topInset: number;
   onLayout?: (e: LayoutChangeEvent) => void;
-  /** Where the title's last line ends, from the cover's top (for the pinned band). */
-  onTitleBottom?: (y: number) => void;
+  /**
+   * Where the kicker and title start and the title's last line ends, from
+   * the cover's top (for the pinned band).
+   */
+  onWordsLayout?: (words: { top: number; bottom: number }) => void;
 }) {
   const { width } = useWindowDimensions();
   const scale = fanScale(width);
   const words = pathWords(path);
+  // Never one word alone on the title's last line.
+  const name = keepLastWord(path.name, path.italic);
   const days = words.series ? "teachings" : "days";
   const all = length ? totalTime(length) : null;
   const allSpoken = all ? ` ${all.spoken}.` : "";
   // Started: the segments, with "Day 3 of 7" under them. Before that, empty
-  // segments would read as something loading: just "7 days · [clock] 18h".
+  // segments would read as something loading, and the kicker has said "7
+  // days": just "[clock] 18h".
   const where = !enrolled
-    ? words.count(path.dayCount || total)
+    ? null
     : today == null
       ? "Finished"
       : `${words.unit} ${today} of ${total}`;
@@ -97,15 +106,19 @@ export const PathCover = memo(function PathCover({
       <View
         style={styles.text}
         onLayout={
-          onTitleBottom
-            ? (e) => onTitleBottom(e.nativeEvent.layout.y + e.nativeEvent.layout.height)
+          onWordsLayout
+            ? (e) => {
+                const { y, height } = e.nativeEvent.layout;
+                onWordsLayout({ top: y, bottom: y + height });
+              }
             : undefined
         }
       >
         <Kicker tone="onMedia">{`${words.kind} · ${words.count(path.dayCount || total)}`}</Kicker>
         <ItalicTitle
-          text={path.name}
-          italic={path.italic}
+          text={name.text}
+          italic={name.italic}
+          accessibilityLabel={path.name}
           breakBeforeItalic={breaksBeforeItalic(path.name, path.italic)}
           style={[type.coverTitle, styles.title]}
           maxFontSizeMultiplier={textCap.display}

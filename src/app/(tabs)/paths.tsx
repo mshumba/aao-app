@@ -1,5 +1,5 @@
 import { memo, useCallback, useMemo, useState } from "react";
-import { FlatList, StyleSheet, View, useWindowDimensions, type ListRenderItem } from "react-native";
+import { FlatList, StyleSheet, View, useWindowDimensions, type ListRenderItem, type ViewToken } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useProgressOf } from "../../auth/AccountProvider";
 import { useCatalogue } from "../../catalogue/CatalogueProvider";
@@ -17,6 +17,7 @@ import {
   type ArtSource,
 } from "../../kit";
 import { FocusedStatusBar } from "../../kit/FocusedStatusBar";
+import { keepLastWord } from "../../kit/paths";
 import {
   doneLabel,
   nextDay,
@@ -39,6 +40,13 @@ import { Heading, StatePanel, Tap, nowrap, web } from "../../ui";
 const MAX_WIDTH = 760;
 /** How far the ivory panel rides up over the masthead. */
 const OVERLAP = 20;
+/**
+ * Rows past the last one in sight whose tiles already draw their fan (and
+ * the first rows', from the start): a fan is three posters, so the rows
+ * further down draw theirs as the list nears them, not all on its first
+ * open.
+ */
+const FAN_AHEAD = 3;
 
 type Featured = {
   path: Path;
@@ -201,6 +209,15 @@ export default function PathsTab() {
   const guidedCount = list.findIndex((row) => row.kind === "heading");
   const morePaths = guidedCount === -1 ? list.length : guidedCount;
 
+  // The rows whose tiles draw their fan: those in sight and a few beyond.
+  // Only grows, so a row never loses its fan, and a few rows at a time, so
+  // a scroll down the list draws now and then, not at every row.
+  const [fanned, setFanned] = useState(FAN_AHEAD);
+  const onViewableItemsChanged = useCallback(({ viewableItems }: { viewableItems: ViewToken<Row>[] }) => {
+    const last = viewableItems.reduce((most, v) => Math.max(most, v.index ?? -1), -1);
+    setFanned((was) => (last + FAN_AHEAD > was ? last + 2 * FAN_AHEAD : was));
+  }, []);
+
   const open = useCallback((id: string) => go.push(pathHref(id)), [go]);
   // A series of one teaching opens that teaching; any other path its page.
   const openRow = useCallback(
@@ -270,25 +287,15 @@ export default function PathsTab() {
   );
 
   const renderItem: ListRenderItem<Row> = useCallback(
-    ({ item }) =>
+    ({ item, index }) =>
       item.kind === "heading" ? (
         <View style={styles.column}>
           <SectionHeader title={item.title} count={item.count} style={styles.seriesSection} />
         </View>
       ) : (
-        <View style={styles.column}>
-          <PathListCard
-            path={item.path}
-            fan={item.fan}
-            total={item.total}
-            length={item.length}
-            progress={item.progress}
-            first={item.first}
-            onPress={() => openRow(item)}
-          />
-        </View>
+        <PathRow row={item} fanned={index <= fanned} onOpen={openRow} />
       ),
-    [openRow],
+    [openRow, fanned],
   );
 
   return (
@@ -304,6 +311,7 @@ export default function PathsTab() {
         initialNumToRender={4}
         windowSize={7}
         removeClippedSubviews={false}
+        onViewableItemsChanged={onViewableItemsChanged}
       />
     </View>
   );
@@ -328,6 +336,8 @@ const Masthead = memo(function Masthead({
   const scale = Math.min(0.8, (Math.min(width, MAX_WIDTH) - 48) / 340);
   const f = featured;
   const words = pathWords(f?.path ?? { kind: "path" });
+  // Never one word alone on the name's last line.
+  const name = f ? keepLastWord(f.path.name, f.path.italic) : null;
   // "Order set by the ministry" for a published path; a draft says nothing.
   const trust = f ? trustLine(f.path.status) : null;
   const kicker = f
@@ -370,8 +380,9 @@ const Masthead = memo(function Masthead({
               {kicker}
             </Kicker>
             <ItalicTitle
-              text={f.path.name}
-              italic={f.path.italic}
+              text={name?.text ?? f.path.name}
+              italic={name?.italic}
+              accessibilityLabel={f.path.name}
               style={[type.coverTitle, styles.featuredName]}
               maxFontSizeMultiplier={textCap.display}
             />
@@ -403,6 +414,36 @@ const Masthead = memo(function Masthead({
           />
         </View>
       ) : null}
+    </View>
+  );
+});
+
+/**
+ * A path's row in the list: memoised, so a row only draws again when its
+ * own path changes or its fan comes in.
+ */
+const PathRow = memo(function PathRow({
+  row,
+  fanned,
+  onOpen,
+}: {
+  row: Extract<Row, { kind: "card" }>;
+  fanned: boolean;
+  onOpen: (row: Extract<Row, { kind: "card" }>) => void;
+}) {
+  const onPress = useCallback(() => onOpen(row), [onOpen, row]);
+  return (
+    <View style={styles.column}>
+      <PathListCard
+        path={row.path}
+        fan={row.fan}
+        total={row.total}
+        length={row.length}
+        progress={row.progress}
+        first={row.first}
+        fanned={fanned}
+        onPress={onPress}
+      />
     </View>
   );
 });

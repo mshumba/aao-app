@@ -22,6 +22,7 @@ import {
   type PathDay,
   type PathDayWithSermon,
 } from "../learning";
+import { keepLastWord } from "../kit/paths";
 import { dayTiming, pathWords } from "../paths/model";
 import { usePlayDay } from "../paths/navigation";
 import { c, radius, textCap, type } from "../theme";
@@ -259,6 +260,8 @@ const PathTile = memo(function PathTile({
 }) {
   const length = pathWords(path).count(path.dayCount);
   const trust = trustLine(path.status)?.text;
+  // Never one word alone on the name's last line.
+  const name = keepLastWord(path.name, path.italic);
   const scale = (FAN_SCALE * width) / TILE_W;
   return (
     <Tap
@@ -283,8 +286,9 @@ const PathTile = memo(function PathTile({
         {length}
       </Kicker>
       <ItalicTitle
-        text={path.name}
-        italic={path.italic}
+        text={name.text}
+        italic={name.italic}
+        accessibilityLabel={path.name}
         numberOfLines={2}
         style={[type.pathName, styles.tileName]}
         maxFontSizeMultiplier={textCap.section}

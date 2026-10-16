@@ -37,12 +37,23 @@ const withoutYear = (name: string) => name.replace(/\s+(?:(?:19|20)\d\d|['’]\d
  * sermon page's byline names him instead).
  */
 export function eventLine(sermon: Sermon) {
+  const { lead, session } = eventParts(sermon);
+  return session ? `${lead} · ${session}` : lead;
+}
+
+/**
+ * The event line in two parts, for a kicker kept to one line: `lead` (who
+ * preached and the event) gives way first, so `session` ("Day 2 Morning"),
+ * which tells a gathering's sermons apart, always shows. `session` is null
+ * when it's the whole line, or there's none.
+ */
+export function eventParts(sermon: Sermon): { lead: string; session: string | null } {
   const said = words(sermon.headline);
   const fresh = (text: string | null) => !!text && !said.includes(words(withoutYear(text)));
-  const parts: string[] = [];
-  if (sermon.speaker) parts.push(sermon.speaker);
-  if (fresh(sermon.event)) parts.push(sermon.event!);
-  if (fresh(sermon.session)) parts.push(sermon.session!);
-  if (!parts.length && fresh(sermon.venue)) parts.push(sermon.venue!);
-  return parts.join(" · ");
+  const lead: string[] = [];
+  if (sermon.speaker) lead.push(sermon.speaker);
+  if (fresh(sermon.event)) lead.push(sermon.event!);
+  const session = fresh(sermon.session) ? sermon.session! : null;
+  if (!lead.length) return { lead: session ?? (fresh(sermon.venue) ? sermon.venue! : ""), session: null };
+  return { lead: lead.join(" · "), session };
 }

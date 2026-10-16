@@ -8,7 +8,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAccount, useProgressOf } from "../../auth/AccountProvider";
 import { useCatalogue } from "../../catalogue/CatalogueProvider";
 import { Kicker, RoundButton, StickyCTA, useStickyCTASpace } from "../../kit";
-import { BAND, CoverBand, CoverNav, useCoverScroll } from "../../kit/CoverPage";
+import { BAND, BUTTONS_END, CoverBand, CoverNav, useCoverScroll } from "../../kit/CoverPage";
 import { nextDay, trustLine, useEnrollment, usePath, type PathDayWithSermon } from "../../learning";
 import { firstParam, useGo, usePageTitle } from "../../navigation";
 import { DayCompleteSheet } from "../../paths/DayCompleteSheet";
@@ -172,11 +172,23 @@ export default function PathScreen() {
 
   // Once the cover's title has scrolled up under the buttons, a light header
   // (CoverBand) pins them with the path's name, so the name never shows
-  // twice, and the status bar and buttons turn dark. On a short path it
-  // never needs to.
-  const [titleBottom, setTitleBottom] = useState(() => top + coverTop(width) + coverFanHeight(width) + 80);
-  const under = titleBottom - (top + BAND);
-  const { scrollY, onScroll } = useCoverScroll();
+  // twice, and the status bar and buttons turn dark. A page too short to
+  // scroll its words up under the buttons never needs it; one that can,
+  // but not quite past the title, gets the room at its foot to (see
+  // useCoverScroll), so it never rests with Back over the title.
+  const [coverWords, setCoverWords] = useState(() => {
+    const y = top + coverTop(width) + coverFanHeight(width) + 8;
+    return { top: y, bottom: y + 80 };
+  });
+  const onWordsLayout = useCallback(
+    (at: { top: number; bottom: number }) =>
+      setCoverWords((was) => (was.top === at.top && was.bottom === at.bottom ? was : at)),
+    [],
+  );
+  const from = coverWords.top - (top + BUTTONS_END);
+  const under = coverWords.bottom - (top + BAND);
+  const padding = ctaSpace + dock;
+  const { scrollY, onScroll, onLayout, onContentLayout, room } = useCoverScroll({ from, under, padding });
   const share = useMemo(
     () => (path ? { label: "Share path", onPress: () => sharePath(path, toast), testID: "path-share" } : undefined),
     [path, toast],
@@ -322,65 +334,68 @@ export default function PathScreen() {
       <CoverNav top={top} under={under} scrollY={scrollY} onBack={go.back} backTestID="path-back" share={share} />
       <Animated.ScrollView
         onScroll={onScroll}
+        onLayout={onLayout}
         scrollEventThrottle={16}
-        contentContainerStyle={{ paddingBottom: ctaSpace + dock }}
+        contentContainerStyle={{ paddingBottom: padding + room }}
         testID="path-scroll"
       >
-        <PathCover
-          path={path}
-          fan={fan}
-          total={total}
-          done={done}
-          today={enrolled ? today : null}
-          partial={timing?.partial ?? 0}
-          enrolled={enrolled}
-          length={length}
-          topInset={top}
-          onTitleBottom={setTitleBottom}
-        />
-        <View style={styles.panel}>
-          <DayCarousel days={items} focus={today ?? 1} column={column} active={focused} markDone={markDone} />
-          <View style={styles.column}>
-            <Kicker style={styles.whyKicker}>{`Why this ${words.noun}`}</Kicker>
-            {path.why ? (
-              <View>
-                <T
-                  style={[type.prose, styles.why]}
-                  maxFontSizeMultiplier={textCap.quote}
-                  numberOfLines={whyOpen ? undefined : WHY_LINES}
-                  onLayout={(e) => {
-                    const shown = e.nativeEvent.layout.height;
-                    if (!whyOpen) setWhyHeights((was) => (was.shown === shown ? was : { ...was, shown }));
-                  }}
-                >
-                  {path.why}
-                </T>
-                <T
-                  style={[type.prose, styles.why, styles.measure]}
-                  maxFontSizeMultiplier={textCap.quote}
-                  accessible={false}
-                  importantForAccessibility="no-hide-descendants"
-                  aria-hidden
-                  onLayout={(e) => {
-                    const whole = e.nativeEvent.layout.height;
-                    setWhyHeights((was) => (was.whole === whole ? was : { ...was, whole }));
-                  }}
-                >
-                  {path.why}
-                </T>
-              </View>
-            ) : null}
-            {longWhy ? (
-              <View style={styles.whyMore}>
-                <TextButton
-                  label={whyOpen ? "Show less" : "Read more"}
-                  align="start"
-                  onPress={() => setWhyOpen((was) => !was)}
-                />
-              </View>
-            ) : null}
-            {/* Who set the order, quietly under the prose (published paths only). */}
-            {trust ? <T style={[styles.trust, longWhy && styles.trustAfterMore]}>{trust.text}</T> : null}
+        <View onLayout={onContentLayout}>
+          <PathCover
+            path={path}
+            fan={fan}
+            total={total}
+            done={done}
+            today={enrolled ? today : null}
+            partial={timing?.partial ?? 0}
+            enrolled={enrolled}
+            length={length}
+            topInset={top}
+            onWordsLayout={onWordsLayout}
+          />
+          <View style={styles.panel}>
+            <DayCarousel days={items} focus={today ?? 1} column={column} active={focused} markDone={markDone} />
+            <View style={styles.column}>
+              <Kicker style={styles.whyKicker}>{`Why this ${words.noun}`}</Kicker>
+              {path.why ? (
+                <View>
+                  <T
+                    style={[type.prose, styles.why]}
+                    maxFontSizeMultiplier={textCap.quote}
+                    numberOfLines={whyOpen ? undefined : WHY_LINES}
+                    onLayout={(e) => {
+                      const shown = e.nativeEvent.layout.height;
+                      if (!whyOpen) setWhyHeights((was) => (was.shown === shown ? was : { ...was, shown }));
+                    }}
+                  >
+                    {path.why}
+                  </T>
+                  <T
+                    style={[type.prose, styles.why, styles.measure]}
+                    maxFontSizeMultiplier={textCap.quote}
+                    accessible={false}
+                    importantForAccessibility="no-hide-descendants"
+                    aria-hidden
+                    onLayout={(e) => {
+                      const whole = e.nativeEvent.layout.height;
+                      setWhyHeights((was) => (was.whole === whole ? was : { ...was, whole }));
+                    }}
+                  >
+                    {path.why}
+                  </T>
+                </View>
+              ) : null}
+              {longWhy ? (
+                <View style={styles.whyMore}>
+                  <TextButton
+                    label={whyOpen ? "Show less" : "Read more"}
+                    align="start"
+                    onPress={() => setWhyOpen((was) => !was)}
+                  />
+                </View>
+              ) : null}
+              {/* Who set the order, quietly under the prose (published paths only). */}
+              {trust ? <T style={[styles.trust, longWhy && styles.trustAfterMore]}>{trust.text}</T> : null}
+            </View>
           </View>
         </View>
       </Animated.ScrollView>

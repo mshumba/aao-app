@@ -74,7 +74,8 @@ type CompactCard = {
   /** "7 messages · You're on Day 3". */
   meta: string;
   fan: readonly (ArtSource | null | undefined)[];
-  kicker?: string;
+  /** "A path for this" by default; null for none. */
+  kicker?: string | null;
   onPress: () => void;
 };
 
@@ -95,7 +96,7 @@ export const PathCardNavy = memo(function PathCardNavy(props: PathCardNavyProps)
       <Tap
         testID={testID}
         accessibilityRole="button"
-        accessibilityLabel={`${kicker}. ${name}. ${spokenText(spokenKicker(meta))}`}
+        accessibilityLabel={`${kicker ? `${kicker}. ` : ""}${name}. ${spokenText(spokenKicker(meta))}`}
         accessibilityHint="Opens the path"
         onPress={onPress}
         feedback="scaleLarge"
@@ -104,9 +105,11 @@ export const PathCardNavy = memo(function PathCardNavy(props: PathCardNavyProps)
         <Wash kind="pathCompact" />
         <CardFan sermons={fan} size="compact" />
         <View style={styles.compactText}>
-          <Kicker tone="onMedia" small>
-            {kicker}
-          </Kicker>
+          {kicker ? (
+            <Kicker tone="onMedia" small>
+              {kicker}
+            </Kicker>
+          ) : null}
           <CompactLines name={name} meta={meta} />
         </View>
         <Icon name="chevron-forward" size={20} color="rgba(255,255,255,0.8)" />
@@ -167,6 +170,7 @@ function HomePathCard(props: HomeCard & { testID?: string; style?: StyleProp<Vie
   const kicker = fits
     ? (props.kicker ?? `Your path · ${nowrap(`Day ${day} of ${total}`)}`)
     : (props.shortKicker ?? nowrap(`Day ${day} of ${total}`));
+  const shownName = keepLastWord(name, italic);
   return (
     <View testID={testID} style={[styles.home, style]} {...web({ dataSet: { dark: "true" } })}>
       <Wash kind="pathCard" />
@@ -185,9 +189,11 @@ function HomePathCard(props: HomeCard & { testID?: string; style?: StyleProp<Vie
             <Kicker tone="onMedia" numberOfLines={1}>
               {kicker}
             </Kicker>
+            {/* Never one word alone on its last line ("Hearing the voice of / God"). */}
             <ItalicTitle
-              text={name}
-              italic={italic}
+              text={shownName.text}
+              italic={shownName.italic}
+              accessibilityLabel={name}
               style={[type.pathName, styles.homeName]}
               maxFontSizeMultiplier={textCap.section}
             />

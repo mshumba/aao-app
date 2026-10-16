@@ -1,5 +1,5 @@
-import { memo, useState, type ReactNode } from "react";
-import { StyleSheet, View, useWindowDimensions } from "react-native";
+import { memo, useCallback, useState, type ReactNode } from "react";
+import { StyleSheet, View, useWindowDimensions, type LayoutChangeEvent } from "react-native";
 import Animated, {
   Extrapolation,
   interpolate,
@@ -20,6 +20,7 @@ import { T, web } from "./base";
 import { RoundButton, useStickyCTASpace } from "./buttons";
 import { CardFan } from "./CardFan";
 import { FocusedStatusBar } from "./FocusedStatusBar";
+import { keepLastWord } from "./paths";
 import { ItalicTitle, Kicker } from "./text";
 import { Wash } from "./Wash";
 
@@ -28,20 +29,54 @@ const OVERLAP = 20;
 const MAX_WIDTH = 760;
 /** The pinned header under the status bar: the 40pt buttons and a little air. */
 export const BAND = 52;
+/** Where the floating buttons end under the status bar (2pt down, 40pt tall). */
+export const BUTTONS_END = 42;
 /** A longer title steps down a size, so it doesn't run to three lines. */
 const LONG_TITLE = 32;
+/** How far past `under` the pinned header's fade ends (see CoverBand). */
+const BAND_WHOLE = 8;
 
 // ---- The pinned header ----------------------------------------------------------------
 
-/** The page's scroll, on the UI thread, for the pinned header. */
-export function useCoverScroll() {
+/**
+ * The page's scroll, on the UI thread, for the pinned header, and the room
+ * a short page needs at its foot.
+ *
+ * The scroll counts only within the content's own range: iOS's bounce past
+ * either end never does, so a flick at the foot of a page that stops short
+ * of `under` can't flash the header in and out.
+ *
+ * A page that can scroll its cover's words (`from`: where their top
+ * reaches the buttons' foot) up under the buttons, but not on until the title
+ * has gone (`under`), would come to rest with Back over its title and no
+ * header. It gets just enough room at its foot (`room`, added to the
+ * content's bottom padding) for the header to show whole. `padding` is that
+ * bottom padding without the room; `onLayout` goes on the scroll view and
+ * `onContentLayout` on a view holding the rest of its content.
+ */
+export function useCoverScroll({ from, under, padding }: { from: number; under: number; padding: number }) {
   const scrollY = useSharedValue(0);
   const onScroll = useAnimatedScrollHandler({
     onScroll: (e) => {
-      scrollY.set(e.contentOffset.y);
+      const end =
+        e.contentSize && e.layoutMeasurement
+          ? Math.max(0, e.contentSize.height - e.layoutMeasurement.height)
+          : Number.MAX_VALUE;
+      scrollY.set(Math.min(Math.max(e.contentOffset.y, 0), end));
     },
   });
-  return { scrollY, onScroll };
+  // Measured at layout only, never while scrolling.
+  const [view, setView] = useState(0);
+  const [content, setContent] = useState(0);
+  const onLayout = useCallback((e: LayoutChangeEvent) => setView(Math.round(e.nativeEvent.layout.height)), []);
+  const onContentLayout = useCallback(
+    (e: LayoutChangeEvent) => setContent(Math.round(e.nativeEvent.layout.height)),
+    [],
+  );
+  const end = content + padding - view;
+  const room =
+    view > 0 && content > 0 && end > from && end < under + BAND_WHOLE ? Math.ceil(under + BAND_WHOLE - end) : 0;
+  return { scrollY, onScroll, onLayout, onContentLayout, room };
 }
 
 /**
@@ -80,7 +115,7 @@ export const CoverBand = memo(function CoverBand({
   scrollY: SharedValue<number>;
 }) {
   const fade = useAnimatedStyle(() => ({
-    opacity: interpolate(scrollY.get(), [under - 16, under + 8], [0, 1], Extrapolation.CLAMP),
+    opacity: interpolate(scrollY.get(), [under - 16, under + BAND_WHOLE], [0, 1], Extrapolation.CLAMP),
   }));
   return (
     <Animated.View
@@ -188,8 +223,12 @@ export const CoverPage = memo(function CoverPage({
   // cover, then the title's in them.
   const [wordsY, setWordsY] = useState(() => top + 60 + 124 * scale + 18);
   const [titleEnd, setTitleEnd] = useState(60);
+  const from = wordsY - (top + BUTTONS_END);
   const under = wordsY + titleEnd - (top + BAND);
-  const { scrollY, onScroll } = useCoverScroll();
+  const padding = (footer ? ctaSpace : 48 + insets.bottom) + dock;
+  const { scrollY, onScroll, onLayout, onContentLayout, room } = useCoverScroll({ from, under, padding });
+  // Never one word alone on the title's last line.
+  const shown = keepLastWord(title, italic);
 
   return (
     <View style={styles.screen} testID={testID}>
@@ -198,42 +237,46 @@ export const CoverPage = memo(function CoverPage({
       <CoverNav top={top} under={under} scrollY={scrollY} onBack={go.back} />
       <Animated.ScrollView
         onScroll={onScroll}
+        onLayout={onLayout}
         scrollEventThrottle={16}
         style={dockScrollPadding(dock)}
-        contentContainerStyle={{ paddingBottom: (footer ? ctaSpace : 48 + insets.bottom) + dock }}
+        contentContainerStyle={{ paddingBottom: padding + room }}
       >
-        <View style={[styles.cover, { paddingTop: top + 60 }]} {...web({ dataSet: { dark: "true" } })}>
-          <Wash kind="pathCover" />
-          {fan.length ? (
-            <CardFan
-              sermons={fan.slice(0, 3)}
-              size="cover"
-              scale={scale}
-              style={styles.fan}
-              priority="high"
-              dimBack
-            />
-          ) : null}
-          <View style={styles.words} onLayout={(e) => setWordsY(e.nativeEvent.layout.y)}>
-            {kicker ? (
-              <Kicker tone="onMedia" style={styles.center}>
-                {kicker}
-              </Kicker>
+        <View onLayout={onContentLayout}>
+          <View style={[styles.cover, { paddingTop: top + 60 }]} {...web({ dataSet: { dark: "true" } })}>
+            <Wash kind="pathCover" />
+            {fan.length ? (
+              <CardFan
+                sermons={fan.slice(0, 3)}
+                size="cover"
+                scale={scale}
+                style={styles.fan}
+                priority="high"
+                dimBack
+              />
             ) : null}
-            <ItalicTitle
-              text={title}
-              italic={italic}
-              accessibilityRole="header"
-              {...web({ "aria-level": 1 })}
-              style={[type.coverTitle, styles.title, title.length > LONG_TITLE && styles.titleLong]}
-              maxFontSizeMultiplier={textCap.display}
-              onLayout={(e) => setTitleEnd(e.nativeEvent.layout.y + e.nativeEvent.layout.height)}
-            />
-            {lead ? <T style={styles.lead}>{lead}</T> : null}
+            <View style={styles.words} onLayout={(e) => setWordsY(e.nativeEvent.layout.y)}>
+              {kicker ? (
+                <Kicker tone="onMedia" style={styles.center}>
+                  {kicker}
+                </Kicker>
+              ) : null}
+              <ItalicTitle
+                text={shown.text}
+                italic={shown.italic}
+                accessibilityLabel={title}
+                accessibilityRole="header"
+                {...web({ "aria-level": 1 })}
+                style={[type.coverTitle, styles.title, title.length > LONG_TITLE && styles.titleLong]}
+                maxFontSizeMultiplier={textCap.display}
+                onLayout={(e) => setTitleEnd(e.nativeEvent.layout.y + e.nativeEvent.layout.height)}
+              />
+              {lead ? <T style={styles.lead}>{lead}</T> : null}
+            </View>
           </View>
-        </View>
-        <View style={styles.panel}>
-          <View style={styles.column}>{children}</View>
+          <View style={styles.panel}>
+            <View style={styles.column}>{children}</View>
+          </View>
         </View>
       </Animated.ScrollView>
       {footer ? <View style={[styles.footer, { bottom: dock, height: ctaSpace - 24 + 44 }]}>{footer}</View> : null}

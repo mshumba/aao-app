@@ -21,21 +21,17 @@ import {
   Platform,
   StyleSheet,
   View,
+  type LayoutChangeEvent,
   type ListRenderItem,
   type TextInput,
 } from "react-native";
-import Animated, {
-  Easing,
-  LinearTransition,
-  useAnimatedStyle,
-  useSharedValue,
-  withTiming,
-} from "react-native-reanimated";
+import Animated, { LinearTransition, type CSSAnimationKeyframes } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAccount, useSaved } from "../auth/AccountProvider";
 import { useGate } from "../auth/gate";
 import { useCatalogue } from "../catalogue/CatalogueProvider";
 import { getCategory } from "../data/categories";
+import { words } from "../data/display";
 import { searchSermons, type Sermon } from "../data/sermons";
 import { ChipRow, ItalicTitle, Kicker, NeedChip, PathCardNavy, SearchField, Strong, type ArtSource } from "../kit";
 import {
@@ -138,8 +134,11 @@ type Row =
 /** A row of a result set rises in with the rest (`reveal` staggers a moment card). */
 type Item = Row & { reveal?: number };
 
-/** `kicker` set: one of the empty screen's guided paths; otherwise "A path for this". */
-type PathCard = { id: string; name: string; meta: string; fan: ArtSource[]; kicker?: string };
+/**
+ * `guided`: one of the empty screen's guided paths, its kicker the length
+ * (null when its line already says it); otherwise "A path for this".
+ */
+type PathCard = { id: string; name: string; meta: string; fan: ArtSource[]; guided?: { kicker: string | null } };
 
 const same = (a: string, b: string) => a.trim().toLocaleLowerCase() === b.trim().toLocaleLowerCase();
 
@@ -498,7 +497,8 @@ function SearchView({ initialQuery, unknownTopic }: { initialQuery: string; unkn
 
   // The empty screen's guided paths: the dark compact cards, in the
   // editor's order. The heading already says they're guided paths, so each
-  // leads with its length, then where you are on it, or its promise.
+  // leads with its length, then where you are on it, or its promise; a
+  // promise that gives the length ("Five days on…") says it alone.
   const emptyPaths = useMemo<PathCard[]>(
     () =>
       paths
@@ -509,7 +509,9 @@ function SearchView({ initialQuery, unknownTopic }: { initialQuery: string; unkn
           const total = path.dayCount || days.length;
           const meta = whereOn(total, progressFor(path.id)) ?? path.promise;
           const fan = days.slice(0, 2).map((d) => ({ id: d.youtubeId }) as ArtSource);
-          return { id: path.id, name: path.name, meta, fan, kicker: pathCount(total, false) };
+          const count = pathCount(total, false);
+          const said = words(meta).includes(words(count));
+          return { id: path.id, name: path.name, meta, fan, guided: { kicker: said ? null : count } };
         }),
     [paths, daysOf, progressFor],
   );
@@ -898,34 +900,70 @@ function ListLoader() {
 }
 
 const QUESTION = "What are you going through?";
-const FOLD = { duration: 200, easing: Easing.out(Easing.ease) };
+const FOLD_MS = 200;
+
+/**
+ * A laid-out height kept outside React state, so measuring never redraws:
+ * only the next render that needs it (a fold) reads it.
+ */
+class Measured {
+  height = -1;
+  read = (e: LayoutChangeEvent) => {
+    this.height = e.nativeEvent.layout.height;
+  };
+}
+
+/** The fold's two movements, between none of the title and all of its `height`. */
+function foldKeyframes(collapsed: boolean, height: number): CSSAnimationKeyframes {
+  const shut = { height: 0, opacity: 0 };
+  const open = { height, opacity: 1 };
+  return collapsed ? { from: open, to: shut } : { from: shut, to: open };
+}
 
 /**
  * "What are you going through?", the same at every keystroke. With results
  * it folds away (height and opacity, 200ms; at once under Reduce Motion), so
  * the field sits at the top and the results have the room; screen readers
  * still find the page's heading.
+ *
+ * The fold is a CSS animation on the UI thread from the title's measured
+ * height, ending on the plain style React holds (none of the title, or its
+ * natural height). Nothing is handed back to React as it settles, unlike a
+ * settled animated style, which Reanimated re-renders a second or so later;
+ * and measuring the title, which a fold only reads, never redraws it. A page
+ * that opens on a question starts folded, without moving.
  */
 const SearchTitle = memo(function SearchTitle({ collapsed, reduced }: { collapsed: boolean; reduced: boolean }) {
-  // The title's own height, once laid out (-1 until then), and how much of it shows.
-  const height = useSharedValue(-1);
-  const open = useSharedValue(collapsed ? 0 : 1);
-  useEffect(() => {
-    open.set(reduced ? (collapsed ? 0 : 1) : withTiming(collapsed ? 0 : 1, FOLD));
-  }, [collapsed, reduced, open]);
-  const fold = useAnimatedStyle(() => {
-    const h = height.get();
-    const t = open.get();
-    if (h < 0) return t === 0 ? { height: 0, opacity: 0 } : {};
-    return { height: h * t, opacity: t };
+  // The title's own height once laid out (-1 until then), outside React state.
+  const [measured] = useState(() => new Measured());
+  // The last fold, set as `collapsed` changes (none before any, before the
+  // title was laid out, or under Reduce Motion): a redraw for anything else
+  // never replays it.
+  const [last, setLast] = useState<{ collapsed: boolean; keyframes: CSSAnimationKeyframes | null }>({
+    collapsed,
+    keyframes: null,
   });
+  if (last.collapsed !== collapsed)
+    setLast({ collapsed, keyframes: reduced || measured.height < 0 ? null : foldKeyframes(collapsed, measured.height) });
+  const rest = collapsed ? styles.folded : null;
+  const fold =
+    reduced || !last.keyframes
+      ? rest
+      : [
+          rest,
+          {
+            animationName: last.keyframes,
+            animationDuration: FOLD_MS,
+            animationTimingFunction: "ease-out",
+          } as const,
+        ];
   const hide = collapsed
     ? ({ accessibilityElementsHidden: true, importantForAccessibility: "no-hide-descendants", ...web({ "aria-hidden": true }) } as const)
     : null;
   return (
     <>
-      <Animated.View style={[styles.fold, fold]} {...hide}>
-        <View style={styles.head} onLayout={(e) => height.set(e.nativeEvent.layout.height)}>
+      <Animated.View testID="search-question" style={[styles.fold, fold]} {...hide}>
+        <View style={styles.head} onLayout={measured.read}>
           <Kicker>Search by what you need</Kicker>
           <ItalicTitle
             text={QUESTION}
@@ -1080,13 +1118,13 @@ function rowFor(item: Item, actions: RowActions) {
       return (
         <PathCardNavy
           variant="compact"
-          testID={item.card.kicker ? "guided-path" : "search-path"}
-          kicker={item.card.kicker}
+          testID={item.card.guided ? "guided-path" : "search-path"}
+          kicker={item.card.guided ? item.card.guided.kicker : undefined}
           name={item.card.name}
           meta={item.card.meta}
           fan={item.card.fan}
           onPress={() => actions.openPath(item.card.id)}
-          style={[styles.path, item.card.kicker ? styles.pathList : null]}
+          style={[styles.path, item.card.guided ? styles.pathList : null]}
         />
       );
     case "moment":
@@ -1222,6 +1260,7 @@ const styles = StyleSheet.create({
   content: { width: "100%", maxWidth: 760, alignSelf: "center", flexGrow: 1 },
   // The title folds into this (overflow hidden) as results arrive.
   fold: { overflow: "hidden" },
+  folded: { height: 0, opacity: 0 },
   head: { paddingHorizontal: 24 },
   title: { marginTop: 6, color: c.text },
   hidden: { position: "absolute", width: 1, height: 1, overflow: "hidden", left: -1, top: 0 },

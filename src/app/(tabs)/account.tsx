@@ -53,10 +53,11 @@ const version = Constants.expoConfig?.version;
 /**
  * Account, in the Immersive look: who you are first (a navy avatar, your
  * name, or your email when there's none, in the serif as the page's
- * heading) or, for a guest, a sand card inviting a free account. Settings
- * sit in white grouped cards (your name, then your library, then about);
- * signing out is a small centred pill, deleting the account a plain red
- * row set apart, still on this screen as the App Store asks.
+ * heading) or, for a guest, the same row saying "Account" over a sand card
+ * inviting a free account. Settings sit in white grouped cards (your name,
+ * then your library, then about); signing out is a small centred pill,
+ * deleting the account a plain red row set apart, still on this screen as
+ * the App Store asks.
  */
 export default function AccountTab() {
   usePageTitle("Account");
@@ -158,9 +159,15 @@ export default function AccountTab() {
       ) : user ? (
         <Profile />
       ) : account.mode === "unavailable" ? (
-        <ComingSoonCard />
+        <>
+          <GuestHeader />
+          <ComingSoonCard />
+        </>
       ) : (
-        <GuestCard />
+        <>
+          <GuestHeader signedOut />
+          <GuestCard />
+        </>
       )}
 
       {user && <ListGroup style={styles.nameGroup}>{rows([name])}</ListGroup>}
@@ -264,6 +271,32 @@ function Profile() {
   );
 }
 
+/**
+ * Without an account, the page is headed as a profile is, in the same row:
+ * an empty avatar, "Account" in the serif, and that no one is signed in.
+ */
+function GuestHeader({ signedOut = false }: { signedOut?: boolean }) {
+  return (
+    <View style={styles.profile}>
+      {/* Decorative, as a profile's avatar is. */}
+      <View
+        style={[styles.avatar, styles.guestAvatar]}
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+        {...web({ "aria-hidden": true })}
+      >
+        <Icon name="person-outline" color={c.accent} size={26} />
+      </View>
+      <View style={styles.profileText}>
+        <Heading level={1} style={styles.name} maxFontSizeMultiplier={textCap.display}>
+          Account
+        </Heading>
+        {signedOut ? <T style={s.meta}>Not signed in</T> : null}
+      </View>
+    </View>
+  );
+}
+
 /** Sign out: a small outlined pill, centred under the settings (40pt, 44pt to touch). */
 function SignOutPill({ busy, onPress }: { busy: boolean; onPress: () => void }) {
   return (
@@ -296,7 +329,7 @@ function GuestCard() {
   const go = useGo();
   return (
     <Card tone="sand" style={styles.invite}>
-      <Heading level={1} style={styles.inviteTitle} maxFontSizeMultiplier={textCap.section}>
+      <Heading level={2} style={styles.inviteTitle} maxFontSizeMultiplier={textCap.section}>
         Create your free account
       </Heading>
       <AccountBenefits />
@@ -328,7 +361,7 @@ function GuestCard() {
 function ComingSoonCard() {
   return (
     <Card tone="sand" style={styles.invite}>
-      <Heading level={1} style={styles.inviteTitle} maxFontSizeMultiplier={textCap.section}>
+      <Heading level={2} style={styles.inviteTitle} maxFontSizeMultiplier={textCap.section}>
         Accounts are coming soon
       </Heading>
       <T style={s.body}>You can browse and watch every sermon without one.</T>
@@ -354,6 +387,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  // Empty: a white well with a navy outline glyph, where a profile's is navy.
+  guestAvatar: { backgroundColor: c.surface, borderWidth: 1, borderColor: c.border },
   initials: {
     fontFamily: font.serifItalic,
     fontSize: type.sectionSmall.fontSize,
