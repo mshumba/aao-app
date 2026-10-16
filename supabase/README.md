@@ -106,7 +106,9 @@ For App Review, create a dedicated review account (email + password) and put its
 
 ## 7. Load the sermon catalogue
 
-`migrations/20261014200000_sermon_catalogue.sql` creates the library the app reads: `sermons` (one row per long-form video on the Apostle Arome Osayi channel, keyed by `youtube_id`) and `series` (multi-part teachings and multi-day gatherings). Everyone, guests included, can read both; nobody can write them through the API. Run it like the accounts migration.
+For ongoing additions from the approved public YouTube channel, use [nightly sermon discovery](../docs/development/nightly-sermons.md). It inserts missing metadata only, defaults to dry-run, and uses a protected `catalogue-import` GitHub Environment restricted to the `main` branch. Review a manual dry run and explicitly apply it before opting into the schedule. The older manifest import below is a separate maintenance tool with different write behavior; it is not the nightly job or its recovery procedure.
+
+`migrations/20261014200000_sermon_catalogue.sql` creates the library the app reads: `sermons` (one row per long-form video on the Apostle Arome Osayi channel, keyed by `youtube_id`) and `series` (multi-part teachings and multi-day gatherings). Everyone, guests included, can read both; anonymous and signed-in app clients cannot write them. The server-only importer uses a privileged key. Run the migration like the accounts migration.
 
 Rows come from the channel manifest made by the transcript pipeline (`videos` keyed by YouTube ID with title, upload time, duration and, for some, description, thumbnail and tags; transcripts aren't read). Each title is read by `src/catalogue/parseTitle.ts` for the short headline, event, series, part or day, guest ministers, venue and preaching date. To load or refresh:
 
