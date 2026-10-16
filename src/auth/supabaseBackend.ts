@@ -13,6 +13,7 @@ import { AppState, Platform, TurboModuleRegistry } from "react-native";
 import { CategoryId } from "../data/categories";
 import { googleClientIds, isNativeApple, supabaseConfig } from "./config";
 import { SESSION_KEY, secureSessionStorage } from "./sessionStorage";
+import { signInMethod } from "./signInMethod";
 import {
   AuthBackend,
   AuthError,
@@ -22,7 +23,6 @@ import {
   CodePurpose,
   GuestWatch,
   Profile,
-  Provider,
   WatchProgress,
 } from "./types";
 
@@ -51,10 +51,7 @@ export function authRedirect() {
 function toUser(session: Session | null): AuthUser | null {
   if (!session?.user) return null;
   const { user } = session;
-  const raw = (user.app_metadata?.provider as string | undefined) ?? "email";
-  const provider: Provider =
-    raw === "apple" || raw === "google" ? raw : "email";
-  return { id: user.id, email: user.email ?? null, provider };
+  return { id: user.id, email: user.email ?? null, provider: signInMethod(session) };
 }
 
 /** Supabase's error codes and statuses, in the app's terms. */

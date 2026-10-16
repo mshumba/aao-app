@@ -5,7 +5,7 @@ export type Provider = "apple" | "google" | "email";
 export type AuthUser = {
   id: string;
   email: string | null;
-  /** How the account was created or last signed in. */
+  /** How this session signed in (an account may have other ways in). */
   provider: Provider;
 };
 

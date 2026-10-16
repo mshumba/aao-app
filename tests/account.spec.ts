@@ -1,4 +1,57 @@
+import type { Session } from "@supabase/supabase-js";
+import { signInMethod } from "../src/auth/signInMethod";
 import { CODE, MEMBER, expect, goOffline, goOnline, shown, tab, test } from "./fixtures";
+
+// Account made with Google on the web, then signed into with Apple (same
+// email) on an iPhone, then with Google on the web again.
+const MADE = "2026-10-01T09:00:00Z";
+const APPLE = "2026-10-14T18:00:00Z";
+const GOOGLE_AGAIN = "2026-10-15T12:00:00Z";
+
+/** A session as Supabase hands it over: the access token's `amr`, the user's identities. */
+function session(amr: unknown, identities: Record<string, string>, first = "google") {
+  const part = (value: object) =>
+    btoa(JSON.stringify(value)).replace(/=+$/, "").replace(/\+/g, "-").replace(/\//g, "_");
+  return {
+    access_token: `${part({ alg: "HS256" })}.${part({ sub: "u", amr })}.signature`,
+    user: {
+      id: "u",
+      app_metadata: { provider: first, providers: Object.keys(identities) },
+      identities: Object.entries(identities).map(([provider, at]) => ({
+        id: provider,
+        identity_id: provider,
+        user_id: "u",
+        provider,
+        created_at: MADE,
+        last_sign_in_at: at,
+      })),
+    },
+  } as unknown as Session;
+}
+const oauthAt = (iso: string) => [{ method: "oauth", timestamp: Date.parse(iso) / 1000 }];
+
+test("Account names how this session signed in, not how the account began", () => {
+  // This phone's Apple sign-in, on an account Google made.
+  expect(signInMethod(session(oauthAt(APPLE), { google: MADE, apple: APPLE }))).toBe("apple");
+  // Still Apple once a refresh brings news of a later Google sign-in elsewhere.
+  expect(signInMethod(session(oauthAt(APPLE), { google: GOOGLE_AGAIN, apple: APPLE }))).toBe(
+    "apple",
+  );
+  // The web's later Google sign-in.
+  expect(signInMethod(session(oauthAt(GOOGLE_AGAIN), { google: GOOGLE_AGAIN, apple: APPLE }))).toBe(
+    "google",
+  );
+  // An emailed code or a password is email, whatever else is linked.
+  const code = [{ method: "otp", timestamp: Date.parse(GOOGLE_AGAIN) / 1000 }];
+  expect(signInMethod(session(code, { google: MADE, apple: APPLE, email: GOOGLE_AGAIN }))).toBe(
+    "email",
+  );
+  expect(signInMethod(session(["password"], { email: MADE }, "email"))).toBe("email");
+  // A token without methods: the identity used last, then the first provider.
+  expect(signInMethod(session(undefined, { google: MADE, apple: APPLE }))).toBe("apple");
+  expect(signInMethod(session(undefined, {}))).toBe("google");
+});
+
 
 test.describe("signed in", () => {
   test("Account shows the profile; sign out returns to the guest card", async ({
@@ -6,6 +59,7 @@ test.describe("signed in", () => {
   }) => {
     await page.goto("/account");
     await expect(shown(page.getByText(MEMBER.email))).toBeVisible();
+    await expect(shown(page.getByText("Signed in with email"))).toBeVisible();
     await page.getByTestId("sign-out").click();
     await expect(page.getByTestId("toast")).toContainText("Signed out");
     await expect(
@@ -195,6 +249,15 @@ test.describe("guest", () => {
     await expect(page.getByTestId("code-resend")).toContainText(/in (1:00|0:59)/);
     await page.getByTestId("code-input").fill(CODE);
     await expect(page.getByTestId("toast")).toContainText("signed in");
+  });
+
+  test("signing in with Apple says so in Account", async ({ page }) => {
+    await page.goto("/account");
+    await page.getByRole("button", { name: "Sign in", exact: true }).click();
+    await page.getByTestId("continue-apple").click();
+    await expect(page.getByTestId("toast")).toContainText("signed in");
+    await tab(page, "Account").click();
+    await expect(shown(page.getByText("Signed in with Apple"))).toBeVisible();
   });
 
   test("an account whose email was never confirmed can get a new code", async ({

@@ -928,11 +928,22 @@ function useStackedRows(art: number) {
   return (content - art - 16) / fontScale < 120;
 }
 
-export function sermonLabel(sermon: Sermon, lead?: CategoryId) {
+/**
+ * What a sermon reads aloud as one element. `shown` is the title and kicker a
+ * row draws instead of the headline and event line (a series page's "Day 4 ·
+ * Morning"), so the label says what's on screen.
+ */
+export function sermonLabel(
+  sermon: Sermon,
+  lead?: CategoryId,
+  shown?: { title: string; kicker: string | null },
+) {
   const topics = topicLabels(sermon, lead);
+  const title = shown ? spokenKicker(shown.title) : headline(sermon);
+  const kicker = shown ? shown.kicker && spokenKicker(shown.kicker) : eventLine(sermon);
   return [
-    `${headline(sermon)}.`,
-    `${[eventLine(sermon), sermon.date, spokenDuration(sermon.duration)].filter(Boolean).join(", ")}.`,
+    `${title}.`,
+    `${[kicker, sermon.date, spokenDuration(sermon.duration)].filter(Boolean).join(", ")}.`,
     topics.length ? `Sample topics: ${topics.join(", ")}.` : "",
   ]
     .filter(Boolean)
@@ -954,6 +965,7 @@ export function sermonMeta(sermon: Pick<Sermon, "date" | "duration">) {
 export function SermonRow({
   sermon,
   lead,
+  title,
   kicker,
   detail,
   onPress,
@@ -964,6 +976,8 @@ export function SermonRow({
   sermon: Sermon;
   /** The topic being browsed: read first among the sample topics. */
   lead?: CategoryId;
+  /** Replaces the headline ("Day 4 · Morning" on a series page). */
+  title?: string;
   /** Replaces the event line as the kicker ("Part 2", "Session 3"). */
   kicker?: string | null;
   /** A line under the date ("1 hr 12 min left"), in navy. */
@@ -980,13 +994,12 @@ export function SermonRow({
   const art = rowArtWidth(width);
   const stacked = useStackedRows(art);
   const top = kicker === undefined ? eventLine(sermon) : kicker;
+  const label = sermonLabel(sermon, lead, title === undefined ? undefined : { title, kicker: top });
   return (
     <Tap
       testID={testID}
       accessibilityRole="button"
-      accessibilityLabel={
-        detail ? `${sermonLabel(sermon, lead)} ${detail}.` : sermonLabel(sermon, lead)
-      }
+      accessibilityLabel={detail ? `${label} ${detail}.` : label}
       accessibilityHint={hint}
       onPress={
         onPress ??
@@ -1010,7 +1023,7 @@ export function SermonRow({
             {top}
           </T>
         ) : null}
-        <SermonTitle list title={headline(sermon)} numberOfLines={stacked ? 0 : 2} />
+        <SermonTitle list title={title ?? headline(sermon)} numberOfLines={stacked ? 0 : 2} />
         <T style={s.rowMeta}>{sermonMeta(sermon)}</T>
         {detail ? <T style={s.rowDetail}>{detail}</T> : null}
       </View>

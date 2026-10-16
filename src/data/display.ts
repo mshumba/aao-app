@@ -18,7 +18,7 @@ const NUMBER_WORDS: Record<string, string> = {
 };
 
 /** Lowercase words with number words as digits, for "is it already said?". */
-function words(text: string) {
+export function words(text: string) {
   return ` ${text
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, " ")
