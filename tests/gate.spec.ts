@@ -1,3 +1,8 @@
+/// <reference types="node" />
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { runInNewContext } from "node:vm";
+import ts from "typescript";
 import { CODE, expect, fakeYouTube, shown, test, ytLog } from "./fixtures";
 
 // Guests browse freely; Watch and Save ask for a free account, then carry on
@@ -207,19 +212,114 @@ test("a reload part-way through signing up still carries on with the sermon", as
   await expect(page).toHaveURL(new RegExp(`${pray}$`));
 });
 
+// Execute the real flow hooks with the two navigation snapshots observed in
+// the CI failure. Only the surrounding hooks, router and intent runner are
+// replaced; route counting and completion behavior come from app source.
+function flowCompletion(current: string[], stale: string[], focused = false) {
+  const filename = join(__dirname, "../src/auth/gate.tsx");
+  const source = ts.createSourceFile(filename, readFileSync(filename, "utf8"), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const names = new Set(["FLOW_ROUTES", "isFlowRoute", "isAuthRoute", "trailing", "useFinishFlow", "useCloseAuthRoutes"]);
+  const declarations = source.statements.filter((node) =>
+    ts.isFunctionDeclaration(node) ? names.has(node.name?.text ?? "") :
+      ts.isVariableStatement(node) && node.declarationList.declarations.some((declaration) => names.has(declaration.name.getText(source))),
+  );
+  const code = ts.transpileModule(declarations.map((node) => node.getText(source)).join("\n"), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  const navigation: unknown[][] = [];
+  const pending = { kind: "watch", sermonId: "nUW8NT2Pe88" };
+  const resumed: unknown[] = [];
+  const timers: (() => void)[] = [];
+  const exports: { useFinishFlow?: () => () => Promise<void>; useCloseAuthRoutes?: () => () => Promise<void> } = {};
+  const stack = (names: string[]) => ({ index: names.length - 1, routes: names.map((name) => ({ name })) });
+  runInNewContext(code, {
+    exports,
+    useCallback: (callback: unknown) => callback,
+    useNavigation: () => ({ getState: () => stack(stale), isFocused: () => focused }),
+    useNavigationContainerRef: () => ({ getRootState: () => ({ index: 0, routes: [{ name: "__root", state: stack(current) }] }) }),
+    router: {
+      dismiss: (count: number) => navigation.push(["dismiss", count]),
+      canGoBack: () => true,
+      back: () => navigation.push(["back"]),
+      replace: (path: string) => navigation.push(["replace", path]),
+    },
+    Platform: { OS: "web" },
+    takePendingIntent: async () => pending,
+    runIntent: (intent: unknown) => resumed.push(intent),
+    setTimeout: (callback: () => void) => { timers.push(callback); },
+  });
+  return {
+    navigation, resumed, pending,
+    finish: exports.useFinishFlow!(), closeAuth: exports.useCloseAuthRoutes!(),
+    settle: () => { for (const callback of timers.splice(0)) callback(); },
+  };
+}
+
+test("sign-in completion ignores a dismissed sheet's stale stack and still runs its intent", async () => {
+  const flow = flowCompletion(["(tabs)", "sermon/[id]"], ["(tabs)", "sermon/[id]", "join"]);
+  await flow.finish();
+  expect(flow.navigation).toEqual([]);
+  flow.settle();
+  expect(flow.resumed).toEqual([flow.pending]);
+});
+
+test("sign-in completion closes the current flow even when its originating sheet is unfocused", async () => {
+  const flow = flowCompletion(["(tabs)", "join", "auth/email", "auth/code"], ["(tabs)", "join"]);
+  await flow.finish();
+  expect(flow.navigation).toEqual([["dismiss", 3]]);
+  flow.settle();
+  expect(flow.resumed).toEqual([flow.pending]);
+});
+
+test("closing auth steps preserves the onboarding screens below them", async () => {
+  const flow = flowCompletion(["(tabs)", "welcome", "onboarding/account", "join", "auth/email"], ["(tabs)", "join"]);
+  const closing = flow.closeAuth();
+  expect(flow.navigation).toEqual([["dismiss", 2]]);
+  flow.settle();
+  await closing;
+  expect(flow.resumed).toEqual([]);
+});
+
+test("closing an already-dismissed auth sheet leaves live onboarding in place", async () => {
+  const flow = flowCompletion(["(tabs)", "welcome", "onboarding/account"], ["(tabs)", "join"]);
+  const closing = flow.closeAuth();
+  expect(flow.navigation).toEqual([]);
+  flow.settle();
+  await closing;
+});
+
 test("leaving the sheet while a sign-in finishes keeps the guest on the sermon", async ({
   page,
 }) => {
+  // Keep the local provider's delayed result pending until the sheet is
+  // actually gone; CPU speed must not decide which navigation finishes first.
+  await page.clock.install({ time: new Date("2026-01-01T00:00:00Z") });
   await fakeYouTube(page);
   await page.goto(pray);
   await watch(page).click();
-  await page.getByTestId("continue-google").click();
-  // Back (a swipe down on a phone) while the sign-in is still finishing.
+  const sheet = page.getByRole("dialog", { name: "Create a free account to watch" });
+  await expect(sheet).toBeVisible();
+  await page.clock.pauseAt(new Date("2026-01-01T00:05:00Z"));
+  const google = page.getByTestId("continue-google");
+  await google.click();
+  await expect(google).toHaveAttribute("aria-busy", "true");
+  expect(await page.evaluate(() => localStorage.getItem("aao.local.session.v1"))).toBeNull();
+  // Browser Back can dismiss a busy sheet even when its Close is disabled.
   await page.goBack();
+  await expect(sheet).toHaveCount(0);
+  await expect(page).toHaveURL(new RegExp(`${pray}$`));
+  expect(await page.evaluate(() => localStorage.getItem("aao.local.session.v1"))).toBeNull();
+  const departed: string[] = [];
+  page.on("framenavigated", (frame) => {
+    if (frame === page.mainFrame() && !frame.url().endsWith(pray)) departed.push(frame.url());
+  });
+  await page.clock.resume();
   await expect(page.getByTestId("toast")).toContainText("signed in");
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem("aao.local.session.v1")!).provider)).toBe("google");
   // The sermon underneath stays, and plays: the sign-in was for it.
   await expect.poll(async () => (await ytLog(page)).commands).toContain("play");
   await expect(page).toHaveURL(new RegExp(`${pray}$`));
+  expect(departed, "sign-in must not briefly dismiss the sermon before reopening it").toEqual([]);
 });
 
 test("keyboard: the sign-up sheet holds focus while open and hands it back on close", async ({
