@@ -530,7 +530,7 @@ const styles = StyleSheet.create({
   },
   context: { flex: 1, flexDirection: "row", alignItems: "center", gap: space.md },
   contextText: { flex: 1, gap: 2 },
-  pathName: { ...type.prose, lineHeight: 21, letterSpacing: -0.2 },
+  pathName: type.prose,
   intro: { gap: space.sm, marginTop: space.lg },
   headline: type.question,
   lead: { ...type.lead, color: c.muted },

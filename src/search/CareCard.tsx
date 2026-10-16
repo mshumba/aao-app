@@ -95,7 +95,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginBottom: 12,
   },
-  title: { fontFamily: font.serif, fontSize: 22, lineHeight: 28, letterSpacing: -0.2, color: c.text },
+  title: { ...type.sectionSmall, color: c.text },
   body: { ...type.body, color: c.mutedOnFeature, marginTop: 6 },
   link: {
     alignSelf: "flex-start",
@@ -110,7 +110,7 @@ const styles = StyleSheet.create({
   },
   linkText: { ...type.button, color: c.onAccent },
   calm: { marginHorizontal: 24, marginTop: 20 },
-  calmTitle: { fontFamily: font.serif, fontSize: 19, lineHeight: 25, color: c.text },
+  calmTitle: { ...type.heading, fontFamily: font.serif, color: c.text },
   calmBody: { ...type.body, color: c.muted, marginTop: 4 },
   retry: { alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 6, minHeight: 44, marginTop: 6 },
   retryText: { ...type.button, color: c.accent },

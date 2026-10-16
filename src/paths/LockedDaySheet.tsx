@@ -84,7 +84,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  title: { ...type.question, fontSize: 26, lineHeight: 31, color: c.text, textAlign: "center", marginTop: 14 },
+  title: { ...type.sermonTitle, color: c.text, textAlign: "center", marginTop: 14 },
   body: { color: c.muted, textAlign: "center", marginTop: 8 },
   actions: { marginTop: space.xl, gap: space.xs, alignItems: "stretch" },
   primary: { alignSelf: "stretch", minHeight: 52 },

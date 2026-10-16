@@ -19,12 +19,14 @@ import {
 // Guided paths, one message a day, from the local fixtures
 // (src/learning/fixtures.ts): "Breaking free from habitual sin" (published,
 // 7 days; Day 1 is Apostolic Shift: Day One, 1 hr 47 min; Day 3 is Day Two
-// Morning, 2 hr 49 min) and "Learning to wait on God" (a 5-day draft). A day
+// Morning, 2 hr 49 min) and "Learning to wait on God" (a 5-day draft, shown
+// with no draft label anywhere, as the owner asked). A day
 // plays its whole sermon: it resumes where the viewer left off, else starts
 // at the beginning, and it's done once 95% of it has been watched.
 
 const ORDER_SET = "Order set by the ministry";
-const DRAFT = "Draft · awaiting ministry review";
+/** Any draft marker: the owner asked for none, anywhere. */
+const DRAFT = /Draft|awaiting ministry review/;
 
 function cta(page: Page) {
   return page.getByTestId("path-cta");
@@ -50,7 +52,7 @@ function placeInDayTwo(positionSeconds: number) {
   };
 }
 
-test("the Paths tab lists every path, and a draft says it's a draft", async ({ page }) => {
+test("the Paths tab lists every path, and a draft carries no label", async ({ page }) => {
   await page.goto("/");
   await tab(page, "Paths").click();
   await expect(page.getByRole("heading", { level: 1, name: "Paths" })).toBeVisible();
@@ -61,15 +63,18 @@ test("the Paths tab lists every path, and a draft says it's a draft", async ({ p
   await expect(habit).toHaveAccessibleName(
     "Start here. 7 messages. Breaking free from habitual sin. Order set by the ministry. About 18 hours in all.",
   );
-  await expect(habit).not.toContainText("Draft");
+  await expect(habit).not.toContainText(DRAFT);
   await expect(page.getByTestId("paths-play")).toHaveAccessibleName(
     "Start Day 1, 1 hour 47 minutes. Breaking free from habitual sin",
   );
   await expect(shown(page.getByText("1 path", { exact: true }))).toBeVisible();
   const wait = page.getByTestId(`path-card-${WAIT}`);
-  await expect(wait).toHaveAccessibleName(/^Learning to wait on God\. 5 messages\. Draft, awaiting ministry review\./);
+  await expect(wait).toHaveAccessibleName(
+    "Learning to wait on God. 5 messages. Five days on staying faithful when God's promise seems slow.",
+  );
   await expect(wait).toContainText("5 messages");
-  await expect(wait).toContainText("Draft");
+  await expect(wait).not.toContainText(DRAFT);
+  await expect(wait).not.toContainText(ORDER_SET);
   await expect(page.getByText(/min a day/)).toHaveCount(0);
   await wait.click();
   await expect(page).toHaveURL(new RegExp(`/path/${WAIT}$`));
@@ -81,13 +86,15 @@ test("only a published path claims the ministry set its order", async ({ page })
     page.getByRole("heading", { level: 1, name: "Breaking free from habitual sin" }),
   ).toBeVisible();
   await expect(shown(page.getByText(ORDER_SET, { exact: true }))).toBeVisible();
-  await expect(shown(page.getByText(DRAFT, { exact: true }))).toHaveCount(0);
+  await expect(shown(page.getByText(DRAFT))).toHaveCount(0);
 
+  // A draft says nothing about who set its order: no claim, and no label.
   await page.goto(`/path/${WAIT}`);
   await expect(
     page.getByRole("heading", { level: 1, name: "Learning to wait on God" }),
   ).toBeVisible();
-  await expect(shown(page.getByText(DRAFT, { exact: true }))).toBeVisible();
+  await expect(shown(page.getByText("Why this path", { exact: true }))).toBeVisible();
+  await expect(shown(page.getByText(DRAFT))).toHaveCount(0);
   await expect(shown(page.getByText(ORDER_SET))).toHaveCount(0);
 
   // Home is just as honest: the first path as a card, the others as tiles.
@@ -95,9 +102,11 @@ test("only a published path claims the ministry set its order", async ({ page })
   await expect(page.getByTestId("start-here")).toContainText(ORDER_SET);
   const tiles = shown(page.getByTestId("path-tile"));
   await expect(tiles).toHaveCount(1);
-  await expect(tiles.nth(0)).toContainText(DRAFT);
+  await expect(tiles.nth(0)).not.toContainText(DRAFT);
   await expect(tiles.nth(0)).not.toContainText(ORDER_SET);
-  await expect(tiles.nth(0)).toHaveAccessibleName(/ Draft, awaiting ministry review\.$/);
+  await expect(tiles.nth(0)).toHaveAccessibleName(
+    "Learning to wait on God. 5 messages. Five days on staying faithful when God's promise seems slow.",
+  );
 });
 
 test("a path not yet started opens on Day 1, and shows the days ahead", async ({ page }) => {
@@ -487,7 +496,7 @@ test.describe("as a guest", () => {
 
   test("a locked day still explains itself to a guest", async ({ page }) => {
     await page.goto(`/path/${WAIT}`);
-    await expect(shown(page.getByText(DRAFT, { exact: true }))).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1, name: "Learning to wait on God" })).toBeVisible();
     await day(page, 3).click();
     await expect(page.getByRole("dialog", { name: "This path starts with Day 1" })).toBeVisible();
   });

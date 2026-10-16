@@ -197,9 +197,7 @@ export const SectionHeader = memo(function SectionHeader({
         <Heading
           level={2}
           style={[
-            type.section,
-            size === "md" && styles.sectionMd,
-            size === "sermon" && styles.sectionSermon,
+            size === "md" ? type.sectionSmall : type.section,
             styles.sectionTitle,
             !action && count ? styles.sectionTitleWhole : null,
           ]}
@@ -224,9 +222,9 @@ export const SectionHeader = memo(function SectionHeader({
 // ---- TrustLine -----------------------------------------------------------------------
 
 /**
- * Who set a path's order, honestly: "Order set by the ministry" (navy
- * shield-check) only when it's published; otherwise "Draft · awaiting
- * ministry review" (muted outline shield).
+ * Who set a path's order: "Order set by the ministry" (navy shield-check),
+ * only when it's published. A draft shows nothing at all (no "Draft" label,
+ * at the owner's request), so `extra` shows only beside the ministry's line.
  */
 export const TrustLine = memo(function TrustLine({
   status,
@@ -235,24 +233,18 @@ export const TrustLine = memo(function TrustLine({
   style,
 }: {
   status: PathStatus;
-  /** Appended after a dot: "About 16 min a day". */
+  /** Appended after a dot: "7 messages". */
   extra?: string;
   /** "dark" on the dark path cards and covers. */
   tone?: "light" | "dark";
   style?: StyleProp<ViewStyle>;
 }) {
   const line = trustLine(status);
-  const text = extra ? `${line.text} · ${extra}` : line.text;
-  // "Draft, awaiting ministry review. About 16 minutes a day."
-  const spoken = [line.text.replace(" · ", ", "), extra ? spokenText(extra) : null].filter(Boolean).join(". ");
+  if (!line) return null;
   const dark = tone === "dark";
-  const iconColor = dark
-    ? line.tone === "accent"
-      ? c.white
-      : c.onMediaMuted
-    : line.tone === "accent"
-      ? c.accent
-      : c.muted;
+  const text = extra ? `${line.text} · ${extra}` : line.text;
+  // "Order set by the ministry. 7 messages."
+  const spoken = [line.text, extra ? spokenText(extra) : null].filter(Boolean).join(". ");
   return (
     <View
       style={[styles.trust, style]}
@@ -261,13 +253,13 @@ export const TrustLine = memo(function TrustLine({
       // Web drops a label on an element with no role.
       {...web({ role: "img" })}
     >
-      <Icon name={line.icon} size={15} color={iconColor} />
+      <Icon name={line.icon} size={15} color={dark ? c.white : c.accent} />
       <T style={[styles.trustText, dark && styles.trustOnDark]}>{text}</T>
     </View>
   );
 });
 
-/** Bold runs inside a muted line: "Finding moments about **breaking a habit**". */
+/** Bold runs inside a muted line: "Moments about **breaking a habit**". */
 export function Strong({ children }: { children: ReactNode }) {
   return <Text style={styles.strong}>{children}</Text>;
 }
@@ -289,12 +281,10 @@ const styles = StyleSheet.create({
   sectionWrap: { flexWrap: "wrap", rowGap: 2 },
   sectionTitleWhole: { flexShrink: 0, maxWidth: "100%" },
   countEnd: { marginLeft: "auto" },
-  sectionMd: { fontSize: 22, lineHeight: 28, letterSpacing: -0.2 },
-  sectionSermon: { fontSize: 24, lineHeight: 28 },
   // The text button is 48pt tall; pull it back so its label sits on the
   // title's baseline instead of pushing the row taller.
   sectionAction: { marginVertical: -14 },
-  count: { ...type.metaSmall, fontFamily: font.medium, fontSize: 13, lineHeight: 18, color: c.muted, flexShrink: 0 },
+  count: { ...type.meta, color: c.muted, flexShrink: 0 },
   countStrong: { fontFamily: font.semibold },
   trust: { flexDirection: "row", alignItems: "center", gap: 6 },
   trustText: { ...type.metaSmall, color: c.muted, flexShrink: 1 },

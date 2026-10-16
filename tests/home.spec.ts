@@ -176,7 +176,11 @@ test("not on a path: Home offers paths to start", async ({ page }) => {
   const first = rail.getByTestId("start-here");
   await expect(first.getByRole("button", { name: /^Start the path with day 1\. Apostolic Shift: Day One\. / })).toBeVisible();
   await expect(rail.getByRole("heading", { name: "More paths" })).toBeVisible();
-  await rail.getByRole("button", { name: /^Learning to wait on God\./ }).click();
+  // A draft path carries no label, and never claims the ministry set its order.
+  const draft = rail.getByRole("button", { name: /^Learning to wait on God\./ });
+  await expect(draft).not.toContainText(/Draft|awaiting ministry review/);
+  await expect(draft).not.toContainText("Order set by the ministry");
+  await draft.click();
   await expect(page).toHaveURL(/\/path\/learning-to-wait-on-god$/);
   await page.getByTestId("path-back").click();
   await page.getByTestId("start-a-path").getByRole("button", { name: "See all", exact: true }).click();

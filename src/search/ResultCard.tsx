@@ -3,7 +3,7 @@ import { StyleSheet, View } from "react-native";
 import Animated, { css } from "react-native-reanimated";
 import { Artwork, PlayPill, Quote, QuotePlaceholder, RoundButton, spokenText } from "../kit";
 import { searchSermonMeta, type SearchMoment } from "../learning";
-import { c, font, radius, shadows, tabular } from "../theme";
+import { c, radius, shadows, tabular, type } from "../theme";
 import { SermonTitle, T, Tap } from "../ui";
 import { breathe } from "./Loader";
 
@@ -13,7 +13,7 @@ import { breathe } from "./Loader";
  * curly quotes, "Play from 1:52:27" and a save circle.
  *
  * A local variant of the kit's MomentCard: the circle here saves the whole
- * sermon (the existing library save), so it is named for that, and a quote
+ * sermon (the same save as everywhere else), so it is named for that, and a quote
  * that is still being fetched holds its place with static sand lines, then
  * crossfades in. A moment whose quote never passes shows none: never the raw
  * transcript.
@@ -103,7 +103,7 @@ export const ResultCard = memo(function ResultCard({
           icon={saved ? "bookmark" : "bookmark-outline"}
           iconSize={17}
           iconColor={saved ? c.accent : c.text}
-          label={saved ? `Saved. Remove ${sermon.headline} from your library` : `Save ${sermon.headline} to your library`}
+          label={saved ? `Remove ${sermon.headline} from saved` : `Save ${sermon.headline}`}
           selected={saved}
           onPress={() => onToggleSave(moment)}
         />
@@ -153,14 +153,14 @@ const styles = StyleSheet.create({
   },
   top: { flexDirection: "row", alignItems: "center", gap: 12 },
   topText: { flex: 1, minWidth: 0 },
-  title: { fontFamily: font.bold, fontSize: 14, lineHeight: 18, color: c.text },
-  meta: { fontFamily: font.medium, fontSize: 12, lineHeight: 16, color: c.muted, marginTop: 3, ...tabular },
+  title: { ...type.cardTitle, color: c.text },
+  meta: { ...type.meta, color: c.muted, marginTop: 3, ...tabular },
   // The opening mark hangs into the card's padding (Quote), so the lines
   // share the title's left edge, as the concept sets them.
   quote: { marginTop: 12, marginBottom: 12, marginHorizontal: 2 },
   noQuote: { height: 12 },
   also: { minHeight: 32, justifyContent: "center" },
-  alsoText: { fontFamily: font.semibold, fontSize: 12.5, lineHeight: 17, color: c.muted },
+  alsoText: { ...type.metaSmall, color: c.muted },
   foot: { flexDirection: "row", alignItems: "center", gap: 8 },
   artBlock: { width: 96, height: 54, borderRadius: 10, backgroundColor: c.feature },
   line: { height: 11, borderRadius: 4, backgroundColor: c.feature },

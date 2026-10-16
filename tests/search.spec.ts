@@ -208,18 +208,18 @@ test("the empty field offers common needs and topics to browse", async ({ page }
   await expect(results(page)).toHaveCount(6);
 });
 
-test("saving from a moment saves its sermon to the library", async ({ page }) => {
+test("saving from a moment saves its sermon to Saved", async ({ page }) => {
   await page.goto(`/search?q=${encodeURIComponent(NEED)}`);
   const save = results(page)
     .first()
-    .getByRole("button", { name: "Save Apostolic Shift: Day Two Morning to your library", exact: true });
+    .getByRole("button", { name: "Save Apostolic Shift: Day Two Morning", exact: true });
   await save.click();
-  await expect(page.getByTestId("toast")).toContainText("Saved to your library");
+  await expect(page.getByTestId("toast")).toContainText("Saved");
   // Every card from that sermon now shows it saved.
   await expect(
     shown(
       page.getByRole("button", {
-        name: "Saved. Remove Apostolic Shift: Day Two Morning from your library",
+        name: "Remove Apostolic Shift: Day Two Morning from saved",
         exact: true,
       }),
     ),
@@ -237,7 +237,7 @@ test.describe("as a guest", () => {
     await page.goto(`/search?q=${encodeURIComponent(NEED)}`);
     await results(page)
       .first()
-      .getByRole("button", { name: "Save Apostolic Shift: Day Two Morning to your library", exact: true })
+      .getByRole("button", { name: "Save Apostolic Shift: Day Two Morning", exact: true })
       .click();
     await expect(
       page.getByRole("heading", { name: "Create a free account to save sermons" }),

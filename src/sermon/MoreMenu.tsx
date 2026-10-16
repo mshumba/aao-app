@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { Modal, Platform, Pressable, StyleSheet, View } from "react-native";
 import { CardFan, Kicker, type ArtSource } from "../kit";
-import { c, font, radius, shadows, space, type } from "../theme";
+import { c, radius, shadows, space, type } from "../theme";
 import { Icon, T, Tap, moveFocus, nowrap, type IconName } from "../ui";
 import { RouteIcon } from "../kit/RouteIcon";
 
@@ -160,5 +160,5 @@ const styles = StyleSheet.create({
     paddingRight: 14,
   },
   rowText: { flex: 1, minWidth: 0 },
-  rowName: { fontFamily: font.bold, fontSize: 14.5, lineHeight: 19, color: c.text, marginTop: 2 },
+  rowName: { ...type.cardTitle, color: c.text, marginTop: 2 },
 });

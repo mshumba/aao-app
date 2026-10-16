@@ -21,7 +21,6 @@ export {
   doneLabel,
   messagesLabel,
   teachingsLabel,
-  minutesPerDayLabel,
   searchSermonArt,
   searchSermonMeta,
   trustLine,

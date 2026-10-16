@@ -261,7 +261,7 @@ const styles = StyleSheet.create({
     boxShadow: `inset 0 0 0 2.5px ${c.accent}, 0 0 0 5px rgba(31,58,95,0.12)`,
   },
   nodeNext: { backgroundColor: c.bg, boxShadow: `inset 0 0 0 1.5px ${c.nodeRing}` },
-  nodeNumber: { fontFamily: font.extrabold, fontSize: 13, lineHeight: 16, color: c.accent, ...tabular },
+  nodeNumber: { ...type.labelSmall, fontFamily: font.extrabold, color: c.accent, ...tabular },
   text: { flex: 1, minWidth: 0, minHeight: NODE },
   title: { marginTop: 2 },
   meta: { marginTop: 2 },

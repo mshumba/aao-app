@@ -40,7 +40,7 @@ import {
 import { fixtureDays, fixtureNeeds, fixturePaths, fixtureProgress } from "../learning/fixtures";
 import { messagesLabel, useSearch, type SearchMoment } from "../learning";
 import { usePageTitle } from "../navigation";
-import { c, radius, textCap, type } from "../theme";
+import { c, font, radius, textCap, type } from "../theme";
 import { Heading, T } from "../ui";
 
 /**
@@ -67,7 +67,6 @@ function Gallery() {
   const result = useSearch(submitted);
 
   const habit = fixturePaths[0];
-  const draft = fixturePaths[1];
   const habitDays = useMemo(() => fixtureDays.filter((d) => d.pathId === habit.id), [habit.id]);
   const { done, partial } = fixtureProgress;
   const today = done.length + 1;
@@ -189,7 +188,7 @@ function Gallery() {
           helper={
             result.data ? (
               <>
-                Finding moments about <Strong>{result.data.understood.theme}</Strong>
+                Moments about <Strong>{result.data.understood.theme}</Strong>
               </>
             ) : result.status === "loading" ? (
               "Searching every message"
@@ -270,7 +269,6 @@ function Gallery() {
             <TrustLine status={habit.status} />
           </View>
           <ItalicTitle text={habit.why} italic="grace" style={[type.prose, { marginTop: 6 }]} />
-          <TrustLine status={draft.status} extra={messagesLabel(draft.dayCount)} style={{ marginTop: 12 }} />
           <DayTimeline days={days} style={{ marginTop: 14 }} />
         </View>
 
@@ -390,9 +388,9 @@ const styles = StyleSheet.create({
   },
   whyRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 12 },
   stage: { backgroundColor: c.media, paddingHorizontal: 24, paddingTop: 24, paddingBottom: 56, overflow: "hidden" },
-  by: { fontFamily: type.meta.fontFamily, fontSize: 13.5, lineHeight: 19, color: "rgba(255,255,255,0.76)", marginTop: 4 },
+  by: { ...type.meta, color: "rgba(255,255,255,0.76)", marginTop: 4 },
   transport: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 20 },
-  speed: { fontFamily: "Manrope_800ExtraBold", fontSize: 13, color: c.white },
+  speed: { ...type.labelSmall, fontFamily: font.extrabold, color: c.white },
   sermonSheet: {
     marginTop: -28,
     backgroundColor: c.bg,

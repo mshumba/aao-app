@@ -254,13 +254,17 @@ const PathTile = memo(function PathTile({
   onOpen: (id: string) => void;
 }) {
   const length = messagesLabel(path.dayCount);
-  const trust = trustLine(path.status).text;
+  const trust = trustLine(path.status)?.text;
   const scale = (FAN_SCALE * width) / TILE_W;
   return (
     <Tap
       testID="path-tile"
       accessibilityRole="button"
-      accessibilityLabel={`${path.name}. ${spokenText(length)}. ${path.promise} ${trust.replace(" · ", ", ")}.`}
+      accessibilityLabel={[path.name, spokenText(length), path.promise, trust]
+        .filter((part): part is string => !!part)
+        .map((part) => part.trim().replace(/[.!?]$/, ""))
+        .join(". ")
+        .concat(".")}
       accessibilityHint="Opens the path"
       onPress={() => onOpen(path.id)}
       feedback="scaleLarge"
@@ -305,6 +309,6 @@ const styles = StyleSheet.create({
   },
   tileKicker: { marginTop: 12 },
   tileName: { marginTop: 4 },
-  promise: { ...type.meta, fontSize: 13, lineHeight: 18, color: c.muted, marginTop: 4 },
+  promise: { ...type.meta, color: c.muted, marginTop: 4 },
   trust: { marginTop: 8 },
 });

@@ -9,7 +9,7 @@ import {
   fixtureNeeds,
   fixturePaths,
 } from "../src/learning/fixtures";
-import { messagesLabel, minutesPerDayLabel, searchSermonMeta, trustLine } from "../src/learning/format";
+import { messagesLabel, searchSermonMeta, trustLine } from "../src/learning/format";
 import {
   activePath,
   applyOp,
@@ -132,12 +132,11 @@ test.describe("path progress", () => {
 
 test.describe("honest words", () => {
   test("only a published path says the ministry set its order", () => {
-    expect(trustLine("published").text).toBe("Order set by the ministry");
-    expect(trustLine("draft").text).toBe("Draft · awaiting ministry review");
-    expect(trustLine("draft").icon).toBe("shield-outline");
+    expect(trustLine("published")?.text).toBe("Order set by the ministry");
+    // A draft carries no label at all (the owner's call), and never the claim.
+    expect(trustLine("draft")).toBeNull();
     expect(messagesLabel(1)).toBe("1 message");
     expect(messagesLabel(7)).toBe("7 messages");
-    expect(minutesPerDayLabel({ minutesPerDay: 16 })).toBe("About 16 min a day");
   });
 
   test("a search sermon reads by when it was preached, else published", () => {

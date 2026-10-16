@@ -452,11 +452,11 @@ const styles = StyleSheet.create({
     marginTop: 22,
     marginBottom: 12,
   },
-  headingTitle: { ...type.section, fontSize: 21, lineHeight: 27, color: c.text, flexShrink: 0, maxWidth: "100%" },
+  headingTitle: { ...type.sectionSmall, color: c.text, flexShrink: 0, maxWidth: "100%" },
   countWrap: { marginLeft: "auto" },
   headingAction: { marginVertical: -14 },
   // The count keeps to one line; the title wraps instead.
-  count: { fontFamily: font.medium, fontSize: 13, lineHeight: 18, color: c.muted, flexShrink: 0, ...tabular },
+  count: { ...type.meta, color: c.muted, flexShrink: 0, ...tabular },
 
   sermon: {
     flexDirection: "row",
@@ -478,8 +478,8 @@ const styles = StyleSheet.create({
   },
   sermonText: { flex: 1, minWidth: 0 },
   sermonTitle: { ...type.cardTitle, color: c.text },
-  sermonMeta: { fontFamily: font.medium, fontSize: 12, lineHeight: 16, color: c.muted, marginTop: 3, ...tabular },
-  sermonExtra: { fontFamily: font.bold, fontSize: 12, lineHeight: 16, color: c.accent, marginTop: 3 },
+  sermonMeta: { ...type.meta, color: c.muted, marginTop: 3, ...tabular },
+  sermonExtra: { ...type.labelSmall, color: c.accent, marginTop: 3 },
 
   suggest: { flexDirection: "row", alignItems: "center", marginHorizontal: 12, borderRadius: radius.r18 },
   suggestTap: {
@@ -501,7 +501,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   suggestText: { flex: 1, minWidth: 0 },
-  suggestLine: { fontFamily: font.semibold, fontSize: 15, lineHeight: 21, color: c.text },
+  suggestLine: { ...type.label, color: c.text },
   suggestLead: { fontFamily: font.medium, color: c.muted },
   suggestSub: { ...type.meta, color: c.muted, marginTop: 1 },
   remove: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center" },
@@ -516,7 +516,7 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   topicText: { padding: 16, paddingBottom: 44 },
-  topicName: { fontFamily: font.serif, fontSize: 22, lineHeight: 26, letterSpacing: -0.2, color: c.text },
+  topicName: { ...type.sectionSmall, color: c.text },
   topicCount: { ...type.metaSmall, color: c.mutedOnFeature, marginTop: 6 },
   // The doc's Peek: one tile at -8°, clipped by the card's corner.
   peek: {
@@ -541,7 +541,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginBottom: 14,
   },
-  stateTitle: { ...type.section, fontSize: 22, lineHeight: 28, color: c.text },
+  stateTitle: { ...type.sectionSmall, color: c.text },
   stateBody: { ...type.body, color: c.muted, marginTop: 6 },
   stateExtra: { marginTop: 14, marginHorizontal: -24 },
   stateButton: {
@@ -558,7 +558,7 @@ const styles = StyleSheet.create({
   stateButtonText: { ...type.button, color: c.onAccent },
 
   note: { flexDirection: "row", alignItems: "flex-start", gap: 8, paddingHorizontal: 24, marginTop: 18 },
-  noteText: { ...type.meta, fontSize: 13.5, lineHeight: 19, color: c.muted, flex: 1 },
+  noteText: { ...type.meta, color: c.muted, flex: 1 },
   more: { alignItems: "center", marginTop: 8 },
   hidden: { position: "absolute", width: 1, height: 1, overflow: "hidden", left: -1, top: 0 },
 });

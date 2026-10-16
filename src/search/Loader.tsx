@@ -15,7 +15,7 @@ import Animated, {
   type SharedValue,
 } from "react-native-reanimated";
 import { Artwork, Strong, artCandidates, type ArtSource } from "../kit";
-import { c, font, shadows, textCap } from "../theme";
+import { c, font, shadows, textCap, type } from "../theme";
 import { sermonCount } from "../topics";
 import { T, web } from "../ui";
 
@@ -288,5 +288,5 @@ const styles = StyleSheet.create({
   },
   status: { alignSelf: "stretch", marginTop: 10 },
   sizer: { opacity: 0 },
-  statusText: { fontFamily: font.medium, fontSize: 14.5, lineHeight: 21, color: c.muted, textAlign: "center" },
+  statusText: { ...type.label, fontFamily: font.medium, color: c.muted, textAlign: "center" },
 });

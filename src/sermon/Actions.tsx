@@ -74,7 +74,7 @@ export const SaveButton = memo(function SaveButton({ sermon }: { sermon: Sermon 
     try {
       await account.setSaved(sermon.id, next);
       toast(
-        next ? "Saved to your library" : "Removed from saved",
+        next ? "Saved" : "Removed from saved",
         next ? "bookmark" : "bookmark-outline",
       );
     } catch {
@@ -214,7 +214,7 @@ const styles = StyleSheet.create({
   pillWithBar: { paddingBottom: 4 },
   barRoomStacked: { paddingBottom: 13 },
   lines: { flexShrink: 1 },
-  detailLine: { fontFamily: font.medium, fontSize: 13, lineHeight: 16, opacity: 0.82 },
+  detailLine: { ...type.meta, opacity: 0.82 },
   pillText: { ...type.button, color: c.accent, flexShrink: 1, ...tabular },
   pillDetail: { fontFamily: font.medium, color: c.accent, opacity: 0.82 },
   bar: {

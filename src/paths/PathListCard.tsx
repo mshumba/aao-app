@@ -1,8 +1,8 @@
 import { memo } from "react";
 import { StyleSheet, View, type StyleProp, type ViewStyle } from "react-native";
-import { CardFan, ItalicTitle, Kicker, PathProgress, TrustLine, Wash, spokenText, type ArtSource } from "../kit";
-import { trustLine, type Path } from "../learning";
-import { c, font, radius, tabular, textCap, type } from "../theme";
+import { CardFan, ItalicTitle, Kicker, PathProgress, Wash, spokenText, type ArtSource } from "../kit";
+import type { Path } from "../learning";
+import { c, radius, tabular, textCap, type } from "../theme";
 import { Icon, T, Tap, web } from "../ui";
 import { isSingleTeaching, pathWords } from "./model";
 
@@ -15,8 +15,8 @@ export type ListProgress =
  * A path on the Paths tab: a small copy of the path page's dark cover (its
  * fan under navy light, "7 MESSAGES" or "12 TEACHINGS" and the name in
  * white serif), so opening it feels like stepping into it; then on ivory the
- * one-line promise, who set its order (a draft says so) and your progress
- * once you've started it. One element to assistive tech.
+ * one-line promise and your progress once you've started it. One element to
+ * assistive tech.
  */
 export const PathListCard = memo(function PathListCard({
   path,
@@ -40,7 +40,6 @@ export const PathListCard = memo(function PathListCard({
   const scale = Math.max(0.6, Math.min(0.8, (width - 40) / 340));
   const words = pathWords(path);
   const kicker = words.count(total);
-  const draft = path.status !== "published";
   const single = isSingleTeaching(path, total);
   const status =
     progress.kind === "on"
@@ -49,11 +48,10 @@ export const PathListCard = memo(function PathListCard({
         ? "Finished"
         : null;
   // One label, in words: "Breaking free from habitual sin. 7 messages.
-  // Draft, awaiting ministry review. <promise>."
+  // <promise>."
   const label = [
     path.name,
     spokenText(kicker),
-    draft ? trustLine(path.status).text.replace(" · ", ", ") : null,
     path.promise,
     status,
   ]
@@ -87,7 +85,6 @@ export const PathListCard = memo(function PathListCard({
       </View>
       <View style={styles.body}>
         {path.promise ? <T style={styles.promise}>{path.promise}</T> : null}
-        {draft ? <TrustLine status={path.status} style={styles.trust} /> : null}
         {progress.kind === "on" ? (
           <PathProgress
             total={total}
@@ -127,9 +124,8 @@ const styles = StyleSheet.create({
   kicker: { textAlign: "center" },
   name: { color: c.white, textAlign: "center", marginTop: 6 },
   body: { paddingTop: 12, paddingHorizontal: 2 },
-  trust: { marginTop: 8 },
-  promise: { ...type.body, fontSize: 14.5, lineHeight: 21, color: c.muted },
+  promise: { ...type.body, color: c.muted },
   progress: { marginTop: 12 },
   finished: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 10 },
-  finishedText: { fontFamily: font.bold, fontSize: 13.5, lineHeight: 18, color: c.accent, ...tabular },
+  finishedText: { ...type.labelSmall, color: c.accent, ...tabular },
 });

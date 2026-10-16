@@ -48,8 +48,8 @@ export default function About() {
       </Section>
       <Section title="Guided paths">
         <P>
-          A path is a message a day on one need, in an order the ministry
-          sets. A path the ministry hasn’t reviewed yet is marked as a draft.
+          A path is one message a day on one need, in an order that builds
+          from one day to the next.
         </P>
       </Section>
       <Section title="Topics">

@@ -9,7 +9,7 @@ import { STAGE_BAR } from "../player/layout";
 import { usePlayerSession } from "../player/PlayerProvider";
 import { canRetry, canWatchOnYouTube, playerError } from "../player/types";
 import { useGo } from "../navigation";
-import { c, easeOut, font, gradients, radius, space, type } from "../theme";
+import { c, easeOut, gradients, radius, space, type } from "../theme";
 import { Icon, T, Tap, gradient, moveFocus, web, type IconName } from "../ui";
 
 /**
@@ -43,6 +43,9 @@ export const StageBar = memo(function StageBar({
         {title ? (
           <Animated.View
             style={{
+              // Stretched to the slot, so a long title ends in an ellipsis
+              // instead of running under Back and More options.
+              alignSelf: "stretch",
               opacity: titleShown ? 1 : 0,
               transitionProperty: "opacity",
               transitionDuration: 200,
@@ -256,7 +259,7 @@ const styles = StyleSheet.create({
     backgroundColor: c.raised,
     zIndex: 2,
   },
-  skipLinkText: { fontFamily: font.semibold, fontSize: 15, color: c.accent },
+  skipLinkText: { ...type.label, color: c.accent },
   // Off the page until focused (opacity on a Tap would be overridden by its
   // own press styles, leaving a dot showing).
   offscreen: {
@@ -269,7 +272,7 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   barTitleSlot: { flex: 1, minWidth: 0, paddingHorizontal: 12, alignItems: "center" },
-  barTitle: { fontFamily: font.semibold, fontSize: 15, lineHeight: 20, color: c.white, textAlign: "center" },
+  barTitle: { ...type.label, color: c.white, textAlign: "center" },
   center: { ...StyleSheet.absoluteFill, alignItems: "center", justifyContent: "center" },
   disc: {
     width: 64,
@@ -304,5 +307,5 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.35)",
   },
   slotButtonPrimary: { backgroundColor: c.white, borderColor: c.white },
-  slotButtonText: { fontFamily: font.bold, fontSize: 14.5, color: c.white },
+  slotButtonText: { ...type.button, color: c.white },
 });

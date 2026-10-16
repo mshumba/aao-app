@@ -23,7 +23,7 @@ type Common = {
    * question); the accessible name stays `placeholder`.
    */
   prompt?: string;
-  /** A line under the field: "Finding moments about **…**". */
+  /** A line under the field: "Moments about **…**". */
   helper?: ReactNode;
   helperIcon?: IconName;
   testID?: string;
@@ -323,7 +323,8 @@ const styles = StyleSheet.create({
     minHeight: 44,
   },
   promptLayer: { ...StyleSheet.absoluteFill, justifyContent: "center", pointerEvents: "none" },
-  pagePrompt: { color: c.muted, fontSize: 17 },
+  // A step smaller than the hero's prompt: the page's own title asks the question.
+  pagePrompt: { color: c.muted, fontSize: type.quote.fontSize },
   clear: {
     width: 26,
     height: 26,
@@ -341,5 +342,5 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   helper: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 14, paddingHorizontal: 4 },
-  helperText: { fontFamily: type.meta.fontFamily, fontSize: 13, lineHeight: 18, color: c.muted, flexShrink: 1 },
+  helperText: { ...type.meta, color: c.muted, flexShrink: 1 },
 });

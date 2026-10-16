@@ -1,5 +1,5 @@
 import { formatDay, formatDuration } from "../data/sermons";
-import type { Path, PathStatus, SearchSermon } from "./types";
+import type { PathStatus, SearchSermon } from "./types";
 
 /**
  * Words the path and search screens share, so every screen says the same
@@ -8,12 +8,13 @@ import type { Path, PathStatus, SearchSermon } from "./types";
 
 /**
  * The line beside "Why this path". Only a published path may say the
- * ministry set its order; a draft says it is awaiting review.
+ * ministry set its order; a draft says nothing (null), as the owner asked:
+ * no "Draft" label anywhere.
  */
 export function trustLine(status: PathStatus) {
   return status === "published"
-    ? { text: "Order set by the ministry", icon: "shield-checkmark-outline" as const, tone: "accent" as const }
-    : { text: "Draft · awaiting ministry review", icon: "shield-outline" as const, tone: "muted" as const };
+    ? { text: "Order set by the ministry", icon: "shield-checkmark-outline" as const }
+    : null;
 }
 
 /** "7 messages". */
@@ -24,16 +25,6 @@ export function messagesLabel(count: number) {
 /** "12 teachings": a teaching series' length. */
 export function teachingsLabel(count: number) {
   return `${count} teaching${count === 1 ? "" : "s"}`;
-}
-
-/**
- * "About 16 min a day": the focus segments' average.
- * @deprecated A day plays its whole sermon, so this isn't watch time; say
- * how many messages there are (messagesLabel) or how long the sermons are
- * together (totalTimeLabel). Kept only until every screen has moved off it.
- */
-export function minutesPerDayLabel(path: Pick<Path, "minutesPerDay">) {
-  return `About ${path.minutesPerDay} min a day`;
 }
 
 /** "About 18 hours in all": a path's sermons, whole, together. */

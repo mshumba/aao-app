@@ -30,7 +30,6 @@ import {
   useSearch,
   type LearningError,
   type Need,
-  type PathStatus,
   type SearchMoment,
   type SearchSermon,
 } from "../learning";
@@ -70,8 +69,8 @@ import { Reveal, RevealProvider, useResultsReveal } from "./reveal";
  * - Searching: nothing for the first 400ms (a quick answer never flashes a
  *   loader), then shuffling artwork over one honest line saying what search
  *   is doing, above breathing sand placeholders (Loader.tsx).
- * - Results: "Moments about …", related needs, "A path for this" (a draft
- *   says so), the moments (his verbatim words, each playing from its
+ * - Results: "Moments about …", related needs, "A path for this", the
+ *   moments (his verbatim words, each playing from its
  *   minute), then the sermons they're in, all rising in as one. Title
  *   matches stay listed for title-like questions.
  * - Someone who may be in distress (search says so, or their words plainly
@@ -127,20 +126,16 @@ const careAnnouncement = `${careText.title} ${careText.body}`;
 
 /**
  * A compact path card's line: "7 messages", or where you are once you've
- * started. A path awaiting the ministry's review says "Draft" first. A day
- * plays its whole sermon, so there's no "minutes a day" to promise.
+ * started. A day plays its whole sermon, so there's no "minutes a day" to
+ * promise, and a draft carries no label.
  */
-function pathMeta(
-  total: number,
-  status: PathStatus | undefined,
-  mine: { done: number[]; finishedAt: string | null } | null | undefined,
-) {
+function pathMeta(total: number, mine: { done: number[]; finishedAt: string | null } | null | undefined) {
   const where = mine?.finishedAt
     ? "Finished"
     : mine
       ? `You're on Day ${nextDay(total, mine.done) ?? total}`
       : null;
-  return [status === "draft" ? "Draft" : null, messagesLabel(total), where].filter(Boolean).join(" · ");
+  return [messagesLabel(total), where].filter(Boolean).join(" · ");
 }
 
 export function SearchScreen() {
@@ -320,7 +315,7 @@ function SearchView({ initialQuery, unknownTopic }: { initialQuery: string; unkn
       if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
       try {
         await account.setSaved(m.youtubeId, next);
-        toast(next ? "Saved to your library" : "Removed from saved", next ? "bookmark" : "bookmark-outline");
+        toast(next ? "Saved" : "Removed from saved", next ? "bookmark" : "bookmark-outline");
       } catch {
         toast(
           next ? "Couldn’t save. Check your connection." : "Couldn’t remove it. Check your connection.",
@@ -452,7 +447,7 @@ function SearchView({ initialQuery, unknownTopic }: { initialQuery: string; unkn
     const total = known?.dayCount || pathDays.length || found.days;
     const progress = progressFor(found.id);
     const today = progress ? (nextDay(total, progress.done) ?? total) : 1;
-    const meta = pathMeta(total, found.status ?? known?.status, progress);
+    const meta = pathMeta(total, progress);
     const front = pathDays[today - 1] ?? pathDays[0];
     const behind = pathDays[today - 2] ?? pathDays[today] ?? pathDays[1];
     const fan = [front, behind]
@@ -471,7 +466,7 @@ function SearchView({ initialQuery, unknownTopic }: { initialQuery: string; unkn
         .map((path) => {
         const days = daysOf(path.id);
         const total = path.dayCount || days.length;
-        const meta = pathMeta(total, path.status, progressFor(path.id));
+        const meta = pathMeta(total, progressFor(path.id));
         const fan = days.slice(0, 2).map((d) => ({ id: d.youtubeId }) as ArtSource);
         return { id: path.id, name: path.name, meta, fan, kicker: "Guided path" };
       }),

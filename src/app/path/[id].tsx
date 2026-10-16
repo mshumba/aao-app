@@ -37,7 +37,7 @@ import { markSeen, seenDone } from "../../paths/seen";
 import { sharePath } from "../../paths/share";
 import { useDockInset } from "../../player/useDockInset";
 import { useToast } from "../../toast";
-import { c, font, radius, space, textCap, type } from "../../theme";
+import { c, radius, space, textCap, type } from "../../theme";
 import { StatePanel, T, TextButton, web } from "../../ui";
 
 const EMPTY: number[] = [];
@@ -51,8 +51,8 @@ const WHY_LINES = 4;
 
 /**
  * A guided path or teaching series (concept screen 03): the dark cover with
- * its fan, name and progress; an ivory panel with "Why this path", the
- * honest trust line and the day timeline (done, today lifted with a quiet
+ * its fan, name and progress; an ivory panel with "Why this path", "Order
+ * set by the ministry" (published paths only) and the day timeline (done, today lifted with a quiet
  * "Mark Day 3 done", later days locked); and the navy call to action,
  * "Continue Day 3 · 48 min left" or "Start Day 1 · 2 hr 16 min". Every day
  * plays its whole sermon, from where the viewer left off. Once a day is done
@@ -502,7 +502,7 @@ const styles = StyleSheet.create({
     zIndex: 10,
     pointerEvents: "none",
   },
-  bandTitle: { fontFamily: font.bold, fontSize: 15, lineHeight: 20, color: c.white, textAlign: "center" },
+  bandTitle: { ...type.cardTitle, color: c.white, textAlign: "center" },
   ctaSlot: { position: "absolute", left: 0, right: 0, pointerEvents: "box-none", zIndex: 30 },
   coverGhost: { backgroundColor: c.media },
   missing: { flex: 1, paddingHorizontal: space.gutter },

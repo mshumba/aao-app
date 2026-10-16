@@ -70,8 +70,8 @@ type Row =
  * white "Continue Day 3" that plays today's sermon, whole. On an ivory panel
  * rising over it, every other path as a small dark cover, then the teaching
  * series in a section of their own ("12 teachings"; one of a single
- * teaching opens that teaching). Drafts say so; the ministry's name is only
- * claimed for a published path.
+ * teaching opens that teaching). Drafts carry no label; the ministry's name
+ * is only claimed for a published path.
  */
 export default function PathsTab() {
   usePageTitle("Paths");
@@ -320,6 +320,8 @@ const Masthead = memo(function Masthead({
   const scale = Math.min(0.8, (Math.min(width, MAX_WIDTH) - 48) / 340);
   const f = featured;
   const words = pathWords(f?.path ?? { kind: "path" });
+  // "Order set by the ministry" for a published path; a draft says nothing.
+  const trust = f ? trustLine(f.path.status) : null;
   const kicker = f
     ? f.mine
       ? `Your ${words.noun} · ${nowrap(`${words.unit} ${f.day} of ${f.total}`)}`
@@ -328,7 +330,7 @@ const Masthead = memo(function Masthead({
   const spoken = f
     ? f.mine
       ? `Your ${words.noun}. ${words.unit} ${f.day} of ${f.total}. ${f.path.name}. ${doneLabel(f.done.length, f.total)}.`
-      : `Start here. ${words.count(f.total)}. ${f.path.name}. ${trustLine(f.path.status).text.replace(" · ", ", ")}.${f.length ? ` ${spokenText(f.length)}.` : ""}`
+      : `Start here. ${words.count(f.total)}. ${f.path.name}.${trust ? ` ${trust.text}.` : ""}${f.length ? ` ${spokenText(f.length)}.` : ""}`
     : "";
   return (
     <View style={[styles.mast, { paddingTop: top + 18 }]} {...web({ dataSet: { dark: "true" } })}>
