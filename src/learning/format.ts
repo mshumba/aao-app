@@ -27,11 +27,27 @@ export function teachingsLabel(count: number) {
   return `${count} teaching${count === 1 ? "" : "s"}`;
 }
 
-/** "About 18 hours in all": a path's sermons, whole, together. */
-export function totalTimeLabel(seconds: number) {
-  if (seconds < 3600) return `About ${Math.max(1, Math.round(seconds / 60))} min in all`;
-  const hours = Math.round(seconds / 3600);
-  return `About ${hours} hour${hours === 1 ? "" : "s"} in all`;
+/**
+ * A path's sermons, whole, together, shown beside a clock: "12h"; under ten
+ * hours "5h 30m"; under an hour "50m". It's only ever "about", so it's
+ * rounded: to the hour from ten hours, to ten minutes under that, to five
+ * under an hour. `spoken` says it in words: "About 12 hours".
+ */
+export function totalTime(seconds: number) {
+  const minutes = Math.max(0, seconds) / 60;
+  let h: number;
+  let m: number;
+  if (minutes < 57.5) {
+    h = 0;
+    m = Math.max(5, Math.round(minutes / 5) * 5);
+  } else {
+    const tens = Math.round(minutes / 10) * 10;
+    h = tens < 600 ? Math.floor(tens / 60) : Math.round(minutes / 60);
+    m = tens < 600 ? tens % 60 : 0;
+  }
+  const text = !h ? `${m}m` : m ? `${h}h ${m}m` : `${h}h`;
+  const words = [h ? `${h} hour${h === 1 ? "" : "s"}` : "", m ? `${m} minutes` : ""].filter(Boolean);
+  return { text, spoken: `About ${words.join(" ")}` };
 }
 
 /** "Day 3 of 7". */

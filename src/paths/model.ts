@@ -167,15 +167,20 @@ export function breaksBeforeItalic(name: string, italic: string | null | undefin
   return !!parts.italic && parts.before.trim().length > 0;
 }
 
-/** "Day 1 · Lay aside every weight", the timeline's kicker for a day ("Teaching 1 · …" in a series). */
-export function dayKicker(
+/**
+ * What a day's card says after its "Day 3": "Today" ("Next" in a series),
+ * "Start here" before the path is started, "Done", or "Opens after Day 2"
+ * on the one day waiting for today's. Null for a day further ahead, which
+ * needs no word: its theme says what it is.
+ */
+export function dayStatus(
   day: number,
   state: DayState,
-  theme: string,
   opts: { enrolled: boolean; locked: boolean; unit?: string },
 ) {
   const unit = opts.unit ?? "Day";
-  if (state === "today") return `${unit} ${day} · ${opts.enrolled ? (unit === "Day" ? "Today" : "Next") : "Start here"}`;
-  if (state === "upcoming" && opts.locked) return `${unit} ${day} · Opens after ${unit} ${day - 1}`;
-  return `${unit} ${day} · ${theme}`;
+  if (state === "today") return opts.enrolled ? (unit === "Day" ? "Today" : "Next") : "Start here";
+  if (state === "done") return "Done";
+  if (opts.locked) return `Opens after ${unit} ${day - 1}`;
+  return null;
 }

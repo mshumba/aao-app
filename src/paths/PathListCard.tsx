@@ -93,10 +93,8 @@ export const PathListCard = memo(function PathListCard({
             partial={progress.partial}
             tone="onLight"
             thickness={3}
-            caption={{
-              left: `${words.unit} ${progress.day} of ${total}`,
-              right: `${progress.done.length} done · ${Math.max(0, total - progress.done.length)} to go`,
-            }}
+            // The segments show what's done: the words just say where you are.
+            caption={{ left: `${words.unit} ${progress.day} of ${total}` }}
             style={styles.progress}
           />
         ) : progress.kind === "finished" ? (

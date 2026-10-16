@@ -15,6 +15,7 @@ import {
   test,
   ytLog,
 } from "./fixtures";
+import { totalTime } from "../src/learning/format";
 
 // Guided paths, one message a day, from the local fixtures
 // (src/learning/fixtures.ts): "Breaking free from habitual sin" (published,
@@ -22,7 +23,9 @@ import {
 // Morning, 2 hr 49 min) and "Learning to wait on God" (a 5-day draft, shown
 // with no draft label anywhere, as the owner asked). A day
 // plays its whole sermon: it resumes where the viewer left off, else starts
-// at the beginning, and it's done once 95% of it has been watched.
+// at the beginning, and it's done once 95% of it has been watched. The path
+// page shows the days as a row of cards that opens on today's, the next day
+// at its edge.
 
 const ORDER_SET = "Order set by the ministry";
 /** Any draft marker: the owner asked for none, anywhere. */
@@ -35,6 +38,23 @@ function cta(page: Page) {
 function day(page: Page, n: number) {
   return shown(page.getByTestId(`path-day-${n}`)).first();
 }
+
+/** Where a day's card sits across the window: wholly in it, at its edge, or out of sight. */
+async function inView(page: Page, n: number) {
+  const box = (await day(page, n).boundingBox())!;
+  const width = page.viewportSize()!.width;
+  if (box.x + box.width <= 0 || box.x >= width) return "out";
+  return box.x >= 0 && box.x + box.width <= width ? "whole" : "edge";
+}
+
+test("a path's length reads as a clock would say it: 12h, 5h 30m, 50m", () => {
+  expect(totalTime(12 * 3600 + 20 * 60)).toEqual({ text: "12h", spoken: "About 12 hours" });
+  expect(totalTime(5 * 3600 + 27 * 60)).toEqual({ text: "5h 30m", spoken: "About 5 hours 30 minutes" });
+  expect(totalTime(9 * 3600 + 58 * 60)).toEqual({ text: "10h", spoken: "About 10 hours" });
+  expect(totalTime(3600 + 2 * 60)).toEqual({ text: "1h", spoken: "About 1 hour" });
+  expect(totalTime(49 * 60)).toEqual({ text: "50m", spoken: "About 50 minutes" });
+  expect(totalTime(59 * 60)).toEqual({ text: "1h", spoken: "About 1 hour" });
+});
 
 /**
  * A place in Day Two Morning (Days 3 and 7) 15 seconds short of 95% watched
@@ -57,27 +77,43 @@ test("the Paths tab lists every path, and a draft carries no label", async ({ pa
   await tab(page, "Paths").click();
   await expect(page.getByRole("heading", { level: 1, name: "Paths" })).toBeVisible();
   await expect(page).toHaveURL(/\/paths$/);
-  // The first path to start leads, as the tab's masthead; the rest follow.
-  // Its length is the sermons' own, whole: never the focus minutes a day.
-  const habit = page.getByTestId("paths-featured");
-  await expect(habit).toHaveAccessibleName(
-    "Start here. 7 messages. Breaking free from habitual sin. Order set by the ministry. About 18 hours in all.",
-  );
-  await expect(habit).not.toContainText(DRAFT);
-  await expect(page.getByTestId("paths-play")).toHaveAccessibleName(
-    "Start Day 1, 1 hour 47 minutes. Breaking free from habitual sin",
-  );
-  await expect(shown(page.getByText("1 path", { exact: true }))).toBeVisible();
-  const wait = page.getByTestId(`path-card-${WAIT}`);
-  await expect(wait).toHaveAccessibleName(
-    "Learning to wait on God. 5 messages. Five days on staying faithful when God's promise seems slow.",
-  );
-  await expect(wait).toContainText("5 messages");
+  // The first path to start (in the editors' order, which opens with hope
+  // rather than sin) leads, as the tab's masthead; the rest follow. Its
+  // length is the sermons' own, whole: never the focus minutes a day. A
+  // draft makes no claim about who set its order.
+  const wait = page.getByTestId("paths-featured");
+  await expect(wait).toHaveAccessibleName("Start here. 5 messages. Learning to wait on God. About 14 hours.");
+  // The length by a clock: "14h".
+  await expect(wait).toContainText("14h");
   await expect(wait).not.toContainText(DRAFT);
   await expect(wait).not.toContainText(ORDER_SET);
-  await expect(page.getByText(/min a day/)).toHaveCount(0);
-  await wait.click();
-  await expect(page).toHaveURL(new RegExp(`/path/${WAIT}$`));
+  await expect(page.getByTestId("paths-play")).toHaveAccessibleName(
+    "Start Day 1, 3 hours 35 minutes. Learning to wait on God",
+  );
+  await expect(shown(page.getByText("1 path", { exact: true }))).toBeVisible();
+  const habit = page.getByTestId(`path-card-${HABIT}`);
+  await expect(habit).toHaveAccessibleName(
+    "Breaking free from habitual sin. 7 messages. Seven days from the grip of a repeated sin to the freedom grace gives.",
+  );
+  await expect(habit).toContainText("7 messages");
+  await expect(habit).not.toContainText(DRAFT);
+  await expect(page.getByText(/min a day|in all/)).toHaveCount(0);
+  await habit.click();
+  await expect(page).toHaveURL(new RegExp(`/path/${HABIT}$`));
+});
+
+test("on the Paths tab, the path you're on says its day once", async ({ page }) => {
+  await seedPathProgress(page, { [HABIT]: [1, 2], [WAIT]: [1] });
+  await page.goto("/paths");
+  const mine = page.getByTestId("paths-active");
+  await expect(mine).toHaveAccessibleName(
+    "Your path. Day 3 of 7. Breaking free from habitual sin. 2 of 7 done.",
+  );
+  await expect(shown(page.getByText(/Day\s3\sof\s7/i))).toHaveCount(1);
+  // Another path started: where you are on it, and nothing more.
+  const wait = page.getByTestId(`path-card-${WAIT}`);
+  await expect(wait).toContainText("Day 2 of 5");
+  await expect(wait).not.toContainText(/to go/);
 });
 
 test("a day's theme and title wrap between words, never mid-word", async ({ page }) => {
@@ -94,10 +130,9 @@ test("a day's theme and title wrap between words, never mid-word", async ({ page
     // On more than one line, broken between words.
     expect(((await text.boundingBox())?.height ?? 0)).toBeGreaterThan(24);
   }
-  // Today's card keeps "Day 1 ·" and "Start here" whole, so a narrow card
-  // breaks at the dot rather than inside "Start here".
-  const kicker = day(page, 1).getByText(/^Day.1.·.Start.here$/);
-  expect(await kicker.textContent()).toBe("Day\u00a01\u00a0· Start\u00a0here");
+  // A card's name never breaks inside "Day 1".
+  const name = day(page, 1).getByText(/^Day.1 · Start here$/);
+  expect(await name.textContent()).toBe("Day\u00a01 · Start here");
 });
 
 test("only a published path claims the ministry set its order", async ({ page }) => {
@@ -117,15 +152,18 @@ test("only a published path claims the ministry set its order", async ({ page })
   await expect(shown(page.getByText(DRAFT))).toHaveCount(0);
   await expect(shown(page.getByText(ORDER_SET))).toHaveCount(0);
 
-  // Home is just as honest: the first path as a card, the others as tiles.
+  // Home is just as honest: the first path (the draft) as a card, the
+  // others as tiles.
   await page.goto("/");
-  await expect(page.getByTestId("start-here")).toContainText(ORDER_SET);
+  await expect(page.getByTestId("start-here")).toContainText("Learning to wait on God");
+  await expect(page.getByTestId("start-here")).not.toContainText(DRAFT);
+  await expect(page.getByTestId("start-here")).not.toContainText(ORDER_SET);
   const tiles = shown(page.getByTestId("path-tile"));
   await expect(tiles).toHaveCount(1);
   await expect(tiles.nth(0)).not.toContainText(DRAFT);
-  await expect(tiles.nth(0)).not.toContainText(ORDER_SET);
+  await expect(tiles.nth(0)).toContainText(ORDER_SET);
   await expect(tiles.nth(0)).toHaveAccessibleName(
-    "Learning to wait on God. 5 messages. Five days on staying faithful when God's promise seems slow.",
+    "Breaking free from habitual sin. 7 messages. Seven days from the grip of a repeated sin to the freedom grace gives. Order set by the ministry.",
   );
 });
 
@@ -135,21 +173,36 @@ test("a path not yet started opens on Day 1, and shows the days ahead", async ({
   await expect(day(page, 1)).toContainText("Day 1 · Start here");
   await expect(day(page, 1)).toContainText("1 hr 47 min");
   await expect(day(page, 1)).not.toContainText("focus");
-  await expect(
-    page.getByRole("button", {
-      name: "Day 1, start here. Lay aside every weight. Apostolic Shift: Day One. 1 hour 47 minutes.",
-      exact: true,
-    }),
-  ).toBeVisible();
+  // The day's theme leads; the sermon's headline follows with its length.
+  await expect(day(page, 1)).toHaveAccessibleName(
+    "Day 1 of 7, start here. Lay aside every weight. Apostolic Shift: Day One, 1 hour 47 minutes.",
+  );
   // Nothing to mark done before the path has started.
   await expect(page.getByTestId("path-day-1-mark-done")).toHaveCount(0);
-  await expect(page.getByTestId("path-cover")).toContainText("About 18 hours in all");
+  // The path's length by a clock: "18h", said "About 18 hours".
+  const cover = page.getByTestId("path-cover");
+  await expect(cover).toContainText("18h");
+  await expect(cover).not.toContainText("in all");
+  await expect(cover.getByRole("img", { name: "7 days, not started. About 18 hours." })).toBeVisible();
+  // Day 1 in view and Day 2 at its edge; the rest are a scroll away.
+  expect(await inView(page, 1)).toBe("whole");
+  expect(await inView(page, 2)).toBe("edge");
+  expect(await inView(page, 3)).toBe("out");
   // Nothing is locked before the path starts: each day shows its theme.
   for (const n of [2, 3, 4, 5, 6, 7]) {
     await expect(day(page, n)).not.toContainText("Opens after");
-    await expect(day(page, n)).toHaveAccessibleName(new RegExp(`^Day ${n}\\. .+\\. Coming up\\.$`));
+    await expect(day(page, n)).toHaveAccessibleName(new RegExp(`^Day ${n} of 7, coming up\\. .+\\.$`));
   }
+  await expect(day(page, 2)).toHaveAccessibleName(
+    "Day 2 of 7, coming up. Shut down the factory. Apostolic Shift: Grand Finale, 2 hours 28 minutes.",
+  );
   await expect(cta(page)).toHaveAccessibleName("Start Day 1, 1 hour 47 minutes");
+  // On the keyboard, the arrow keys move from day to day.
+  await day(page, 1).focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(day(page, 2)).toBeFocused();
+  await page.keyboard.press("ArrowLeft");
+  await expect(day(page, 1)).toBeFocused();
   // A locked day explains itself kindly, and the way in is Day 1.
   await day(page, 4).click();
   const sheet = page.getByRole("dialog", { name: "This path starts with Day 1" });
@@ -214,11 +267,17 @@ test.describe("part way through a path", () => {
   test("Continue plays today's sermon, whole, from the beginning", async ({ page }) => {
     await fakeYouTube(page, { duration: LENGTH[SERMON.dayTwo] });
     await page.goto(`/path/${HABIT}`);
-    await expect(day(page, 1)).toHaveAccessibleName(/^Day 1\. .*\. Done\.$/);
-    await expect(day(page, 2)).toHaveAccessibleName(/^Day 2\. .*\. Done\.$/);
+    await expect(day(page, 1)).toHaveAccessibleName(/^Day 1 of 7, done\. /);
+    await expect(day(page, 2)).toHaveAccessibleName(/^Day 2 of 7, done\. /);
     await expect(day(page, 3)).toContainText("Day 3 · Today");
+    await expect(day(page, 3)).toContainText("Stop sin while it is a thought");
     await expect(day(page, 3)).toContainText("2 hr 49 min");
     await expect(day(page, 4)).toContainText("Day 4 · Opens after Day 3");
+    await expect(day(page, 4)).toHaveAccessibleName(/^Day 4 of 7, opens after Day 3\. Find the flesh's booster stations\. /);
+    // The row opens on today, the next day at its edge, the days done to the left.
+    await expect.poll(() => inView(page, 3)).toBe("whole");
+    expect(await inView(page, 4)).toBe("edge");
+    expect(await inView(page, 1)).toBe("out");
     await expect(cta(page)).toHaveAccessibleName("Continue Day 3, 2 hours 49 minutes");
     await cta(page).click();
     await expect(page).toHaveURL(new RegExp(`/sermon/${SERMON.dayTwo}\\?path=${HABIT}&day=3$`));
@@ -311,8 +370,10 @@ test.describe("part way through a path", () => {
     await expect(sheet.getByRole("button", { name: /^Keep listening/ })).toHaveCount(0);
     await sheet.getByRole("button", { name: "Done for today", exact: true }).click();
     await expect(sheet).toHaveCount(0);
-    await expect(day(page, 3)).toHaveAccessibleName(/^Day 3\. .*\. Done\.$/);
+    await expect(day(page, 3)).toHaveAccessibleName(/^Day 3 of 7, done\. /);
     await expect(day(page, 4)).toContainText("Day 4 · Today");
+    // The row moves on to the new today.
+    await expect.poll(() => inView(page, 4)).toBe("whole");
     await expect(cta(page)).toHaveAccessibleName("Continue Day 4, 3 hours 35 minutes");
     // The sheet isn't shown again for the same day.
     await page.reload();
@@ -439,7 +500,9 @@ test("finishing the last day completes the path", async ({ page }) => {
   await sheet.getByRole("button", { name: "Close", exact: true }).click();
   await expect(cta(page)).toHaveAccessibleName("Choose your next path");
   for (const n of [1, 2, 3, 4, 5, 6, 7])
-    await expect(day(page, n)).toHaveAccessibleName(new RegExp(`^Day ${n}\\. .*\\. Done\\.$`));
+    await expect(day(page, n)).toHaveAccessibleName(new RegExp(`^Day ${n} of 7, done\\. `));
+  // Finished, the row goes back to Day 1.
+  await expect.poll(() => inView(page, 1)).toBe("whole");
   // Finished, Home offers paths to start again, and the Paths tab says so.
   await page.waitForTimeout(400);
   await page.getByTestId("path-back").click();

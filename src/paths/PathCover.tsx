@@ -1,11 +1,12 @@
 import { memo } from "react";
 import { StyleSheet, View, useWindowDimensions, type LayoutChangeEvent } from "react-native";
-import { CardFan, ItalicTitle, Kicker, PathProgress, Wash, fanSize, spokenText, type ArtSource } from "../kit";
+import { CardFan, ItalicTitle, Kicker, PathProgress, Wash, fanSize, type ArtSource } from "../kit";
 import type { Path } from "../learning";
-import { totalTimeLabel } from "../learning/format";
-import { c, textCap, type } from "../theme";
-import { web } from "../ui";
+import { totalTime } from "../learning/format";
+import { c, tabular, textCap, type } from "../theme";
+import { T, web } from "../ui";
 import { breaksBeforeItalic, pathWords } from "./model";
+import { TotalTime } from "./TotalTime";
 
 /** How far the ivory panel rides up over the cover's bottom edge. */
 export const COVER_OVERLAP = 20;
@@ -24,10 +25,10 @@ export function coverFanHeight(width: number) {
  * The path page's dark cover (concept screen 03): navy light over near
  * black, a fan of the path's sermons (today's in front), "GUIDED PATH · 7
  * MESSAGES" ("TEACHING SERIES · 12 TEACHINGS"), the name in serif with its
- * italic phrase, and the days as segments with "Day 3 of 7 · About 18 hours
- * in all" (the sermons, whole, once their lengths are known). It runs under
- * the status bar; the back and share buttons float above it (the screen
- * draws them).
+ * italic phrase, and the days as segments with "Day 3 of 7 · [clock] 18h"
+ * under them (the sermons, whole, once their lengths are known; just the
+ * clock before the path is started). It runs under the status bar; the back
+ * and share buttons float above it (the screen draws them).
  */
 export const PathCover = memo(function PathCover({
   path,
@@ -62,22 +63,14 @@ export const PathCover = memo(function PathCover({
   const scale = fanScale(width);
   const words = pathWords(path);
   const days = words.series ? "teachings" : "days";
-  const all = length ? totalTimeLabel(length) : null;
-  const allSpoken = all ? ` ${spokenText(all)}.` : "";
+  const all = length ? totalTime(length) : null;
+  const allSpoken = all ? ` ${all.spoken}.` : "";
   // Before starting, the kicker already counts the messages: just the time.
-  const caption = !enrolled
-    ? all
-      ? { left: all, centered: true }
-      : undefined
-    : {
-        left: today == null ? "Finished" : `${words.unit} ${today} of ${total}`,
-        right: all ?? undefined,
-        centered: true,
-      };
+  const where = !enrolled ? null : today == null ? "Finished" : `${words.unit} ${today} of ${total}`;
   const spoken = !enrolled
     ? `${total} ${days}, not started.${allSpoken}`
     : today == null
-      ? `Finished, all ${total} ${days} done.`
+      ? `Finished, all ${total} ${days} done.${allSpoken}`
       : `${words.unit} ${today} of ${total}. ${done.length} done.${allSpoken}`;
 
   return (
@@ -103,16 +96,26 @@ export const PathCover = memo(function PathCover({
           {...web({ "aria-level": 1 })}
         />
       </View>
-      <PathProgress
-        total={total}
-        done={done}
-        current={today}
-        partial={partial}
-        tone="onDark"
-        caption={caption}
-        accessibilityLabel={spoken}
+      <View
         style={styles.progress}
-      />
+        accessible
+        accessibilityLabel={spoken}
+        // Web drops a label on an element with no role.
+        {...web({ role: "img" })}
+      >
+        <PathProgress total={total} done={done} current={today} partial={partial} tone="onDark" />
+        {where || length ? (
+          <View style={styles.caption}>
+            {where ? <T style={[type.metaSmall, tabular, styles.where]} maxFontSizeMultiplier={textCap.section}>
+                {where}
+              </T> : null}
+            {where && length ? <T style={[type.metaSmall, styles.dot]} maxFontSizeMultiplier={textCap.section}>
+                ·
+              </T> : null}
+            {length ? <TotalTime seconds={length} /> : null}
+          </View>
+        ) : null}
+      </View>
     </View>
   );
 });
@@ -127,4 +130,15 @@ const styles = StyleSheet.create({
   text: { alignItems: "center", paddingHorizontal: 24 },
   title: { color: c.white, textAlign: "center", marginTop: 8 },
   progress: { width: "100%", maxWidth: 420, alignSelf: "center", paddingHorizontal: 58, marginTop: 8 },
+  // One line under the segments, centred; it wraps whole at large text.
+  caption: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "center",
+    alignItems: "center",
+    columnGap: 10,
+    marginTop: 8,
+  },
+  where: { color: c.white },
+  dot: { color: c.onMediaMuted },
 });

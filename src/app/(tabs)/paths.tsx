@@ -27,11 +27,12 @@ import {
   type Path,
   type PathDayWithSermon,
 } from "../../learning";
-import { totalTimeLabel } from "../../learning/format";
+import { totalTime } from "../../learning/format";
 import { useGo, usePageTitle } from "../../navigation";
 import { dayTiming, fanFor, isSingleTeaching, pathHref, pathLength, pathWords } from "../../paths/model";
 import { useOpenTeaching, usePlayDay } from "../../paths/navigation";
 import { PathListCard, type ListProgress } from "../../paths/PathListCard";
+import { TotalTime } from "../../paths/TotalTime";
 import { useDockInset } from "../../player/useDockInset";
 import { c, radius, space, textCap, type } from "../../theme";
 import { Heading, StatePanel, Tap, nowrap, web } from "../../ui";
@@ -54,8 +55,8 @@ type Featured = {
   action: string;
   /** "48 min left", "2 hr 16 min": today's sermon, whole. */
   detail: string;
-  /** "About 18 hours in all", once every sermon's length is known. */
-  length: string | null;
+  /** The sermons, whole, together (seconds), once every one's length is known. */
+  length: number | null;
 };
 
 /** A row of the list: a path's card, or the heading of the teaching series. */
@@ -66,8 +67,9 @@ type Row =
 /**
  * The Paths tab. A dark masthead under the status bar, built like a path's
  * own cover: "Paths", "Guided journeys, *one message a day*", then the path
- * you're on (or the first to start) with its fan, name, progress and a
- * white "Continue Day 3" that plays today's sermon, whole. On an ivory panel
+ * you're on with its fan, name and progress (or the first to start, with
+ * its length by a clock: "12h") and a white "Continue Day 3" that plays
+ * today's sermon, whole. On an ivory panel
  * rising over it, every other path as a small dark cover, then the teaching
  * series in a section of their own ("12 teachings"; one of a single
  * teaching opens that teaching). Drafts carry no label; the ministry's name
@@ -123,7 +125,7 @@ export default function PathsTab() {
         partial: timing?.partial ?? 0,
         action: `${started ? "Continue" : "Start"} ${pathWords(path).unit} ${day}`,
         detail: timing?.detail ?? "",
-        length: length ? totalTimeLabel(length) : null,
+        length,
       };
     }
     const path = paths.find((p) => {
@@ -147,7 +149,7 @@ export default function PathsTab() {
       partial: 0,
       action: "Start Day 1",
       detail: dayTiming(first, watchOf(first.youtubeId)).detail,
-      length: length ? totalTimeLabel(length) : null,
+      length,
     };
   }, [active, paths, joined, progressFor, daysOf, watchOf]);
 
@@ -330,7 +332,7 @@ const Masthead = memo(function Masthead({
   const spoken = f
     ? f.mine
       ? `Your ${words.noun}. ${words.unit} ${f.day} of ${f.total}. ${f.path.name}. ${doneLabel(f.done.length, f.total)}.`
-      : `Start here. ${words.count(f.total)}. ${f.path.name}.${trust ? ` ${trust.text}.` : ""}${f.length ? ` ${spokenText(f.length)}.` : ""}`
+      : `Start here. ${words.count(f.total)}. ${f.path.name}.${trust ? ` ${trust.text}.` : ""}${f.length ? ` ${totalTime(f.length).spoken}.` : ""}`
     : "";
   return (
     <View style={[styles.mast, { paddingTop: top + 18 }]} {...web({ dataSet: { dark: "true" } })}>
@@ -368,22 +370,20 @@ const Masthead = memo(function Masthead({
               maxFontSizeMultiplier={textCap.display}
             />
             {f.mine ? null : <TrustLine status={f.path.status} tone="dark" style={styles.trust} />}
+            {!f.mine && f.length ? <TotalTime seconds={f.length} style={styles.length} /> : null}
           </Tap>
-          <PathProgress
-            total={f.total}
-            done={f.done}
-            current={f.mine ? f.day : null}
-            partial={f.partial}
-            tone="onDark"
-            caption={
-              f.mine
-                ? { left: `${words.unit} ${f.day} of ${f.total}`, right: doneLabel(f.done.length, f.total), centered: true }
-                : f.length
-                  ? { left: f.length, centered: true }
-                  : undefined
-            }
-            style={styles.progress}
-          />
+          {/* On it, how far: the kicker already says which day. Not started,
+              there's nothing yet to show. */}
+          {f.mine ? (
+            <PathProgress
+              total={f.total}
+              done={f.done}
+              current={f.day}
+              partial={f.partial}
+              tone="onDark"
+              style={styles.progress}
+            />
+          ) : null}
           <PlayPill
             testID="paths-play"
             tone="white"
@@ -433,7 +433,8 @@ const styles = StyleSheet.create({
   center: { textAlign: "center", marginTop: 14 },
   featuredName: { color: c.white, textAlign: "center", marginTop: 6 },
   trust: { marginTop: 8, justifyContent: "center" },
-  progress: { width: "100%", maxWidth: 300, marginTop: 14 },
+  length: { marginTop: 8 },
+  progress: { width: "100%", maxWidth: 300, marginTop: 16 },
   play: { marginTop: 18 },
   panel: {
     marginTop: -OVERLAP,

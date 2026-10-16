@@ -17,11 +17,11 @@ import { Kicker, RoundButton, StickyCTA, TrustLine, useStickyCTASpace } from "..
 import { nextDay, useEnrollment, usePath, type PathDayWithSermon } from "../../learning";
 import { firstParam, useGo, usePageTitle } from "../../navigation";
 import { DayCompleteSheet } from "../../paths/DayCompleteSheet";
-import { DayList, type DayItem } from "../../paths/DayList";
+import { DayCarousel, type DayItem } from "../../paths/DayCarousel";
 import { LockedDaySheet } from "../../paths/LockedDaySheet";
 import {
   artOf,
-  dayKicker,
+  dayStatus,
   dayTiming,
   dayTitle,
   fanFor,
@@ -45,19 +45,23 @@ const EMPTY: number[] = [];
 const RECENT_MS = 6 * 60 * 60 * 1000;
 /** The pinned header band: under the status bar, then the 40pt buttons and a little air. */
 const BAND = 52;
-/** "Why this path" longer than this folds to WHY_LINES with "Read more". */
-const WHY_LONG = 170;
-const WHY_LINES = 4;
+/** The page's column, as wide as a phone held sideways at most. */
+const COLUMN = 760;
+/** "Why this path" folds to three lines with "Read more" when it runs longer. */
+const WHY_LINES = 3;
 
 /**
  * A guided path or teaching series (concept screen 03): the dark cover with
- * its fan, name and progress; an ivory panel with "Why this path", "Order
- * set by the ministry" (published paths only) and the day timeline (done, today lifted with a quiet
- * "Mark Day 3 done", later days locked); and the navy call to action,
- * "Continue Day 3 · 48 min left" or "Start Day 1 · 2 hr 16 min". Every day
- * plays its whole sermon, from where the viewer left off. Once a day is done
- * (watched, or marked done) the page shows "Day 3 done." A series counts
- * teachings instead of days; one of a single teaching opens that teaching.
+ * its fan, name and progress; on an ivory panel, the days as a row of cards
+ * that opens on today's with the next day at its edge (the owner: "see only
+ * your day and the next day, and if you want to scroll ahead, scroll
+ * ahead"), a quiet "Mark Day 3 done", then "Why this path" in three lines
+ * with "Order set by the ministry" (published paths only); and the navy
+ * call to action, "Continue Day 3 · 48 min left" or "Start Day 1 · 2 hr 16
+ * min". Every day plays its whole sermon, from where the viewer left off.
+ * Once a day is done (watched, or marked done) the page shows "Day 3 done."
+ * A series counts teachings instead of days; one of a single teaching opens
+ * that teaching.
  */
 export default function PathScreen() {
   const params = useLocalSearchParams<{ id: string | string[] }>();
@@ -190,10 +194,13 @@ export default function PathScreen() {
     return { opacity: interpolate(scrollY.get(), [under - 16, under + 8], [0, 1], Extrapolation.CLAMP) };
   });
 
-  // "Why this path": four lines, the rest a tap away when it runs long.
+  // "Why this path": three lines, the rest a tap away when it runs long.
+  // Whether it does is measured: an unseen copy, whole, against the three.
   const [whyOpen, setWhyOpen] = useState(false);
+  const [whyHeights, setWhyHeights] = useState({ shown: 0, whole: 0 });
+  const longWhy = whyHeights.whole > whyHeights.shown + 2;
 
-  // ---- Rows ----------------------------------------------------------------------------
+  // ---- Days ----------------------------------------------------------------------------
 
   const items = useMemo<DayItem[]>(() => {
     if (!path) return [];
@@ -207,62 +214,57 @@ export default function PathScreen() {
       const state = stateOf(d.day, done, today);
       const isLocked = state === "upcoming" && d.day === nextOpen;
       const { text: title, pending } = dayTitle(d, settled);
-      const kicker = dayKicker(d.day, state, d.theme, { enrolled, locked: isLocked, unit });
-      if (state === "today" && timing) {
-        const key = d.keyTitle && d.keyAt > 0 ? { at: d.keyAt, title: d.keyTitle } : undefined;
-        const now = words.series ? "next" : "today";
+      const status = dayStatus(d.day, state, { enrolled, locked: isLocked, unit });
+      // Today's time is what's left of it; any other day's its whole sermon.
+      const time = state === "today" && timing ? timing : dayTiming(d, null);
+      const key = d.keyTitle && d.keyAt > 0 ? { at: d.keyAt, title: d.keyTitle } : undefined;
+      // "Day 2 of 6, coming up. You are dead to sin. Impartation Service, 3 hours."
+      const where = status ? status.charAt(0).toLowerCase() + status.slice(1) : "coming up";
+      const spoken = `${unit} ${d.day} of ${total}, ${where}. ${d.theme || title}. ${title}${
+        time.spokenMeta ? `, ${time.spokenMeta}` : ""
+      }.`;
+      const base = {
+        day: d.day,
+        name: `${unit} ${d.day}`,
+        status,
+        theme: d.theme,
+        title,
+        pending,
+        meta: time.meta,
+        state,
+        art: artOf(d),
+        keyMoment: key,
+        spoken,
+      };
+      if (state === "today")
         return {
-          day: d.day,
-          kicker,
-          title,
-          pending,
-          state,
-          art: artOf(d),
-          meta: timing.meta,
-          progress: timing.partial,
-          keyMoment: key,
-          label: `${unit} ${d.day}, ${enrolled ? now : "start here"}. ${d.theme}. ${title}.${timing.spokenMeta ? ` ${timing.spokenMeta}.` : ""}`,
+          ...base,
+          progress: time.partial,
           hint: enrolled ? `Plays ${words.series ? "the next teaching" : "today’s day"}` : `Starts the ${words.noun} with ${unit} 1`,
           onPress: primary,
           onKeyMoment: key
             ? () => (enrolled ? playDay(d, d.keyAt) : play(d.youtubeId, { at: d.keyAt }))
             : undefined,
-          // "Mark Day 3 done": the sheet below says so, as when the sermon is watched.
-          markDone: enrolled
-            ? {
-                label: `Mark ${unit} ${d.day} done`,
-                hint: `Counts ${lower} ${d.day} as done`,
-                onPress: () => complete(path.id, d.day),
-              }
-            : undefined,
         };
-      }
-      if (state === "done")
-        return {
-          day: d.day,
-          kicker,
-          title,
-          pending,
-          state,
-          label: `${unit} ${d.day}. ${d.theme}. ${title}. Done.`,
-          hint: `Plays this ${lower} again`,
-          onPress: () => playDay(d),
-        };
-      return {
-        day: d.day,
-        kicker,
-        title,
-        pending,
-        state,
-        locked: isLocked,
-        label: isLocked
-          ? `${unit} ${d.day}. Opens after ${lower} ${d.day - 1}. ${title}.`
-          : `${unit} ${d.day}. ${d.theme}. ${title}. Coming up.`,
-        hint: `Says when this ${lower} opens`,
-        onPress: () => setLocked(d.day),
-      };
+      if (state === "done") return { ...base, hint: `Plays this ${lower} again`, onPress: () => playDay(d) };
+      return { ...base, locked: isLocked, hint: `Says when this ${lower} opens`, onPress: () => setLocked(d.day) };
     });
-  }, [path, days, done, today, settled, enrolled, timing, primary, playDay, play, setLocked, words, complete]);
+  }, [path, days, done, today, total, settled, enrolled, timing, primary, playDay, play, setLocked, words]);
+
+  // "Mark Day 3 done", under the days: the sheet then says so, as when the
+  // sermon is watched. Nothing to mark before the path is started.
+  const markDone = useMemo(
+    () =>
+      path && enrolled && today != null
+        ? {
+            day: today,
+            label: `Mark ${words.unit} ${today} done`,
+            hint: `Counts ${words.unit.toLowerCase()} ${today} as done`,
+            onPress: () => complete(path.id, today),
+          }
+        : undefined,
+    [path, enrolled, today, words.unit, complete],
+  );
 
   // ---- States --------------------------------------------------------------------------
 
@@ -321,7 +323,7 @@ export default function PathScreen() {
         }
       : null;
 
-  const longWhy = !!path.why && path.why.length > WHY_LONG;
+  const column = Math.min(width, COLUMN);
   return (
     <View style={styles.screen}>
       {focused ? <StatusBar style="light" animated /> : null}
@@ -366,19 +368,39 @@ export default function PathScreen() {
           onTitleBottom={setTitleBottom}
         />
         <View style={styles.panel}>
+          <DayCarousel days={items} focus={today ?? 1} column={column} active={focused} markDone={markDone} />
           <View style={styles.column}>
-            <View style={styles.whyRow}>
+            <View style={[styles.whyRow, !markDone && styles.whyRowAlone]}>
               <Kicker>{`Why this ${words.noun}`}</Kicker>
               <TrustLine status={path.status} />
             </View>
             {path.why ? (
-              <T
-                style={[type.prose, styles.why]}
-                maxFontSizeMultiplier={textCap.quote}
-                numberOfLines={longWhy && !whyOpen ? WHY_LINES : undefined}
-              >
-                {path.why}
-              </T>
+              <View>
+                <T
+                  style={[type.prose, styles.why]}
+                  maxFontSizeMultiplier={textCap.quote}
+                  numberOfLines={whyOpen ? undefined : WHY_LINES}
+                  onLayout={(e) => {
+                    const shown = e.nativeEvent.layout.height;
+                    if (!whyOpen) setWhyHeights((was) => (was.shown === shown ? was : { ...was, shown }));
+                  }}
+                >
+                  {path.why}
+                </T>
+                <T
+                  style={[type.prose, styles.why, styles.measure]}
+                  maxFontSizeMultiplier={textCap.quote}
+                  accessible={false}
+                  importantForAccessibility="no-hide-descendants"
+                  aria-hidden
+                  onLayout={(e) => {
+                    const whole = e.nativeEvent.layout.height;
+                    setWhyHeights((was) => (was.whole === whole ? was : { ...was, whole }));
+                  }}
+                >
+                  {path.why}
+                </T>
+              </View>
             ) : null}
             {longWhy ? (
               <View style={styles.whyMore}>
@@ -389,7 +411,6 @@ export default function PathScreen() {
                 />
               </View>
             ) : null}
-            <DayList days={items} style={[styles.days, longWhy && styles.daysAfterMore]} />
           </View>
         </View>
       </Animated.ScrollView>
@@ -461,12 +482,14 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: c.bg },
   panel: {
     marginTop: -COVER_OVERLAP,
+    paddingTop: 20,
     backgroundColor: c.bg,
     borderTopLeftRadius: radius.r28,
     borderTopRightRadius: radius.r28,
   },
-  column: { width: "100%", maxWidth: 760, alignSelf: "center", paddingTop: 20 },
+  column: { width: "100%", maxWidth: COLUMN, alignSelf: "center" },
   whyRow: {
+    marginTop: 14,
     flexDirection: "row",
     flexWrap: "wrap",
     alignItems: "center",
@@ -475,10 +498,12 @@ const styles = StyleSheet.create({
     rowGap: 4,
     paddingHorizontal: space.gutter,
   },
+  // With no "Mark Day 3 done" between them, a little more air under the days.
+  whyRowAlone: { marginTop: 18 },
   why: { color: c.text, marginTop: 6, paddingHorizontal: space.gutter },
-  whyMore: { paddingHorizontal: space.gutter - 2, marginTop: -4, marginBottom: -10 },
-  daysAfterMore: { paddingTop: 10 },
-  days: { paddingTop: 14, paddingLeft: space.gutter, paddingRight: 20 },
+  whyMore: { paddingHorizontal: space.gutter - 2, marginTop: -4 },
+  // The unseen copy "Why this path" is measured by, whole.
+  measure: { position: "absolute", top: 0, left: 0, right: 0, opacity: 0, pointerEvents: "none" },
   nav: {
     position: "absolute",
     left: 20,

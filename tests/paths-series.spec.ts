@@ -12,7 +12,7 @@ test("the Paths tab lists teaching series in a section of their own", async ({ p
   await page.goto("/");
   await tab(page, "Paths").click();
   // The masthead and "More paths" are guided paths only.
-  await expect(page.getByTestId("paths-featured")).toHaveAccessibleName(/^Start here\. 7 messages\. Breaking free/);
+  await expect(page.getByTestId("paths-featured")).toHaveAccessibleName(/^Start here\. 5 messages\. Learning to wait on God\./);
   await expect(shown(page.getByText("1 path", { exact: true }))).toBeVisible();
   const heading = shown(page.getByRole("heading", { name: "Teaching series" }));
   await expect(heading).toBeVisible();
@@ -23,10 +23,10 @@ test("the Paths tab lists teaching series in a section of their own", async ({ p
   const face = page.getByTestId(`path-card-${FACE}`);
   await expect(face).toContainText("1 teaching");
   // In order: the guided paths' cards, then the series.
-  const wait = await page.getByTestId("path-card-learning-to-wait-on-god").boundingBox();
+  const habit = await page.getByTestId("path-card-breaking-free-from-habitual-sin").boundingBox();
   const section = await heading.boundingBox();
   const first = await spirit.boundingBox();
-  expect(wait!.y).toBeLessThan(section!.y);
+  expect(habit!.y).toBeLessThan(section!.y);
   expect(section!.y).toBeLessThan(first!.y);
   await spirit.click();
   await expect(page).toHaveURL(new RegExp(`/path/${SPIRIT}$`));
@@ -39,7 +39,12 @@ test("a teaching series' page counts teachings, and plays each one whole", async
   const cover = page.getByTestId("path-cover");
   await expect(cover).toContainText("Teaching series · 4 teachings");
   await expect(shown(page.getByText("Why this series", { exact: true }))).toBeVisible();
-  await expect(shown(page.getByTestId("path-day-1")).first()).toContainText("Teaching 1 · Start here");
+  const first = shown(page.getByTestId("path-day-1")).first();
+  await expect(first).toContainText("Teaching 1 · Start here");
+  await expect(first).toHaveAccessibleName(
+    "Teaching 1 of 4, start here. Prayer is fellowship. Pray Without Ceasing, 3 hours 35 minutes.",
+  );
+  await expect(shown(page.getByTestId("path-day-2")).first()).toContainText("Teaching 2");
   await expect(page.getByTestId("path-cta")).toHaveAccessibleName("Start Teaching 1, 3 hours 35 minutes");
   await page.getByTestId("path-cta").click();
   await expect(page).toHaveURL(new RegExp(`/sermon/${SERMON.pray}\\?path=${SPIRIT}&day=1$`));
