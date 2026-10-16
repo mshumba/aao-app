@@ -1,5 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as SecureStore from "expo-secure-store";
+import { Platform } from "react-native";
 
 /**
  * Where Supabase keeps the session on iPhone and Android: the Keychain /
@@ -65,3 +66,18 @@ export const secureSessionStorage = {
     await remove(key);
   },
 };
+
+/**
+ * Removes the saved session without Supabase, for the sign-out it can't
+ * finish itself (see signOutHere). On the web it keeps the session in the
+ * browser's localStorage, its default.
+ */
+export async function forgetSession() {
+  if (Platform.OS !== "web") return secureSessionStorage.removeItem(SESSION_KEY);
+  try {
+    globalThis.localStorage?.removeItem(SESSION_KEY);
+  } catch {
+    // Storage blocked, so Supabase kept the session in memory, out of reach
+    // here; the sign-out that follows reports it.
+  }
+}

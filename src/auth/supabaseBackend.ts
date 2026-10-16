@@ -1,5 +1,4 @@
 import {
-  AuthError as SupabaseAuthError,
   createClient,
   processLock,
   type Session,
@@ -12,12 +11,12 @@ import * as WebBrowser from "expo-web-browser";
 import { AppState, Platform, TurboModuleRegistry } from "react-native";
 import { CategoryId } from "../data/categories";
 import { googleClientIds, isNativeApple, supabaseConfig } from "./config";
-import { SESSION_KEY, secureSessionStorage } from "./sessionStorage";
+import { SESSION_KEY, forgetSession, secureSessionStorage } from "./sessionStorage";
 import { signInMethod } from "./signInMethod";
+import { codeExchange, run, signOutHere, translate } from "./supabaseSession";
 import {
   AuthBackend,
   AuthError,
-  AuthErrorCode,
   AuthResult,
   AuthUser,
   CodePurpose,
@@ -54,62 +53,8 @@ function toUser(session: Session | null): AuthUser | null {
   return { id: user.id, email: user.email ?? null, provider: signInMethod(session) };
 }
 
-/** Supabase's error codes and statuses, in the app's terms. */
-function translate(error: unknown): AuthError {
-  if (error instanceof AuthError) return error;
-  if (error instanceof SupabaseAuthError) {
-    const code = (error.code ?? "") as string;
-    const map: Record<string, AuthErrorCode> = {
-      invalid_credentials: "invalid_credentials",
-      user_already_exists: "email_taken",
-      email_exists: "email_taken",
-      email_not_confirmed: "email_not_confirmed",
-      weak_password: "weak_password",
-      same_password: "same_password",
-      email_address_invalid: "invalid_email",
-      otp_expired: "expired_code",
-      // A link that was already used, or waited too long.
-      flow_state_not_found: "expired_code",
-      flow_state_expired: "expired_code",
-      // PKCE links only finish where they were requested.
-      pkce_code_verifier_not_found: "other_device",
-      over_email_send_rate_limit: "rate_limited",
-      over_request_rate_limit: "rate_limited",
-      provider_disabled: "provider_unavailable",
-      email_provider_disabled: "provider_unavailable",
-      oauth_provider_not_supported: "provider_unavailable",
-      signup_disabled: "provider_unavailable",
-    };
-    if (map[code]) return new AuthError(map[code], error.message);
-    // Supabase reports many kinds of bad input this way; only an address
-    // it couldn't accept is the email field's to fix.
-    if (code === "validation_failed")
-      return new AuthError(/email/i.test(error.message) ? "invalid_email" : "unknown", error.message);
-    if (error.status === 429) return new AuthError("rate_limited", error.message);
-    if (error.name === "AuthRetryableFetchError" || error.status === 0)
-      return new AuthError("network", error.message);
-    if (/token has expired or is invalid/i.test(error.message))
-      return new AuthError("invalid_code", error.message);
-    return new AuthError("unknown", error.message);
-  }
-  if (error instanceof TypeError && /network|fetch/i.test(error.message))
-    return new AuthError("network", error.message);
-  return new AuthError("unknown", error instanceof Error ? error.message : String(error));
-}
-
-/** Awaits a Supabase call, turning its { data, error } result into data or a thrown AuthError. */
-async function run<R extends { data: unknown; error: unknown }>(
-  work: () => PromiseLike<R>,
-): Promise<R["data"]> {
-  let result: R;
-  try {
-    result = await work();
-  } catch (error) {
-    throw translate(error);
-  }
-  if (result.error) throw translate(result.error);
-  return result.data;
-}
+// How long a save or unsave may take before it's given up.
+const SAVE_DEADLINE_MS = 15_000;
 
 const otpType: Record<CodePurpose, "email" | "signup" | "recovery"> = {
   "sign-in": "email",
@@ -118,6 +63,11 @@ const otpType: Record<CodePurpose, "email" | "signup" | "recovery"> = {
 };
 
 export function createSupabaseBackend(): AuthBackend {
+  // Read before the client starts and exchanges it (see codeExchange).
+  const loadedWith =
+    Platform.OS === "web" && typeof window !== "undefined"
+      ? new URL(window.location.href).searchParams.get("code")
+      : null;
   const client: SupabaseClient = createClient(
     supabaseConfig.url,
     supabaseConfig.key,
@@ -138,16 +88,8 @@ export function createSupabaseBackend(): AuthBackend {
     },
   );
 
-  // A password-reset link signs in like any other link; supabase-js knows
-  // it was a reset (it marked the PKCE verifier when the email was sent) and
-  // says so with PASSWORD_RECOVERY. On the web that happens while the client
-  // starts, before the app subscribes, so it's caught here at creation. This
-  // needs no marker in the redirect URL, which would stop it matching the
-  // exact redirect URLs allowed in Supabase.
-  let recoveryLink = false;
-  client.auth.onAuthStateChange((event) => {
-    if (event === "PASSWORD_RECOVERY") recoveryLink = true;
-  });
+  // Listens from creation, so a reset link the web exchanged on load is known.
+  const codes = codeExchange(client.auth, loadedWith);
 
   // Refresh tokens only while the app is in the foreground (Supabase's
   // guidance for React Native), so a backgrounded app doesn't spin timers.
@@ -196,7 +138,8 @@ export function createSupabaseBackend(): AuthBackend {
     if (failure) throw new AuthError("provider_unavailable", failure);
     const code = param("code");
     if (!code) throw new AuthError("unknown", "No authorization code returned");
-    await run(() => client.auth.exchangeCodeForSession(code));
+    // Shared with the callback route, which the same return can also open.
+    await codes.exchange(code);
     return { status: "signedIn" };
   }
 
@@ -295,7 +238,7 @@ export function createSupabaseBackend(): AuthBackend {
       );
       // A reset code also reports PASSWORD_RECOVERY; the code step handles
       // it, so it mustn't linger for a later link.
-      recoveryLink = false;
+      codes.clearRecovery();
       return { status: "signedIn" };
     },
     async resendCode(email, purpose) {
@@ -354,25 +297,7 @@ export function createSupabaseBackend(): AuthBackend {
     },
     signInWithGoogle: () =>
       nativeGoogle ? signInWithNativeGoogle(nativeGoogle) : oauth("google"),
-    async exchangeCode(code) {
-      // On web, supabase-js may already have exchanged it on load.
-      const { data } = await client.auth.getSession();
-      if (!data.session && Platform.OS === "web") {
-        // If that exchange failed (a link already used, or too old),
-        // supabase-js has dropped the link's verifier, so exchanging again
-        // would wrongly say the link belongs to another device. Its own
-        // error says what happened. (A dropped connection keeps the
-        // verifier, so that one is worth another try below.)
-        const { error } = await client.auth.initialize();
-        const failure = error ? translate(error) : null;
-        if (failure && failure.code !== "network") throw failure;
-      }
-      // Exchanging a reset link's code reports PASSWORD_RECOVERY too.
-      if (!data.session) await run(() => client.auth.exchangeCodeForSession(code));
-      const recovery = recoveryLink;
-      recoveryLink = false;
-      return { status: "signedIn", recovery };
-    },
+    exchangeCode: (code) => codes.exchange(code),
     async sendPasswordReset(email) {
       await run(() =>
         client.auth.resetPasswordForEmail(email, { redirectTo: authRedirect() }),
@@ -382,13 +307,11 @@ export function createSupabaseBackend(): AuthBackend {
     async updatePassword(password) {
       await run(() => client.auth.updateUser({ password }));
     },
-    async signOut() {
-      // Local scope: sign this device out even when offline.
-      await client.auth.signOut({ scope: "local" }).catch(() => {});
-    },
+    signOut: () => signOutHere(client.auth, forgetSession),
     async deleteAccount() {
       await run(() => client.rpc("delete_account"));
-      await client.auth.signOut({ scope: "local" }).catch(() => {});
+      // The account is gone either way; this clears the device.
+      await signOutHere(client.auth, forgetSession).catch(() => {});
     },
 
     async getGuestWatch() {
@@ -437,20 +360,33 @@ export function createSupabaseBackend(): AuthBackend {
     },
     async setSaved(userId, sermonId, saved) {
       const id = userId || (await currentUserId());
-      if (saved) {
-        await run(() =>
-          client
-            .from("saved_sermons")
-            .upsert({ user_id: id, sermon_id: sermonId }, { ignoreDuplicates: true }),
-        );
-      } else {
-        await run(() =>
-          client
-            .from("saved_sermons")
-            .delete()
-            .eq("user_id", id)
-            .eq("sermon_id", sermonId),
-        );
+      // A write that stalls is cancelled, not left to land later, so the
+      // taps queued behind it for this sermon (AccountProvider) go on.
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), SAVE_DEADLINE_MS);
+      try {
+        if (saved) {
+          await run(() =>
+            client
+              .from("saved_sermons")
+              .upsert({ user_id: id, sermon_id: sermonId }, { ignoreDuplicates: true })
+              .abortSignal(controller.signal),
+          );
+        } else {
+          await run(() =>
+            client
+              .from("saved_sermons")
+              .delete()
+              .eq("user_id", id)
+              .eq("sermon_id", sermonId)
+              .abortSignal(controller.signal),
+          );
+        }
+      } catch (error) {
+        if (controller.signal.aborted) throw new AuthError("network", "Saving took too long");
+        throw error;
+      } finally {
+        clearTimeout(timer);
       }
     },
 

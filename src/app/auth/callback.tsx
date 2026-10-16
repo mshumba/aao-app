@@ -60,9 +60,10 @@ export default function AuthCallback() {
     code ? "pending" : "sign-in",
   );
 
-  // Exchange the code once the saved session is known. It may already be
-  // signed in (supabase-js exchanges a web redirect's code on load); the
-  // exchange still reports whether the link was a reset.
+  // Exchange the code once the saved session is known, even over another
+  // account's: the link signs its own account in. On the web supabase-js
+  // has already exchanged it on load; the exchange still reports whether
+  // the link was a reset.
   useEffect(() => {
     if (failure || unavailable || !account.ready || exchanged.current || !code) return;
     exchanged.current = true;
