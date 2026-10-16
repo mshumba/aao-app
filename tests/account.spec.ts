@@ -58,8 +58,17 @@ test.describe("signed in", () => {
     page,
   }) => {
     await page.goto("/account");
-    await expect(shown(page.getByText(MEMBER.email))).toBeVisible();
+    // No name yet: the email is the page's heading, said once.
+    await expect(
+      shown(page.getByRole("heading", { level: 1, name: MEMBER.email, exact: true })),
+    ).toBeVisible();
+    await expect(shown(page.getByText(MEMBER.email))).toHaveCount(1);
     await expect(shown(page.getByText("Signed in with email"))).toBeVisible();
+    // The name is set from its row; saved sermons and topics are the library.
+    await expect(page.getByRole("button", { name: "Name, Not set", exact: true })).toBeVisible();
+    await expect(page.getByText("Add your name")).toHaveCount(0);
+    await expect(shown(page.getByRole("heading", { name: "Library", exact: true }))).toBeVisible();
+    await expect(shown(page.getByRole("heading", { name: "Your account" }))).toHaveCount(0);
     await page.getByTestId("sign-out").click();
     await expect(page.getByTestId("toast")).toContainText("Signed out");
     await expect(
@@ -76,6 +85,10 @@ test.describe("signed in", () => {
     await page.getByTestId("name-input").fill("Mufaro");
     await page.getByTestId("save-name").click();
     await expect(page.getByTestId("toast")).toContainText("Name updated");
+    // The name heads Account, with the email under it.
+    await page.goto("/account");
+    await expect(shown(page.getByRole("heading", { level: 1, name: "Mufaro", exact: true }))).toBeVisible();
+    await expect(shown(page.getByText(MEMBER.email))).toBeVisible();
     await page.goto("/");
     await expect(shown(page.getByText(/, Mufaro$/))).toBeVisible();
   });
@@ -111,6 +124,9 @@ test.describe("signed in", () => {
     await page.getByRole("button", { name: "Keep my account" }).click();
     await expect(shown(page.getByText(MEMBER.email))).toBeVisible();
 
+    // The row sits where "Keep my account" was: a press there within 400ms
+    // would be taken for the second tap of a double tap (navigation.ts).
+    await page.waitForTimeout(450);
     await page.getByTestId("delete-account-row").click();
     await page.getByTestId("confirm-delete").click();
     await expect(page.getByTestId("toast")).toContainText("deleted");
@@ -300,8 +316,13 @@ test.describe("guest", () => {
   test("Saved explains it needs an account", async ({ page }) => {
     await page.goto("/saved");
     await expect(
+      page.getByRole("heading", { level: 2, name: "Save sermons with a free account" }),
+    ).toBeVisible();
+    await expect(
       page.getByRole("button", { name: "Create free account" }),
     ).toBeVisible();
+    await page.getByRole("button", { name: "Sign in", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Welcome back" })).toBeVisible();
   });
 
   test("policies are reachable from Account", async ({ page }) => {

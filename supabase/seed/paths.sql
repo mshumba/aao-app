@@ -44,7 +44,7 @@ insert into public.paths (id, name, italic, promise, why, needs, minutes_per_day
    'Five days on why to fast, how to fast and how to fast wisely.',
    'For believers who want to fast but are unsure of the reason or the right way. The path follows Jesus into the wilderness, explains what fasting does to the flesh and the spirit, gives practical guidance with limits, and ends with fasting as part of a temperate, disciplined life.',
    array['fasting']::text[], 14, 'draft', 7),
-  ('breaking-free-from-habitual-sin', 'Breaking free from habitual sin', 'habitual',
+  ('breaking-free-from-habitual-sin', 'Breaking free from habitual sin', 'habitual sin',
    'Six days from the grip of a repeated sin to the freedom grace gives.',
    'For the believer who keeps returning to the same sin and is tired of starting over. The path begins with how temptation actually works, grounds you in the truth that you are dead to sin, then builds practical disciplines for the mind and the appetites. It ends at the throne of grace, for the days you fall.',
    array['same-sin']::text[], 16, 'draft', 8)

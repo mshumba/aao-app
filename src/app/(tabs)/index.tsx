@@ -50,10 +50,12 @@ import { FocusedStatusBar } from "../../kit/FocusedStatusBar";
 import { useEnrollment, useNeeds, usePaths } from "../../learning";
 import { useReducedMotion } from "../../motion";
 import { requestSearchFocus, useGo, usePageTitle } from "../../navigation";
+import { pathWords } from "../../paths/model";
 import { resumePoint } from "../../player/progress";
 import { useDockInset } from "../../player/useDockInset";
 import type { CategoryId } from "../../data/categories";
 import { c, easeOut, space } from "../../theme";
+import { useToast } from "../../toast";
 import { Notice, TextButton, dockScrollPadding, gradient } from "../../ui";
 
 // The hero shows the four newest; "Latest" the next six.
@@ -186,6 +188,7 @@ export default function Home() {
   const pathCard = useRef<View>(null);
   const { justJoined, clearJustJoined } = account;
   const hasCard = !!active || (!enrollment.loading && paths.some((path) => path.kind !== "series"));
+  const welcomeMessage = welcomeLine(name, active ? `${pathWords(active.path).unit} ${active.day}` : "Day 1");
 
   // ---- The status bar: light over the hero, dark once it has scrolled by ------------
   // Kept by HomeChrome; crossing the hero's edge re-renders that alone.
@@ -299,6 +302,7 @@ export default function Home() {
 
       <Welcome
         due={justJoined && hasCard}
+        message={welcomeMessage}
         onWelcomed={clearJustJoined}
         screen={screen}
         pathCard={pathCard}
@@ -352,24 +356,35 @@ const HomeChrome = memo(function HomeChrome({ ref }: { ref: Ref<Chrome> }) {
   );
 });
 
+/** What a new account's welcome says comes next: "Welcome, Mufaro. Day 1 is ready." */
+function welcomeLine(name: string | null, next: string) {
+  const first = name?.trim().split(/\s+/)[0];
+  return first ? `Welcome, ${first}. ${next} is ready.` : "Welcome. Your first path is ready.";
+}
+
 /**
  * A new account's welcome. Someone who has just created an account, on Home
  * with its path card (Start here, or the path they started): once, a short
- * burst of confetti from that card and a success tap; under Reduce Motion,
- * the tap alone. It waits for Home to settle in front, so a sign-up that
+ * burst of confetti from that card, a success tap and a line saying what's
+ * next (it takes the place of "You're signed in"); under Reduce Motion, the
+ * tap and the line. It waits for Home to settle in front, so a sign-up that
  * went straight on to a sermon is welcomed on coming back.
  */
 const Welcome = memo(function Welcome({
   due,
+  message,
   onWelcomed,
   screen,
   pathCard,
 }: {
   due: boolean;
+  /** "Welcome, Mufaro. Day 1 is ready." */
+  message: string;
   onWelcomed: () => void;
   screen: RefObject<View | null>;
   pathCard: RefObject<View | null>;
 }) {
+  const toast = useToast();
   const focused = useIsFocused();
   const covered = useCovered();
   const reduced = useReducedMotion();
@@ -384,6 +399,7 @@ const Welcome = memo(function Welcome({
       onWelcomed();
       if (Platform.OS !== "web")
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      toast(message);
       if (reduced) return;
       // From just inside the card's top edge while it's on screen, else
       // from a little above the middle.
@@ -399,7 +415,7 @@ const Welcome = memo(function Welcome({
       );
     }, WELCOME_AFTER);
     return () => clearTimeout(timer);
-  }, [welcome, reduced, onWelcomed, width, height, insets.top, screen, pathCard]);
+  }, [welcome, message, toast, reduced, onWelcomed, width, height, insets.top, screen, pathCard]);
   return burst ? <Confetti origin={burst} onDone={endBurst} testID="welcome-confetti" /> : null;
 });
 

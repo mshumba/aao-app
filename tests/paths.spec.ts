@@ -82,7 +82,7 @@ test("the Paths tab lists every path, and a draft carries no label", async ({ pa
   // length is the sermons' own, whole: never the focus minutes a day. A
   // draft makes no claim about who set its order.
   const wait = page.getByTestId("paths-featured");
-  await expect(wait).toHaveAccessibleName("Start here. 5 messages. Learning to wait on God. About 14 hours.");
+  await expect(wait).toHaveAccessibleName("Start here. 5 days. Learning to wait on God. About 14 hours.");
   // The length by a clock: "14h".
   await expect(wait).toContainText("14h");
   await expect(wait).not.toContainText(DRAFT);
@@ -93,9 +93,9 @@ test("the Paths tab lists every path, and a draft carries no label", async ({ pa
   await expect(shown(page.getByText("1 path", { exact: true }))).toBeVisible();
   const habit = page.getByTestId(`path-card-${HABIT}`);
   await expect(habit).toHaveAccessibleName(
-    "Breaking free from habitual sin. 7 messages. Seven days from the grip of a repeated sin to the freedom grace gives.",
+    "Breaking free from habitual sin. 7 days. Seven days from the grip of a repeated sin to the freedom grace gives.",
   );
-  await expect(habit).toContainText("7 messages");
+  await expect(habit).toContainText("7 days");
   await expect(habit).not.toContainText(DRAFT);
   await expect(page.getByText(/min a day|in all/)).toHaveCount(0);
   await habit.click();
@@ -163,7 +163,7 @@ test("only a published path claims the ministry set its order", async ({ page })
   await expect(tiles.nth(0)).not.toContainText(DRAFT);
   await expect(tiles.nth(0)).toContainText(ORDER_SET);
   await expect(tiles.nth(0)).toHaveAccessibleName(
-    "Breaking free from habitual sin. 7 messages. Seven days from the grip of a repeated sin to the freedom grace gives. Order set by the ministry.",
+    "Breaking free from habitual sin. 7 days. Seven days from the grip of a repeated sin to the freedom grace gives. Order set by the ministry.",
   );
 });
 
@@ -441,13 +441,16 @@ test.describe("part way through a path", () => {
     const later = page.getByRole("button", { name: "Later days", exact: true });
     await expect(later).toBeVisible();
     await expect.poll(() => inView(page, 3)).toBe("whole");
-    // Under the cards, on the line with "Mark Day 3 done", at the column's end.
+    // Under the cards, at the column's end; "Mark Day 3 done" is today's
+    // card's own ring, at its top right.
     const card = (await day(page, 3).boundingBox())!;
     const mark = (await page.getByTestId("path-day-3-mark-done").boundingBox())!;
+    expect(mark.x + mark.width).toBeLessThanOrEqual(card.x + card.width);
+    expect(mark.x).toBeGreaterThan(card.x + card.width / 2);
+    expect(mark.y - card.y).toBeLessThan(20);
     for (const arrow of [earlier, later]) {
       const box = (await arrow.boundingBox())!;
       expect(box.y).toBeGreaterThanOrEqual(card.y + card.height);
-      expect(Math.abs(box.y + box.height / 2 - (mark.y + mark.height / 2))).toBeLessThan(4);
     }
     const x = async () => (await day(page, 3).boundingBox())!.x;
     await later.click();
@@ -569,7 +572,7 @@ test.describe("as a guest", () => {
     // The sheet names the path and its length.
     const sheet = page.getByRole("dialog");
     await expect(sheet.getByText("Breaking free from habitual sin")).toBeVisible();
-    await expect(sheet).toContainText("7 messages");
+    await expect(sheet).toContainText("7 days");
     expect((await ytLog(page)).created).toBe(0);
     expect((await storedPathProgress(page, "guest"))?.enrollments ?? {}).toEqual({});
 

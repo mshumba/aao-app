@@ -11,14 +11,17 @@ import { Icon, T, Tap, web, type IconName } from "../ui";
 
 /**
  * A 40pt round action on the stage's dark panel (44pt to touch), as in the
- * concept: white 10% with a faint white edge. Its name is also inside it as
- * hidden text, so it reads the same to every assistive technology.
+ * concept: white 10% with a faint white edge. `bare`, under the playing
+ * transport, it's the icon alone in the muted white (white once on), so the
+ * play controls lead. Its name is also inside it as hidden text, so it
+ * reads the same to every assistive technology.
  */
 function StageRound({
   icon,
   label,
   hint,
   selected,
+  bare = false,
   onPress,
   testID,
 }: {
@@ -26,6 +29,7 @@ function StageRound({
   label: string;
   hint?: string;
   selected?: boolean;
+  bare?: boolean;
   onPress: () => void;
   testID?: string;
 }) {
@@ -39,10 +43,14 @@ function StageRound({
       accessibilityState={toggle ? { selected } : undefined}
       {...(toggle ? web({ "aria-pressed": selected }) : null)}
       onPress={onPress}
-      hitSlop={2}
-      style={[styles.round, selected && styles.roundOn]}
+      hitSlop={bare ? undefined : 2}
+      style={bare ? styles.bare : [styles.round, selected && styles.roundOn]}
     >
-      <Icon name={icon} size={18} color={c.white} />
+      <Icon
+        name={icon}
+        size={bare ? 22 : 18}
+        color={bare && !selected ? c.onMediaMuted : c.white}
+      />
       <T style={styles.hidden} {...web({ "aria-hidden": true })}>
         {label}
       </T>
@@ -55,7 +63,7 @@ function StageRound({
  * and the save happens once they have one (the gate carries it out). Builds
  * without an account service leave Save out.
  */
-export const SaveButton = memo(function SaveButton({ sermon }: { sermon: Sermon }) {
+export const SaveButton = memo(function SaveButton({ sermon, bare }: { sermon: Sermon; bare?: boolean }) {
   const account = useAccount();
   const { isSaved, setSaved } = useSaved();
   const gate = useGate();
@@ -93,6 +101,7 @@ export const SaveButton = memo(function SaveButton({ sermon }: { sermon: Sermon 
       icon={saved ? "bookmark" : "bookmark-outline"}
       label={saved ? "Saved" : "Save"}
       selected={saved}
+      bare={bare}
       hint={account.user ? undefined : "Asks you to create a free account first"}
       onPress={toggleSave}
     />
@@ -100,7 +109,7 @@ export const SaveButton = memo(function SaveButton({ sermon }: { sermon: Sermon 
 });
 
 /** The system share sheet, or a copied link where a browser has none. */
-export const ShareButton = memo(function ShareButton({ sermon }: { sermon: Sermon }) {
+export const ShareButton = memo(function ShareButton({ sermon, bare }: { sermon: Sermon; bare?: boolean }) {
   const toast = useToast();
   // One share sheet at a time.
   const sharing = useRef(false);
@@ -110,6 +119,7 @@ export const ShareButton = memo(function ShareButton({ sermon }: { sermon: Sermo
       // Each platform's own share glyph.
       icon={Platform.OS === "android" ? "share-social-outline" : "share-outline"}
       label="Share"
+      bare={bare}
       onPress={async () => {
         if (sharing.current) return;
         sharing.current = true;
@@ -122,7 +132,7 @@ export const ShareButton = memo(function ShareButton({ sermon }: { sermon: Sermo
 
 /**
  * The stage's call to play before the player loads: a white pill that says
- * how long ("Watch · 1 hr 53 min", "Resume · 1 hr 16 min left", "Play from
+ * where it starts ("Watch", "Resume · 1 hr 16 min left", "Play from
  * 34:12"), filling the room beside Save and Share. On a narrow phone or at
  * large text the detail takes a second line rather than being cut off. When
  * resuming, a thin line along its foot shows how far in.
@@ -199,6 +209,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   roundOn: { backgroundColor: "rgba(255,255,255,0.18)", borderColor: "rgba(255,255,255,0.4)" },
+  bare: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
   hidden: { position: "absolute", width: 1, height: 1, overflow: "hidden", opacity: 0 },
   pill: {
     flexDirection: "row",

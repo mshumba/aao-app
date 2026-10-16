@@ -14,14 +14,15 @@ import { keepWall, keptWall } from "./data";
 const GAP = 12;
 const TILT = "-8deg";
 /**
- * Soft focus: the flyers' lettering blurs away while their colours and
- * faces stay. Image blurs on iOS, Android and the web alike (a view's
- * filter would be ignored on iOS). In proportion to the tile, so a laptop's
- * larger flyers are as soft as a phone's.
+ * Soft focus: the flyers' lettering blurs away, past reading (about 6pt on
+ * a phone's 170pt tile), while their colours and faces stay. Image blurs on
+ * iOS, Android and the web alike (a view's filter would be ignored on iOS).
+ * In proportion to the tile, so a laptop's larger flyers are as soft as a
+ * phone's.
  */
-const BLUR_PER_WIDTH = 1 / 80;
+const BLUR_PER_WIDTH = 1 / 28;
 /** Each flyer over its own pale wash: lower contrast without a milky haze. */
-const ART_OPACITY = 0.64;
+const ART_OPACITY = 0.5;
 /**
  * The flyers' copy: YouTube's 320×180 (about 12 KB, where the full-size
  * artwork is 100 KB or more), which is all a blurred tile needs.

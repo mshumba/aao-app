@@ -263,10 +263,19 @@ function searchFault(): SearchFault | null {
  * - ignoreAbort: answer even after the app cancelled the request, as a
  *   network reply already on its way does;
  * - care: what the search says about distress, overriding the stand-in's
- *   own reading (false: an answer without the flag).
+ *   own reading (false: an answer without the flag);
+ * - quoteless: the quotes function finds no quote that passes for the
+ *   moment answered without one;
+ * - matched: how many moments matched in all (more than are listed).
  * Each search is logged on `globalThis.__aaoSearchLog` as answered or aborted.
  */
-type SearchFake = { delay?: number | Record<string, number>; ignoreAbort?: boolean; care?: boolean };
+type SearchFake = {
+  delay?: number | Record<string, number>;
+  ignoreAbort?: boolean;
+  care?: boolean;
+  quoteless?: boolean;
+  matched?: number;
+};
 function searchFake(): SearchFake {
   if (typeof __DEV__ === "undefined" || !__DEV__) return {};
   return (globalThis as { __aaoSearchFake?: SearchFake }).__aaoSearchFake ?? {};
@@ -354,7 +363,7 @@ export async function fakeSearch(q: string, signal?: AbortSignal): Promise<Searc
     care: false,
     moments: only ? [] : moments,
     sermons,
-    total: { moments: only ? 0 : moments.length, sermons: sermons.length },
+    total: { moments: only ? 0 : Math.max(moments.length, searchFake().matched ?? 0), sermons: sermons.length },
     cached: false,
     tookMs,
   };
@@ -412,9 +421,10 @@ export async function fakeQuotes(
 ): Promise<Record<string, QuoteResult>> {
   await wait(600, signal);
   const out: Record<string, QuoteResult> = {};
+  const none = searchFake().quoteless;
   ids.slice(0, 14).forEach((id) => {
     const m = fixtureMoments.find((x) => x.id === id);
-    out[id] = m ? { quote: m.quote, at: m.at } : null;
+    out[id] = m && !none ? { quote: m.quote, at: m.at } : null;
   });
   return out;
 }

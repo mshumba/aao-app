@@ -58,9 +58,19 @@ type Featured = {
   length: number | null;
 };
 
-/** A row of the list: a path's card, or the heading of the teaching series. */
+/** A row of the list: a path's row, or the heading of the teaching series. */
 type Row =
-  | { kind: "card"; path: Path; total: number; progress: ListProgress; fan: ArtSource[]; days: PathDayWithSermon[] }
+  | {
+      kind: "card";
+      path: Path;
+      total: number;
+      length: number | null;
+      progress: ListProgress;
+      fan: ArtSource[];
+      days: PathDayWithSermon[];
+      /** The first under its heading (no hairline above it). */
+      first: boolean;
+    }
   | { kind: "heading"; title: string; count: string };
 
 /**
@@ -68,11 +78,11 @@ type Row =
  * own cover: "Paths", "Guided journeys, *one message a day*", then the path
  * you're on with its fan, name and progress (or the first to start, with
  * its length by a clock: "12h") and a white "Continue Day 3" that plays
- * today's sermon, whole. On an ivory panel
- * rising over it, every other path as a small dark cover, then the teaching
- * series in a section of their own ("12 teachings"; one of a single
- * teaching opens that teaching). Drafts carry no label; the ministry's name
- * is only claimed for a published path.
+ * today's sermon, whole. On an ivory panel rising over it, every other path
+ * as a row led by a small dark cover, then the teaching series in a section
+ * of their own ("12 teachings"; one of a single teaching opens that
+ * teaching). Drafts carry no label; the ministry's name is only claimed for
+ * a published path.
  */
 export default function PathsTab() {
   usePageTitle("Paths");
@@ -86,9 +96,7 @@ export default function PathsTab() {
   // sermon plays leaves the tab alone.
   const watchOf = useProgressOf(paths.flatMap((p) => daysOf(p.id).map((d) => d.youtubeId)));
   const enrollment = useEnrollment();
-  const { width } = useWindowDimensions();
   const dock = useDockInset();
-  const cardWidth = Math.min(width, MAX_WIDTH) - space.gutter * 2;
   const active = enrollment.active;
   const { progressFor, start } = enrollment;
 
@@ -148,7 +156,7 @@ export default function PathsTab() {
 
   // Guided paths, then the teaching series under their own heading.
   const list = useMemo<Row[]>(() => {
-    const card = (path: Path): Row => {
+    const card = (path: Path, i: number): Row => {
       const days = joined.get(path.id) ?? [];
       const total = days.length || path.dayCount;
       const mine = progressFor(path.id);
@@ -168,7 +176,16 @@ export default function PathsTab() {
           front = day;
         }
       }
-      return { kind: "card", path, total, progress, fan: fanFor(days, front), days };
+      return {
+        kind: "card",
+        path,
+        total,
+        length: pathLength(days),
+        progress,
+        fan: fanFor(days, front),
+        days,
+        first: i === 0,
+      };
     };
     const rest = paths.filter((p) => p.id !== featured?.path.id);
     const guided = rest.filter((p) => p.kind !== "series").map(card);
@@ -264,13 +281,14 @@ export default function PathsTab() {
             path={item.path}
             fan={item.fan}
             total={item.total}
-            width={cardWidth}
+            length={item.length}
             progress={item.progress}
+            first={item.first}
             onPress={() => openRow(item)}
           />
         </View>
       ),
-    [cardWidth, openRow],
+    [openRow],
   );
 
   return (
@@ -282,7 +300,6 @@ export default function PathsTab() {
         keyExtractor={(item) => (item.kind === "card" ? item.path.id : `heading-${item.title}`)}
         renderItem={renderItem}
         ListHeaderComponent={header}
-        ItemSeparatorComponent={Separator}
         contentContainerStyle={{ paddingBottom: space.section + dock }}
         initialNumToRender={4}
         windowSize={7}
@@ -291,10 +308,6 @@ export default function PathsTab() {
     </View>
   );
 }
-
-// No gap under the series' heading: its own margin sets it.
-const Separator = ({ leadingItem }: { leadingItem?: Row }) =>
-  leadingItem?.kind === "heading" ? null : <View style={{ height: 28 }} />;
 
 /**
  * The tab's dark top, as a path's cover: the page's name, then the path
@@ -394,15 +407,17 @@ const Masthead = memo(function Masthead({
   );
 });
 
-/** Shapes held where cards will be (static: no shimmer). */
+/** Shapes held where rows will be (static: no shimmer). */
 function Placeholders() {
   return (
-    <View style={styles.placeholders} accessible accessibilityLabel="Loading paths">
-      {[0, 1].map((i) => (
-        <View key={i}>
+    <View accessible accessibilityLabel="Loading paths">
+      {[0, 1, 2].map((i) => (
+        <View key={i} style={styles.ghostRow}>
           <View style={styles.ghostArt} />
-          <View style={[styles.ghostLine, { width: "72%", marginTop: 14 }]} />
-          <View style={[styles.ghostLine, { width: "46%", marginTop: 10 }]} />
+          <View style={styles.ghostText}>
+            <View style={[styles.ghostLine, { width: "78%" }]} />
+            <View style={[styles.ghostLine, { width: "52%", marginTop: 10 }]} />
+          </View>
         </View>
       ))}
     </View>
@@ -436,10 +451,12 @@ const styles = StyleSheet.create({
     borderTopRightRadius: radius.r28,
     paddingTop: 4,
   },
-  section: { marginTop: space.xl, marginBottom: space.lg },
-  // After a card's 28pt separator: a section's 40pt gap in all.
-  seriesSection: { marginTop: space.section - 28, marginBottom: space.lg },
-  placeholders: { gap: 28, marginTop: space.xl },
-  ghostArt: { height: 196, borderRadius: radius.r22, backgroundColor: c.feature },
+  // The rows below bring their own 16pt above.
+  section: { marginTop: space.xl, marginBottom: 0 },
+  // After the last row's 16pt below it: a section's 40pt gap in all.
+  seriesSection: { marginTop: space.section - space.lg, marginBottom: 0 },
+  ghostRow: { flexDirection: "row", gap: 14, paddingVertical: space.lg },
+  ghostArt: { width: 104, height: 58, borderRadius: radius.sm, backgroundColor: c.feature },
+  ghostText: { flex: 1, paddingTop: 4 },
   ghostLine: { height: 12, borderRadius: 6, backgroundColor: c.feature },
 });

@@ -1,10 +1,10 @@
 import type { SermonRecord } from "../src/catalogue/records";
-import { sessionLabel, seriesRowText, seriesRows } from "../src/data/seriesRow";
+import { isGathering, sessionDate, sessionDays, sessionLabel, seriesRowText, seriesRows } from "../src/data/seriesRow";
 import { sampleRecords, seriesSermons, toSermon } from "../src/data/sermons";
-import { expect, shown, test } from "./fixtures";
+import { expect, fakeYouTube, seedWatchProgress, shown, test, ytLog } from "./fixtures";
 
 // A series page names the series once, on its cover; each row says which
-// part of it the sermon is.
+// part of it the sermon is. A gathering (every sermon a session) goes by day.
 
 const CAMEROON = "Cameroon for Jesus Crusade & Conference 2026";
 
@@ -210,17 +210,102 @@ test("a theme on half or more of a series' rows reads as the series' own", () =>
   ]);
 });
 
-test("a series page lists its sessions without repeating the series", async ({ page }) => {
+test("a gathering's page goes by day, each session by its time of day", async ({ page }) => {
   await page.goto("/series/apostolic-shift-2026");
-  const cover = page.getByTestId("series-page");
-  await expect(shown(cover.getByText("Apostolic Shift 2026").first())).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Apostolic Shift 2026" })).toBeVisible();
+  // Day 1, then Day 2's morning and its grand finale: words, no posters.
+  const days = shown(page.getByTestId("series-page").getByRole("heading", { level: 2 }));
+  await expect(days).toHaveText(["Day 1 Tue 22 Sep", "Day 2 Wed 23 Sep"]);
+  await expect(days.nth(1)).toHaveAccessibleName("Day 2, Wednesday 23 September");
   const rows = shown(page.getByTestId("sermon-row"));
   await expect(rows).toHaveCount(3);
-  // Day One, Day Two Morning, then the Grand Finale, each by its session.
-  await expect(rows.nth(0)).toHaveAccessibleName(/^Day 1\. 22 Sep 2026, 1 hour 47 minutes\./);
-  await expect(rows.nth(1)).toHaveAccessibleName(/^Day 2\. Morning\. 23 Sep 2026, /);
-  await expect(rows.nth(2)).toHaveAccessibleName(/^Grand Finale\. 23 Sep 2026, /);
-  await expect(rows.nth(1)).toContainText("Day 2 · Morning");
-  // (The artwork's stand-in, when a thumbnail can't load, still names it.)
-  for (let i = 0; i < 3; i++) await expect(rows.nth(i)).not.toHaveAccessibleName(/Apostolic Shift/);
+  await expect(rows.nth(0)).toHaveAccessibleName("Day 1, Message. 1 hour 47 minutes.");
+  await expect(rows.nth(1)).toHaveAccessibleName("Day 2, Morning. 2 hours 49 minutes.");
+  await expect(rows.nth(2)).toHaveAccessibleName("Day 2, Grand Finale. 2 hours 28 minutes.");
+  await expect(rows.nth(1)).toContainText("Morning");
+  await expect(rows.nth(1)).toContainText("2 hr 49 min");
+  for (let i = 0; i < 3; i++) {
+    await expect(rows.nth(i)).not.toContainText(/Apostolic Shift|2026/);
+    await expect(rows.nth(i).locator("img")).toHaveCount(0);
+  }
+  // Nothing watched yet: play the first session.
+  await expect(page.getByTestId("series-cta")).toHaveAccessibleName("Play Day 1, 1 hour 47 minutes");
+  // A row opens its sermon.
+  await rows.nth(1).click();
+  await expect(page).toHaveURL(/\/sermon\/yUDzMcZsVk8$/);
+});
+
+test("a gathering's sessions show what's been watched, and the call continues the one begun", async ({ page }) => {
+  // Day 1 watched to the end; Day 2's morning begun.
+  await seedWatchProgress(page, [
+    { sermonId: "WYiA7rjenVI", positionSeconds: 6441, durationSeconds: 6441, finished: true, updatedAt: "2026-10-14T10:00:00.000Z" },
+    { sermonId: "yUDzMcZsVk8", positionSeconds: 4100, durationSeconds: 10195, finished: false, updatedAt: "2026-10-15T10:00:00.000Z" },
+  ]);
+  await fakeYouTube(page, { duration: 10195 });
+  await page.goto("/series/apostolic-shift-2026");
+  const rows = shown(page.getByTestId("sermon-row"));
+  await expect(rows.nth(0)).toHaveAccessibleName("Day 1, Message. 1 hour 47 minutes. Watched.");
+  await expect(rows.nth(1)).toHaveAccessibleName("Day 2, Morning. 1 hour 42 minutes left.");
+  await expect(rows.nth(1)).toContainText("1 hr 42 min left");
+  const cta = page.getByTestId("series-cta");
+  await expect(cta).toHaveAccessibleName("Continue Day 2, Morning");
+  await cta.click();
+  await expect(page).toHaveURL(/\/sermon\/yUDzMcZsVk8$/);
+  await expect(page.getByTestId("playback-status")).toHaveText("Playing");
+  expect((await ytLog(page)).starts).toEqual([4100]);
+});
+
+test("a gathering's days: a session joins its day, or the day it was preached", () => {
+  const at = (session: string, preached: string, headline = "IEC: " + session, fields: Partial<SermonRecord> = {}) =>
+    sermon({
+      youtube_id: `${session}${preached}${headline}`.replace(/\W/g, "").slice(-11).padEnd(11, "x"),
+      headline,
+      event: "IEC 2024",
+      session,
+      preached_on: preached,
+      ...fields,
+    });
+  const list = [
+    at("Day 1", "2024-05-20", "The Life of Prayer"),
+    at("Day 2 Morning", "2024-05-21", "The Life of Prayer"),
+    at("Day 2 Evening", "2024-05-21", "The Life of Prayer"),
+    at("Day 7 Morning", "2024-05-26", "Hospital Dedication"),
+    at("Day 7 Morning", "2024-05-26", "The Life of Prayer"),
+    at("Grand Finale", "2024-05-26"),
+  ];
+  const { grouped, days } = sessionDays(list, "IEC 2024");
+  expect(grouped).toBe(true);
+  expect(days.map((d) => [d.day, d.date, d.rows.map((row) => row.title)])).toEqual([
+    ["Day 1", "2024-05-20", ["Message"]],
+    ["Day 2", "2024-05-21", ["Morning", "Evening"]],
+    // The finale was preached on the last day: it's that day's.
+    ["Day 7", "2024-05-26", ["Hospital Dedication", "Morning", "Grand Finale"]],
+  ]);
+  // A message's own title keeps its time of day under it.
+  expect(days[2].rows[0].label).toBe("Morning");
+  expect(sessionDate("2024-05-21")).toBe("Tue 21 May");
+  expect(sessionDate("2024-05-21", true)).toBe("Tuesday 21 May");
+
+  // Sessions that would read alike are told apart in order.
+  const twice = sessionDays(
+    [at("Day 2 Evening", "2020-10-31", "Contact: Day 2 Evening"), at("Day 2 Evening", "2020-10-31", "Contact: Day 2 Evening")],
+    "October Contact 2020",
+  );
+  expect(twice.days[0].rows.map((row) => row.title)).toEqual(["Evening · Part 1", "Evening · Part 2"]);
+
+  // One session a day: no day headings; each row is its whole session, with its date.
+  const daily = sessionDays(
+    [at("Day 1", "2025-04-04", "Grace Conference: Day 1"), at("Day 2", "2025-04-05", "Grace Conference: Day 2")],
+    "Grace Conference 2025",
+  );
+  expect(daily.grouped).toBe(false);
+  expect(daily.days.map((d) => [d.date, d.rows.map((row) => row.title)])).toEqual([
+    ["2025-04-04", ["Day 1"]],
+    ["2025-04-05", ["Day 2"]],
+  ]);
+  // A session the uploads alone date has no date to show.
+  const undated = sessionDays([at("Day 3", "", "Peniel: Day 3", { preached_on: null })], "Peniel 2023");
+  expect(undated.days[0].date).toBeNull();
+  expect(isGathering(list)).toBe(true);
+  expect(isGathering([...list, at("", "2024-05-27", "Sunday Service", { session: null })])).toBe(false);
 });

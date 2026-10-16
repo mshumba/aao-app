@@ -82,6 +82,19 @@ test("each screen has one visible page heading", async ({ page }) => {
   ).toBeVisible();
 });
 
+test("sermon rows give this year's dates without the year, older ones with it", async ({ page }) => {
+  await page.clock.setFixedTime(new Date("2026-10-16T12:00:00"));
+  await page.goto("/sermons");
+  const row = shown(page.getByTestId("sermon-row")).first();
+  await expect(row).toContainText("27 Sep · 3 hr 35 min");
+  await expect(row).not.toContainText("2026");
+  // Read aloud in full.
+  await expect(row).toHaveAccessibleName(/^Pray Without Ceasing\. .*27 Sep 2026, 3 hours 35 minutes\./);
+  await page.clock.setFixedTime(new Date("2027-01-04T12:00:00"));
+  await page.reload();
+  await expect(shown(page.getByTestId("sermon-row")).first()).toContainText("27 Sep 2026 · 3 hr 35 min");
+});
+
 test("unavailable sermon gives a route back to browse", async ({ page }) => {
   await page.goto("/sermon/not-a-real-id");
   await expect(
@@ -228,7 +241,8 @@ test("leaving a playing sermon docks it; it keeps playing across tabs", async ({
   await page.getByRole("button", { name: "Back", exact: true }).click();
   const dock = page.getByTestId("player-dock");
   await expect(dock).toBeVisible();
-  await expect(page.getByTestId("dock-status")).toHaveText("Playing");
+  // Playing: the dock says how much is left ("9:56 left"), or "Playing".
+  await expect(page.getByTestId("dock-status")).toHaveText(/^(Playing|[\d:]+ left)$/);
   for (const name of ["Paths", "Search", "Account", "Home"] as const) {
     await tab(page, name).click();
     await expect(dock).toBeVisible();
@@ -263,7 +277,8 @@ test("starting another sermon replaces the docked one", async ({ page }) => {
   // Open another sermon from "More sermons": the first keeps playing, docked.
   await rows(page).first().click();
   await expect(page.getByTestId("player-dock")).toBeVisible();
-  await expect(page.getByTestId("dock-status")).toHaveText("Playing");
+  // Playing: the dock says how much is left ("9:56 left"), or "Playing".
+  await expect(page.getByTestId("dock-status")).toHaveText(/^(Playing|[\d:]+ left)$/);
   await page.getByRole("button", { name: "Watch sermon", exact: true }).click();
   await expect(page.getByTestId("player-full")).toBeVisible();
   await expect(page.getByTestId("player-dock")).toHaveCount(0);

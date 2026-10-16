@@ -39,6 +39,11 @@ export function watchAway() {
     // leaving; iOS passes through it on the way to "background".
     if (next === "background") {
       awayAt ??= Date.now();
+      // Leaving ends the visit the blessing greeted (see blessingGreeted).
+      if (greeted) {
+        greeted = false;
+        emit(coverListeners);
+      }
     } else if (next === "active") {
       const left = awayAt;
       awayAt = null;
@@ -100,6 +105,7 @@ const OPENING_MAX_MS = 2000;
 
 let cover: Cover = "deciding";
 let onScreen = false;
+let greeted = false;
 const coverListeners = new Set<() => void>();
 
 export function setCover(next: Cover) {
@@ -124,6 +130,20 @@ export function subscribeCover(listener: () => void) {
 /** The blessing screen is mounted (true) or has gone (false). */
 export function setBlessingOnScreen(up: boolean) {
   onScreen = up;
+  if (up && !greeted) {
+    greeted = true;
+    emit(coverListeners);
+  }
+}
+
+/**
+ * Whether the blessing screen has greeted the viewer on this visit to the
+ * app (from its appearing until the app next goes to the background), so
+ * Home's hero doesn't say "Good morning" a second time a moment later.
+ * Subscribe with subscribeCover.
+ */
+export function blessingGreeted() {
+  return greeted;
 }
 
 /**

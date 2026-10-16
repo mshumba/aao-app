@@ -3,12 +3,45 @@ import {
   fakeYouTube,
   rows,
   sendToBackground,
+  shown,
   tab,
   test,
   ytLog,
 } from "./fixtures";
 
 const watch = "Watch sermon";
+
+test("before play, the length is given once and the band only times a real place", async ({
+  page,
+}) => {
+  await page.goto("/sermon/nUW8NT2Pe88");
+  const pill = page.getByRole("button", { name: watch, exact: true });
+  await expect(pill).toBeVisible();
+  // The kicker gives the length; the pill and the band don't repeat it.
+  await expect(shown(page.getByText("27 Sep 2026 · 3 hr 35 min", { exact: true }))).toBeVisible();
+  await expect(pill).not.toContainText("hr");
+  // (The band's times are hidden from screen readers, so look on screen.)
+  await expect(page.getByText("−3:35:00", { exact: true }).filter({ visible: true })).toHaveCount(0);
+  await expect(page.getByText("0:00", { exact: true }).filter({ visible: true })).toHaveCount(0);
+  // Opened at a moment, the band says where Play starts.
+  await page.goto("/sermon/nUW8NT2Pe88?t=4120");
+  await expect(page.getByRole("button", { name: "Play from 1 hour 8 minutes 40 seconds" })).toBeVisible();
+  await expect(page.getByText("1:08:40", { exact: true }).filter({ visible: true })).toHaveCount(1);
+  await expect(page.getByText("−2:26:20", { exact: true }).filter({ visible: true })).toHaveCount(1);
+});
+
+test("the menu's About this sermon shows the source line, even straight after opening", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await rows(page).first().click();
+  // At once, before the page below the stage has been drawn.
+  await page.getByRole("button", { name: "More options" }).last().click();
+  await page.getByRole("menuitem", { name: "About this sermon" }).click();
+  const about = page.getByTestId("about-sermon").last();
+  await expect(about).toBeInViewport();
+  await expect(about.getByRole("button", { name: "Open in YouTube", exact: true })).toBeInViewport();
+});
 
 test("leaving the app while the player loads cancels the start", async ({
   page,
@@ -120,10 +153,11 @@ test("dragging the scrubber sideways seeks where it's released", async ({
   await expect(page.getByTestId("playback-status")).toHaveText("Playing");
   const bar = (await page.getByTestId("scrubber").boundingBox())!;
   const y = bar.y + bar.height / 2;
-  await page.mouse.move(bar.x + bar.width * 0.2, y);
+  // The rail stops 20px in from each side of the strip, level with the times.
+  const at = (f: number) => bar.x + 20 + (bar.width - 40) * f;
+  await page.mouse.move(at(0.2), y);
   await page.mouse.down();
-  for (let i = 1; i <= 10; i++)
-    await page.mouse.move(bar.x + bar.width * (0.2 + i * 0.06), y);
+  for (let i = 1; i <= 10; i++) await page.mouse.move(at(0.2 + i * 0.06), y);
   // While dragging, the time previews the target.
   await expect(page.getByTestId("elapsed")).toHaveText(/^(7:5\d|8:0\d)$/);
   await page.mouse.up();
@@ -313,7 +347,11 @@ test("with a sermon docked, another sermon's page still has room", async ({
     return node!.getBoundingClientRect().top;
   });
   expect(dock.y - scrollTop).toBeGreaterThanOrEqual(200);
-  await expect(page.getByTestId("dock-status")).toHaveText("Playing");
+  // While it plays, the dock says how long is left (and is named "Playing").
+  await expect(page.getByTestId("dock-status")).toHaveText(/^\d+:\d\d left$/);
+  await expect(
+    page.getByRole("button", { name: /^Open Now Playing: .*\. Playing$/ }),
+  ).toBeVisible();
 });
 
 test("a failed player explains itself where the video was", async ({

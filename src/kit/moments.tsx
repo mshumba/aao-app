@@ -92,7 +92,7 @@ export const MomentCard = memo(function MomentCard({
       {onOpen ? (
         <Tap
           accessibilityRole="button"
-          accessibilityLabel={`${sermon.headline}. ${spokenText(meta)}`}
+          accessibilityLabel={`${sermon.headline}. ${spokenText(meta.replace(/\u00a0/g, " "))}`}
           accessibilityHint="Opens the sermon"
           onPress={() => onOpen(moment)}
           feedback="dim"

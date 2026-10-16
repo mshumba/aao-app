@@ -139,7 +139,7 @@ for (const fault of ["unavailable", "offline"] as const) {
     await search(page, "I want to die");
     await expectCard(page);
     const calm = shown(page.getByTestId("care-calm"));
-    await expect(calm).toContainText("His teaching couldn’t load just now.");
+    await expect(calm).toContainText("The Apostle’s teaching couldn’t load just now.");
     // Not the usual states: no other needs to try, no sermon titles for their words.
     await expect(page.getByTestId("search-unavailable")).toHaveCount(0);
     await expect(page.getByTestId("search-offline")).toHaveCount(0);
@@ -147,7 +147,7 @@ for (const fault of ["unavailable", "offline"] as const) {
     await expect(shown(page.getByTestId("sermon-row"))).toHaveCount(0);
     await expect(results(page)).toHaveCount(0);
     expect(await cardFirst(page)).toBe(true);
-    await expect(live(page)).toHaveText(`${TITLE} ${BODY} His teaching couldn’t load just now.`);
+    await expect(live(page)).toHaveText(`${TITLE} ${BODY} The Apostle’s teaching couldn’t load just now.`);
     // Try again searches again.
     await page.evaluate(() => {
       (globalThis as { __aaoSearchFault?: Fault }).__aaoSearchFault = null;

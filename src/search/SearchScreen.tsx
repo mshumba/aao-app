@@ -1,6 +1,18 @@
 import * as Haptics from "expo-haptics";
 import { router, useLocalSearchParams, type Href } from "expo-router";
-import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import {
+  createContext,
+  memo,
+  useCallback,
+  useContext,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import {
   AccessibilityInfo,
   FlatList,
@@ -11,7 +23,13 @@ import {
   type ListRenderItem,
   type TextInput,
 } from "react-native";
-import Animated, { LinearTransition } from "react-native-reanimated";
+import Animated, {
+  Easing,
+  LinearTransition,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useSaved } from "../auth/AccountProvider";
 import { useGate } from "../auth/gate";
@@ -20,8 +38,8 @@ import { getCategory } from "../data/categories";
 import { searchSermons, type Sermon } from "../data/sermons";
 import { ChipRow, ItalicTitle, Kicker, NeedChip, PathCardNavy, SearchField, Strong, type ArtSource } from "../kit";
 import {
-  messagesLabel,
   nextDay,
+  teachingsLabel,
   useEnrollment,
   useNeeds,
   usePath,
@@ -39,7 +57,7 @@ import { useDockInset } from "../player/useDockInset";
 import { c, textCap, type } from "../theme";
 import { useToast } from "../toast";
 import { sermonCount } from "../topics";
-import { dockScrollPadding, web } from "../ui";
+import { Heading, dockScrollPadding, web } from "../ui";
 import {
   CalmState,
   FoundSermon,
@@ -55,7 +73,7 @@ import {
 import { careText, inDistress } from "./care";
 import { CareCalm, CareCard } from "./CareCard";
 import { FAN_MAX, SearchLoader, loaderText, warmArt, type LoaderStep } from "./Loader";
-import { ResultCard, ResultPlaceholder } from "./ResultCard";
+import { AlsoRow, ResultCard } from "./ResultCard";
 import { Reveal, RevealProvider, useResultsReveal } from "./reveal";
 
 /**
@@ -66,13 +84,15 @@ import { Reveal, RevealProvider, useResultsReveal } from "./reveal";
  * - Typing: "Search for “…”", needs that match, and sermon titles from the
  *   catalogue as you type. Nothing is sent until you press search or tap a
  *   need: meaning search runs on submit only.
- * - Searching: nothing for the first 400ms (a quick answer never flashes a
+ * - Searching: the question and its title fold away so the field sits at
+ *   the top; nothing for the first 400ms (a quick answer never flashes a
  *   loader), then shuffling artwork over one honest line saying what search
- *   is doing, above breathing sand placeholders (Loader.tsx).
+ *   is doing, alone in the space below (Loader.tsx).
  * - Results: "Moments about …", related needs, "A path for this", the
- *   moments (his verbatim words, each playing from its
- *   minute), then the sermons they're in, all rising in as one. Title
- *   matches stay listed for title-like questions.
+ *   moments (his verbatim words, each playing from its minute; any whose
+ *   quote didn't pass listed after them as "Also mentioned in"), then the
+ *   sermons they're in, all rising in as one. Title matches stay listed for
+ *   title-like questions.
  * - Someone who may be in distress (search says so, or their words plainly
  *   do) sees a calm card first, and never raw matches for their words.
  * - Errors are calm and say what still works.
@@ -108,8 +128,8 @@ type Row =
   | { key: string; kind: "allNeeds"; label: string }
   | { key: string; kind: "related"; labels: string[] }
   | { key: string; kind: "path"; card: PathCard }
-  | { key: string; kind: "moment"; moment: SearchMoment; pending: boolean; saved: boolean; continued: boolean }
-  | { key: string; kind: "placeholder" }
+  | { key: string; kind: "moment"; moment: SearchMoment; pending: boolean; saved: boolean; continued: boolean; lead: boolean }
+  | { key: string; kind: "also"; moment: SearchMoment; first: boolean }
   | { key: string; kind: "state"; state: "offline" | "rate_limited" | "unavailable" | "empty"; q: string }
   | { key: string; kind: "care"; retry: boolean }
   | { key: string; kind: "note"; text: string };
@@ -117,6 +137,7 @@ type Row =
 /** A row of a result set rises in with the rest (`reveal` staggers a moment card). */
 type Item = Row & { reveal?: number };
 
+/** `kicker` set: one of the empty screen's guided paths; otherwise "A path for this". */
 type PathCard = { id: string; name: string; meta: string; fan: ArtSource[]; kicker?: string };
 
 const same = (a: string, b: string) => a.trim().toLocaleLowerCase() === b.trim().toLocaleLowerCase();
@@ -124,18 +145,28 @@ const same = (a: string, b: string) => a.trim().toLocaleLowerCase() === b.trim()
 /** What a screen reader hears first when the care card shows. */
 const careAnnouncement = `${careText.title} ${careText.body}`;
 
+type Mine = { done: number[]; finishedAt: string | null } | null | undefined;
+
+/** Where you are on a path you've started: "You're on Day 3", or "Finished". */
+function whereOn(total: number, mine: Mine) {
+  return mine?.finishedAt ? "Finished" : mine ? `You're on Day ${nextDay(total, mine.done) ?? total}` : null;
+}
+
 /**
- * A compact path card's line: "7 messages", or where you are once you've
- * started. A day plays its whole sermon, so there's no "minutes a day" to
- * promise, and a draft carries no label.
+ * How long a path is, the way its page and the Paths tab say it: a guided
+ * path counts days ("6 days"), a teaching series its teachings.
  */
-function pathMeta(total: number, mine: { done: number[]; finishedAt: string | null } | null | undefined) {
-  const where = mine?.finishedAt
-    ? "Finished"
-    : mine
-      ? `You're on Day ${nextDay(total, mine.done) ?? total}`
-      : null;
-  return [messagesLabel(total), where].filter(Boolean).join(" · ");
+function pathCount(total: number, series: boolean) {
+  return series ? teachingsLabel(total) : `${total} day${total === 1 ? "" : "s"}`;
+}
+
+/**
+ * "A path for this": "6 days", or where you are once you've started. A day
+ * plays its whole sermon, so there's no "minutes a day" to promise, and a
+ * draft carries no label.
+ */
+function pathMeta(total: number, mine: Mine, series = false) {
+  return [pathCount(total, series), whereOn(total, mine)].filter(Boolean).join(" · ");
 }
 
 export function SearchScreen() {
@@ -375,16 +406,19 @@ function SearchView({ initialQuery, unknownTopic }: { initialQuery: string; unkn
     : 0;
 
   // (For someone in distress, only search's own reading: never their words back.)
-  const helper =
-    !data || (care && !data.care) ? undefined : momentsFound ? (
-      <>
-        Moments about <Strong>{theme || asked}</Strong>
-      </>
-    ) : data.sermons.length ? (
-      <>
-        Sermons about <Strong>{theme || asked}</Strong>
-      </>
-    ) : undefined;
+  const helper = useMemo(
+    () =>
+      !data || (care && !data.care) ? undefined : momentsFound ? (
+        <>
+          Moments about <Strong>{theme || asked}</Strong>
+        </>
+      ) : data.sermons.length ? (
+        <>
+          Sermons about <Strong>{theme || asked}</Strong>
+        </>
+      ) : undefined,
+    [data, care, momentsFound, theme, asked],
+  );
 
   const outcome =
     mode !== "results"
@@ -447,7 +481,7 @@ function SearchView({ initialQuery, unknownTopic }: { initialQuery: string; unkn
     const total = known?.dayCount || pathDays.length || found.days;
     const progress = progressFor(found.id);
     const today = progress ? (nextDay(total, progress.done) ?? total) : 1;
-    const meta = pathMeta(total, progress);
+    const meta = pathMeta(total, progress, known?.kind === "series");
     const front = pathDays[today - 1] ?? pathDays[0];
     const behind = pathDays[today - 2] ?? pathDays[today] ?? pathDays[1];
     const fan = [front, behind]
@@ -457,24 +491,29 @@ function SearchView({ initialQuery, unknownTopic }: { initialQuery: string; unkn
   }, [found, known, pathDays, progressFor]);
 
   // The empty screen's guided paths: the dark compact cards, in the
-  // editor's order, saying where you are on any you've started.
+  // editor's order. The heading already says they're guided paths, so each
+  // leads with its length, then where you are on it, or its promise.
   const emptyPaths = useMemo<PathCard[]>(
     () =>
       paths
         .filter((path) => path.kind !== "series")
         .slice(0, EMPTY_PATHS)
         .map((path) => {
-        const days = daysOf(path.id);
-        const total = path.dayCount || days.length;
-        const meta = pathMeta(total, progressFor(path.id));
-        const fan = days.slice(0, 2).map((d) => ({ id: d.youtubeId }) as ArtSource);
-        return { id: path.id, name: path.name, meta, fan, kicker: "Guided path" };
-      }),
+          const days = daysOf(path.id);
+          const total = path.dayCount || days.length;
+          const meta = whereOn(total, progressFor(path.id)) ?? path.promise;
+          const fan = days.slice(0, 2).map((d) => ({ id: d.youtubeId }) as ArtSource);
+          return { id: path.id, name: path.name, meta, fan, kicker: pathCount(total, false) };
+        }),
     [paths, daysOf, progressFor],
   );
 
   const isSaved = saved.isSaved;
-  const loaderShown = loaderStep !== null;
+  // The keys of the title and need rows last listed (placeKeys): as you
+  // type, a row still listed stays as it is, and a newcomer is drawn into a
+  // row that went, rather than one being taken down and another built.
+  const [titleKeys] = useState(() => new Map<string, string>());
+  const [needKeys] = useState(() => new Map<string, string>());
   const items = useMemo<Item[]>(() => {
     const out: Item[] = [];
     const titleKey = `${mode}:${typed.toLocaleLowerCase()}`;
@@ -488,7 +527,9 @@ function SearchView({ initialQuery, unknownTopic }: { initialQuery: string; unkn
         count: sermonCount(titles.length),
         countTestID: "result-count",
       });
-      titles.slice(0, n).forEach((sermon, i) => out.push({ key: `t-${sermon.id}`, kind: "sermon", sermon, first: i === 0 }));
+      const shown = titles.slice(0, n);
+      const keys = placeKeys(shown.map((t) => t.id), titleKeys, "t-");
+      shown.forEach((sermon, i) => out.push({ key: keys.get(sermon.id)!, kind: "sermon", sermon, first: i === 0 }));
       if (titles.length > n) {
         const next = n + PAGE;
         out.push({
@@ -524,24 +565,19 @@ function SearchView({ initialQuery, unknownTopic }: { initialQuery: string; unkn
     if (mode === "typing") {
       out.push({ key: "suggest", kind: "suggest", q: trimmed });
       const t = trimmed.toLocaleLowerCase();
-      needs
+      const matched = needs
         .filter((n) => `${n.label} ${n.short} ${n.theme}`.toLocaleLowerCase().includes(t))
-        .slice(0, 3)
-        .forEach((need) => out.push({ key: `n-${need.id}`, kind: "need", need, first: false }));
+        .slice(0, 3);
+      const keys = placeKeys(matched.map((m) => m.id), needKeys, "n-");
+      matched.forEach((need) => out.push({ key: keys.get(need.id)!, kind: "need", need, first: false }));
       // No title matches is fine: "Search for “…”" above says what Return does.
       if (titles.length) titleBlock(TYPING_ROWS);
       return out;
     }
 
-    // Results. While search works the loader (in the header) leads; nothing
-    // shows until it does, so a quick answer goes straight to its results.
-    if (result.status === "loading") {
-      if (!loaderShown) return out;
-      titleBlock(RESULT_TITLE_ROWS);
-      out.push({ key: "moments-h", kind: "heading", title: "Moments that speak to this" });
-      for (let i = 0; i < 3; i++) out.push({ key: `ph-${i}`, kind: "placeholder" });
-      return out;
-    }
+    // Results. While search works the loader shows alone, under the field
+    // (the list's empty view); everything else arrives with the results.
+    if (result.status === "loading") return out;
 
     if (result.status === "error") {
       // Someone in distress gets one calm line, never other needs or titles.
@@ -577,21 +613,30 @@ function SearchView({ initialQuery, unknownTopic }: { initialQuery: string; unkn
         key: "moments-h",
         kind: "heading",
         title: "Moments that speak to this",
-        // What's listed: "14 found", or "14 of 96" when there are more.
-        count: all > shown ? `${shown} of ${all}` : `${shown} found`,
-        spoken: all > shown ? `${shown} of ${all} moments` : `${shown} moment${shown === 1 ? "" : "s"} found`,
+        // What's listed: "14 found", or "Top 14" when more matched.
+        count: all > shown ? `Top ${shown}` : `${shown} found`,
+        spoken: all > shown ? `Top ${shown} of ${all} moments` : `${shown} moment${shown === 1 ? "" : "s"} found`,
       });
-      data.moments.forEach((m, i) =>
+      // His words first; a moment whose quote didn't pass (none, and none
+      // on its way) is listed after them, never as an empty card.
+      const quoted = data.moments.filter((m) => m.quote || result.pendingQuotes.has(m.id));
+      const bare = data.moments.filter((m) => !m.quote && !result.pendingQuotes.has(m.id));
+      quoted.forEach((m, i) =>
         out.push({
           key: `m-${m.id}`,
           kind: "moment",
           moment: m,
           pending: result.pendingQuotes.has(m.id),
           saved: isSaved(m.youtubeId),
-          continued: i > 0 && data.moments[i - 1].youtubeId === m.youtubeId,
+          continued: i > 0 && quoted[i - 1].youtubeId === m.youtubeId,
+          lead: i === 0,
           reveal: i,
         }),
       );
+      if (bare.length) {
+        out.push({ key: "also-h", kind: "heading", title: "Also mentioned in" });
+        bare.forEach((m, i) => out.push({ key: `a-${m.id}`, kind: "also", moment: m, first: i === 0 }));
+      }
     }
     const found = data.sermons.filter((s) => !listed.has(s.youtubeId));
     if (found.length) {
@@ -607,7 +652,11 @@ function SearchView({ initialQuery, unknownTopic }: { initialQuery: string; unkn
       out.push(care ? { key: "care", kind: "care", retry: false } : { key: "state", kind: "state", state: "empty", q: asked });
     // The result set rises in as one.
     return out.map((item) => (item.reveal === undefined ? { ...item, reveal: 0 } : item));
-  }, [mode, typed, trimmed, titles, showTitles, limit, needs, allNeeds, recent.recent, emptyPaths, result.status, result.error, result.pendingQuotes, data, care, loaderShown, pathCard, asked, isSaved, needFor]);
+  }, [mode, typed, trimmed, titles, showTitles, limit, needs, allNeeds, recent.recent, emptyPaths, result.status, result.error, result.pendingQuotes, data, care, pathCard, asked, isSaved, needFor, titleKeys, needKeys]);
+  // The list draws a step behind the field: a keystroke shows in the field
+  // at once, and the rows follow in the background, so typing never waits
+  // on them (and the list is left alone while they would come out the same).
+  const rows = useDeferredValue(items);
 
   // ---- Rows ------------------------------------------------------------------------------
 
@@ -641,53 +690,47 @@ function SearchView({ initialQuery, unknownTopic }: { initialQuery: string; unkn
 
   // ---- The page's top: the question and the field ---------------------------------------
 
-  const header = (
-    <View style={{ paddingTop: insets.top + (insets.top ? 8 : 28) }}>
-      <SearchTitle />
-      {showTopicNotice ? (
-        <Note icon="pricetags-outline">That topic link is out of date. Browse the topics below, or ask in your own words.</Note>
-      ) : null}
-      <SearchField
-        inputRef={input}
-        testID="search-input"
-        value={query}
-        onChangeText={setQuery}
-        onSubmit={run}
-        onClear={clear}
-        active={mode === "results"}
-        prompt="Say it in your own words"
-        helper={helper}
-        helperIcon="checkmark"
-        style={styles.field}
-      />
-      {care ? <CareCard /> : null}
-      {loaderStep !== null ? (
-        <SearchLoader art={fanArt} step={loaderStep} sermons={sermons.length} theme={needTheme} reduced={reduced} />
-      ) : null}
-      <LiveStatus text={status} />
-    </View>
+  // The field and what sits under it change with every keystroke; they reach
+  // the list's header through context, so the list itself (and its rows)
+  // draws only when the rows do.
+  const collapsed = mode === "results";
+  const top = useMemo<Top>(
+    () => ({
+      inset: insets.top,
+      collapsed,
+      reduced,
+      notice: showTopicNotice,
+      input,
+      query,
+      setQuery,
+      run,
+      clear,
+      helper,
+      care,
+      status,
+    }),
+    [insets.top, collapsed, reduced, showTopicNotice, query, run, clear, helper, care, status],
+  );
+  const loader: Loading = useMemo(
+    () => ({ step: loaderStep, art: fanArt, sermons: sermons.length, theme: needTheme, reduced }),
+    [loaderStep, fanArt, sermons.length, needTheme, reduced],
   );
 
   return (
     <View style={styles.screen}>
       <RevealProvider value={reveal}>
-        <Animated.FlatList
-          ref={list}
-          data={items}
-          renderItem={renderItem}
-          // A late quote or a card arriving eases the cards below into place.
-          itemLayoutAnimation={reduced ? undefined : LinearTransition.duration(200)}
-          keyExtractor={keyOf}
-          ListHeaderComponent={header}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode={Platform.OS === "web" ? "none" : "on-drag"}
-          style={dockScrollPadding(dock)}
-          contentContainerStyle={[styles.content, { paddingBottom: 48 + dock }]}
-          initialNumToRender={12}
-          maxToRenderPerBatch={10}
-          windowSize={9}
-          removeClippedSubviews={Platform.OS === "android"}
-        />
+        <TopContext.Provider value={top}>
+          <LoadingContext.Provider value={loader}>
+            <SearchList
+              listRef={list}
+              rows={rows}
+              renderItem={renderItem}
+              dock={dock}
+              // While typing, rows take new matches in place: nothing eases about.
+              ease={!reduced && mode !== "typing"}
+            />
+          </LoadingContext.Provider>
+        </TopContext.Provider>
       </RevealProvider>
       {/* Content scrolls under the status bar onto ivory, never under the clock. */}
       <View style={[styles.statusWash, { height: insets.top }]} />
@@ -697,21 +740,204 @@ function SearchView({ initialQuery, unknownTopic }: { initialQuery: string; unkn
 
 const keyOf = (item: Item) => item.key;
 
-/** "What are you going through?", the same at every keystroke. */
-const SearchTitle = memo(function SearchTitle() {
+/**
+ * Keys for a list that changes as you type (`ids`, in order), given the
+ * keys it had last (`book`, updated to these): an id still listed keeps its
+ * key, and a newcomer takes the key of one no longer listed (or a new one).
+ * A row still listed is then left alone, and a newcomer is drawn into a row
+ * that went instead of one being taken down and another built.
+ */
+function placeKeys(ids: readonly string[], book: Map<string, string>, prefix: string) {
+  const kept = new Map<string, string>();
+  for (const id of ids) {
+    const key = book.get(id);
+    if (key) kept.set(id, key);
+  }
+  const used = new Set(kept.values());
+  const free = [...book.values()].filter((key) => !used.has(key));
+  let n = 0;
+  const fresh = () => {
+    let key = `${prefix}${n++}`;
+    while (used.has(key)) key = `${prefix}${n++}`;
+    return key;
+  };
+  book.clear();
+  for (const id of ids) {
+    const key = kept.get(id) ?? free.shift() ?? fresh();
+    used.add(key);
+    book.set(id, key);
+  }
+  return book;
+}
+
+/** What the list's header draws: the question, the field and what's under it. */
+type Top = {
+  inset: number;
+  /** Results (or a search on its way): the question folds away. */
+  collapsed: boolean;
+  reduced: boolean;
+  notice: boolean;
+  input: RefObject<TextInput | null>;
+  query: string;
+  setQuery: (text: string) => void;
+  run: (text: string) => void;
+  clear: () => void;
+  helper: ReactNode;
+  care: boolean;
+  status: string;
+};
+
+/** The loader's state, for the list's empty view. */
+type Loading = {
+  step: LoaderStep | null;
+  art: readonly ArtSource[];
+  sermons: number;
+  theme?: string;
+  reduced: boolean;
+};
+
+const TopContext = createContext<Top | null>(null);
+const LoadingContext = createContext<Loading | null>(null);
+
+/**
+ * The list, drawn again only when its rows (or the dock) change: never for
+ * a keystroke on its own, which only the header (ListTop) follows.
+ */
+const SearchList = memo(function SearchList({
+  listRef,
+  rows,
+  renderItem,
+  dock,
+  ease,
+}: {
+  listRef: RefObject<FlatList<Item> | null>;
+  rows: Item[];
+  renderItem: ListRenderItem<Item>;
+  dock: number;
+  /** A late quote or a card arriving eases the cards below into place. */
+  ease: boolean;
+}) {
+  const layout = useMemo(() => (ease ? LinearTransition.duration(200) : undefined), [ease]);
+  const style = useMemo(() => dockScrollPadding(dock), [dock]);
+  const content = useMemo(() => [styles.content, { paddingBottom: 48 + dock }], [dock]);
   return (
-    <View style={styles.head}>
-      <Kicker>Search by what you need</Kicker>
-      <ItalicTitle
-        text="What are you going through?"
-        italic="going through?"
-        breakBeforeItalic
-        accessibilityRole="header"
-        {...web({ "aria-level": 1 })}
-        style={[type.title, styles.title]}
-        maxFontSizeMultiplier={textCap.display}
+    <Animated.FlatList
+      ref={listRef}
+      data={rows}
+      renderItem={renderItem}
+      itemLayoutAnimation={layout}
+      keyExtractor={keyOf}
+      ListHeaderComponent={ListTop}
+      ListEmptyComponent={ListLoader}
+      keyboardShouldPersistTaps="handled"
+      keyboardDismissMode={Platform.OS === "web" ? "none" : "on-drag"}
+      style={style}
+      contentContainerStyle={content}
+      initialNumToRender={12}
+      maxToRenderPerBatch={10}
+      windowSize={9}
+      removeClippedSubviews={Platform.OS === "android"}
+    />
+  );
+});
+
+/** The page's top: the question (folded away for results), the field and what's under it. */
+function ListTop() {
+  const top = useContext(TopContext);
+  if (!top) return null;
+  return (
+    <View style={{ paddingTop: top.inset + (top.inset ? 8 : 28) }}>
+      <SearchTitle collapsed={top.collapsed} reduced={top.reduced} />
+      {top.notice ? (
+        <Note icon="pricetags-outline">That topic link is out of date. Browse the topics below, or ask in your own words.</Note>
+      ) : null}
+      <SearchField
+        inputRef={top.input}
+        testID="search-input"
+        value={top.query}
+        onChangeText={top.setQuery}
+        onSubmit={top.run}
+        onClear={top.clear}
+        active={top.collapsed}
+        prompt="Say it in your own words"
+        helper={top.helper}
+        helperIcon="checkmark"
+        style={styles.field}
       />
+      {top.care ? <CareCard /> : null}
+      <LiveStatus text={top.status} />
     </View>
+  );
+}
+
+/**
+ * While search works, the list has no rows: the loader shows alone, centred
+ * in the space under the field. (Nothing, for the first 400ms.)
+ */
+function ListLoader() {
+  const loading = useContext(LoadingContext);
+  return (
+    <View style={styles.loading}>
+      {loading && loading.step !== null ? (
+        <SearchLoader
+          art={loading.art}
+          step={loading.step}
+          sermons={loading.sermons}
+          theme={loading.theme}
+          reduced={loading.reduced}
+        />
+      ) : null}
+    </View>
+  );
+}
+
+const QUESTION = "What are you going through?";
+const FOLD = { duration: 200, easing: Easing.out(Easing.ease) };
+
+/**
+ * "What are you going through?", the same at every keystroke. With results
+ * it folds away (height and opacity, 200ms; at once under Reduce Motion), so
+ * the field sits at the top and the results have the room; screen readers
+ * still find the page's heading.
+ */
+const SearchTitle = memo(function SearchTitle({ collapsed, reduced }: { collapsed: boolean; reduced: boolean }) {
+  // The title's own height, once laid out (-1 until then), and how much of it shows.
+  const height = useSharedValue(-1);
+  const open = useSharedValue(collapsed ? 0 : 1);
+  useEffect(() => {
+    open.set(reduced ? (collapsed ? 0 : 1) : withTiming(collapsed ? 0 : 1, FOLD));
+  }, [collapsed, reduced, open]);
+  const fold = useAnimatedStyle(() => {
+    const h = height.get();
+    const t = open.get();
+    if (h < 0) return t === 0 ? { height: 0, opacity: 0 } : {};
+    return { height: h * t, opacity: t };
+  });
+  const hide = collapsed
+    ? ({ accessibilityElementsHidden: true, importantForAccessibility: "no-hide-descendants", ...web({ "aria-hidden": true }) } as const)
+    : null;
+  return (
+    <>
+      <Animated.View style={[styles.fold, fold]} {...hide}>
+        <View style={styles.head} onLayout={(e) => height.set(e.nativeEvent.layout.height)}>
+          <Kicker>Search by what you need</Kicker>
+          <ItalicTitle
+            text={QUESTION}
+            italic="going through?"
+            breakBeforeItalic
+            accessibilityRole="header"
+            {...web({ "aria-level": 1 })}
+            style={[type.title, styles.title]}
+            maxFontSizeMultiplier={textCap.display}
+          />
+        </View>
+      </Animated.View>
+      {collapsed ? (
+        <Heading level={1} style={styles.hidden}>
+          {QUESTION}
+        </Heading>
+      ) : null}
+    </>
   );
 });
 
@@ -864,13 +1090,14 @@ function rowFor(item: Item, actions: RowActions) {
           quotePending={item.pending}
           saved={item.saved}
           continued={item.continued}
+          lead={item.lead}
           onPlay={actions.play}
           onOpen={actions.openMoment}
           onToggleSave={actions.toggleSave}
         />
       );
-    case "placeholder":
-      return <ResultPlaceholder />;
+    case "also":
+      return <AlsoRow moment={item.moment} first={item.first} onPlay={actions.play} onOpen={actions.openMoment} />;
     case "note":
       return <Note>{item.text}</Note>;
     case "care":
@@ -986,9 +1213,14 @@ function SearchProblem({
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: c.bg },
-  content: { width: "100%", maxWidth: 760, alignSelf: "center" },
+  content: { width: "100%", maxWidth: 760, alignSelf: "center", flexGrow: 1 },
+  // The title folds into this (overflow hidden) as results arrive.
+  fold: { overflow: "hidden" },
   head: { paddingHorizontal: 24 },
   title: { marginTop: 6, color: c.text },
+  hidden: { position: "absolute", width: 1, height: 1, overflow: "hidden", left: -1, top: 0 },
+  // Fills what's under the field, so the loader sits in the middle of it.
+  loading: { flex: 1, justifyContent: "center", paddingBottom: 48 },
   field: { marginHorizontal: 20, marginTop: 14 },
   cloud: { marginTop: 18 },
   suggestTop: { marginTop: 10 },

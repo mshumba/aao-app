@@ -11,9 +11,10 @@ import { StyleSheet } from "react-native";
 export const STAGE_BAR = 50;
 // Pill 56 (plus its hairline border) + 8 above + 8 below. Used until measured.
 const TAB_BAR_HEIGHT = 72 + StyleSheet.hairlineWidth * 2;
-const DOCK_BAR_HEIGHT = 56;
+const DOCK_BAR_HEIGHT = 48;
 export const DOCK_MARGIN = 12;
-export const DOCK_PAD = 8;
+/** Round the docked video: none, so it sits flush in the dock's top corners. */
+export const DOCK_PAD = 0;
 const MIN_PLAYER = 200; // YouTube's minimum embedded player size
 // Space kept for the page itself: under the full player for the title and
 // controls to scroll in, and beside the dock for the page being browsed.
@@ -91,7 +92,8 @@ const WIDE = 768;
 
 /**
  * The docked player: a card above the tab bar (or the home indicator), its
- * video at YouTube's 200pt minimum height. On a wide window it sits in the
+ * video flush at the top at YouTube's 200pt minimum height, a slim bar
+ * under it. On a wide window it sits in the
  * bottom-right corner. Where the window is too short to show a video and
  * still leave the page usable, it's compact: just the bar, with the video
  * hidden and paused.

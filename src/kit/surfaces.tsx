@@ -76,8 +76,9 @@ type EdgeProps = { first?: boolean; last?: boolean };
 
 /**
  * One setting or destination: a sand icon well, the label, its current
- * value under it (read with it), and a chevron. 56pt at least; grows with
- * the text. `danger` draws the label in the error colour (Delete account).
+ * value under it (read with it), and a chevron. 52pt for one line, about
+ * 60pt with a value; grows with the text. `danger` draws the label and icon
+ * in the error colour, without a well (Delete account).
  */
 export const ListRow = memo(function ListRow({
   icon,
@@ -148,27 +149,27 @@ const styles = StyleSheet.create({
   divider: {
     height: StyleSheet.hairlineWidth * 2,
     backgroundColor: c.divider,
-    marginStart: 16 + 34 + 14,
+    marginStart: 16 + 30 + 14,
   },
   row: {
     flexDirection: "row",
     alignItems: "center",
     gap: 14,
-    minHeight: 60,
+    minHeight: 52,
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 9,
   },
   first: { borderTopLeftRadius: radius.r22, borderTopRightRadius: radius.r22 },
   last: { borderBottomLeftRadius: radius.r22, borderBottomRightRadius: radius.r22 },
   well: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
     backgroundColor: c.feature,
     alignItems: "center",
     justifyContent: "center",
   },
-  wellDanger: { backgroundColor: "rgba(179, 38, 30, 0.08)" },
+  wellDanger: { backgroundColor: "transparent" },
   rowText: { flex: 1, minWidth: 0, gap: 2 },
   rowTitle: { ...type.label, color: c.text },
   rowValue: { ...type.meta, color: c.muted },

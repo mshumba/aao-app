@@ -68,6 +68,7 @@ export const CardFan = memo(function CardFan({
   scale = 1,
   border = "hairline",
   priority = "low",
+  dimBack = false,
   style,
 }: {
   /** Front first, then the ones behind (left, right). One is enough. */
@@ -79,6 +80,8 @@ export const CardFan = memo(function CardFan({
   border?: "hairline" | "white";
   /** The front tile's loading priority ("high" on a cover above the fold). */
   priority?: "low" | "normal" | "high";
+  /** A shade over the tiles behind, so the front one leads (the dark covers). */
+  dimBack?: boolean;
   style?: StyleProp<ViewStyle>;
 }) {
   const g = GEOMETRY[size];
@@ -114,6 +117,9 @@ export const CardFan = memo(function CardFan({
         lift="none"
         priority={key === "front" ? priority : "low"}
       />
+      {dimBack && key !== "front" ? (
+        <View style={[StyleSheet.absoluteFill, styles.dim, { borderRadius: t.r * scale }]} />
+      ) : null}
       <View style={[StyleSheet.absoluteFill, edge, { borderRadius: t.r * scale }]} />
     </View>
   );
@@ -133,4 +139,5 @@ export const CardFan = memo(function CardFan({
 
 const styles = StyleSheet.create({
   tile: { position: "absolute" },
+  dim: { backgroundColor: "rgba(15,17,21,0.25)" },
 });

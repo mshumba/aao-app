@@ -1,16 +1,32 @@
 import { memo } from "react";
 import { StyleSheet, View, useWindowDimensions, type StyleProp, type ViewStyle } from "react-native";
 import type { PathStatus } from "../learning/types";
-import { c, radius, shadows, tabular, textCap, type } from "../theme";
+import { c, font, fontSize, radius, shadows, tabular, textCap, type } from "../theme";
 import { Icon, T, Tap, nowrap, web } from "../ui";
 import { type ArtSource } from "./Artwork";
-import { CardFan } from "./CardFan";
+import { CardFan, fanSize } from "./CardFan";
 import { PathProgress } from "./PathProgress";
 import { ItalicTitle, Kicker, TrustLine } from "./text";
 import { Wash } from "./Wash";
 import { spokenKicker, spokenText } from "./time";
 
+/**
+ * A path's name whose last word never sits alone on a line ("Breaking free
+ * from habitual / sin"): its last space made unbreakable, in the editor's
+ * italic phrase too when the phrase ends the name.
+ */
+export function keepLastWord(name: string, italic?: string | null) {
+  const glue = (text: string) => text.replace(/ (\S+)$/, "\u00A0$1");
+  const ends = !!italic && name.toLocaleLowerCase().endsWith(italic.toLocaleLowerCase());
+  return { text: glue(name), italic: ends ? glue(italic) : italic };
+}
+
 // ---- PathCardNavy ------------------------------------------------------------------
+
+/** Home's page column, which its path card keeps to. */
+const HOME_COLUMN = 760;
+/** About how wide one character of a kicker is (13pt bold capitals, tracked). */
+const KICKER_EM = 7.4;
 
 type HomeCard = {
   /** Home's "Your path" card. */
@@ -24,12 +40,17 @@ type HomeCard = {
   partial?: number;
   /** Front first: today's sermon, then the two before it. */
   fan: readonly (ArtSource | null | undefined)[];
-  /** "Can You Lose Your Salvation?" (the headline; "Today · " is added). */
+  /** The day's theme ("Today · " is added). */
   todayTitle: string;
-  /** "48 min left · 2 of 7 done". */
+  /** "48 min left", or the sermon's whole length. */
   todayMeta: string;
-  /** Defaults to "Your path · Day 3 of 7". */
+  /** Defaults to "Your path · Day 3 of 7". One line. */
   kicker?: string;
+  /**
+   * Drawn instead of the kicker when the whole one wouldn't fit on its one
+   * line ("Start here"; by default "Day 3 of 7"); the kicker is still read.
+   */
+  shortKicker?: string;
   /** Before the title in the play row: "Today" (default), or "Day 1" before starting. */
   todayLead?: string;
   /** Read before the play row's title ("Play today, day 3"). */
@@ -135,8 +156,17 @@ function HomePathCard(props: HomeCard & { testID?: string; style?: StyleProp<Vie
   // A narrow phone or large text: a smaller fan; at large text it sits above the words.
   const small = width < 360 || big;
   const spoken = props.kicker ?? `Your path · Day ${day} of ${total}`;
+  // The kicker keeps to one line: its short form on a narrow phone, or
+  // when the whole one wouldn't fit beside the fan (Home's card sits 16pt
+  // in from its column).
+  const room =
+    Math.min(width, HOME_COLUMN) - 2 * 16 - 12 - 16 - (big ? 0 : 14 + fanSize("card", small ? 0.78 : 1).width);
+  const fits =
+    width >= 360 && spoken.length * KICKER_EM * Math.min(Math.max(1, fontScale), textCap.section) <= room;
   // "Day 3 of 7" never breaks across lines.
-  const kicker = props.kicker ?? `Your path · ${nowrap(`Day ${day} of ${total}`)}`;
+  const kicker = fits
+    ? (props.kicker ?? `Your path · ${nowrap(`Day ${day} of ${total}`)}`)
+    : (props.shortKicker ?? nowrap(`Day ${day} of ${total}`));
   return (
     <View testID={testID} style={[styles.home, style]} {...web({ dataSet: { dark: "true" } })}>
       <Wash kind="pathCard" />
@@ -152,7 +182,9 @@ function HomePathCard(props: HomeCard & { testID?: string; style?: StyleProp<Vie
         <View style={[styles.homeRow, big && styles.homeStack]}>
           <CardFan sermons={fan} size="card" scale={small ? 0.78 : 1} />
           <View style={[styles.homeText, big && styles.homeTextStacked]}>
-            <Kicker tone="onMedia">{kicker}</Kicker>
+            <Kicker tone="onMedia" numberOfLines={1}>
+              {kicker}
+            </Kicker>
             <ItalicTitle
               text={name}
               italic={italic}
@@ -179,9 +211,9 @@ function HomePathCard(props: HomeCard & { testID?: string; style?: StyleProp<Vie
           </View>
         </View>
         <View style={styles.nextText}>
-          {/* A sermon's headline is never cut off: two lines when it needs them. */}
+          {/* The day's theme: two lines when it needs them, never one word alone on the second. */}
           <T style={styles.nextTitle} numberOfLines={big ? 3 : 2}>
-            {todayLead} · {todayTitle}
+            {todayLead} · {todayTitle.replace(/ (\S+)$/, "\u00A0$1")}
           </T>
           {/* Holds its line while the length loads, so nothing moves. */}
           <T style={styles.nextMeta} numberOfLines={big ? 2 : 1}>
@@ -296,7 +328,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   nextText: { flex: 1, minWidth: 0 },
-  nextTitle: { ...type.cardTitle, color: c.white },
+  nextTitle: { fontFamily: font.semibold, fontSize: fontSize.lead, lineHeight: 21, color: c.white },
   nextMeta: { ...type.meta, color: c.onMediaMuted, marginTop: 2, ...tabular },
   compact: {
     minHeight: 72,

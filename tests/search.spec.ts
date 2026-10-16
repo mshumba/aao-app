@@ -91,8 +91,9 @@ test("a need on Home finds moments in his words, and the path for it", async ({
   ).toBeVisible();
   // "A path for this" opens the path.
   const path = page.getByTestId("search-path");
+  // A guided path counts its days, as its page does.
   await expect(path).toHaveAccessibleName(
-    "A path for this. Breaking free from habitual sin. 7 messages",
+    "A path for this. Breaking free from habitual sin. 7 days",
   );
   await path.click();
   await expect(page).toHaveURL(new RegExp(`/path/${HABIT}$`));

@@ -116,7 +116,7 @@ export const FoundSermon = memo(function FoundSermon({
     () => ({ id: sermon.youtubeId, thumbnail: sermon.thumbnailUrl }),
     [sermon.youtubeId, sermon.thumbnailUrl],
   );
-  const meta = searchSermonMeta(sermon).split(" · ").map(nowrap).join(" · ");
+  const meta = searchSermonMeta(sermon);
   const count = `${sermon.moments} moment${sermon.moments === 1 ? "" : "s"} on this`;
   return (
     <SermonLine

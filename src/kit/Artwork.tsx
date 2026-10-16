@@ -6,11 +6,13 @@ import {
   Platform,
   StyleSheet,
   View,
+  type ImageStyle,
   type StyleProp,
   type ViewStyle,
 } from "react-native";
 import Animated from "react-native-reanimated";
 import { artworkTint } from "../data/artwork";
+import { artOverride, pillarboxed } from "../data/artworkFixes";
 import { artFade, artRadius, c, font, shadows, tabular, textCap } from "../theme";
 import { T, web } from "./base";
 
@@ -34,13 +36,15 @@ export type ArtSource = { id: string; thumbnail?: string | null };
 /**
  * YouTube serves every video's artwork in several sizes: mq 320×180, hq
  * 480×360 and sd 640×480 (both 4:3 with bars, which the 16:9 crop removes),
- * and maxres 1280×720. A tile takes the smallest copy that is sharp at this
- * screen's density, never a larger one than the source names (an old video
- * may have no sd or maxres). The full-width hero art comes as WebP, about a
- * third lighter; the JPEG stands behind it (see artCandidates).
+ * and maxres 1280×720; and the same ladder for three frames from the video
+ * (mq2, hq2…: see data/artworkFixes.ts). A tile takes the smallest copy
+ * that is sharp at this screen's density, never a larger one than the
+ * source names (an old video may have no sd or maxres). The full-width hero
+ * art comes as WebP, about a third lighter; the JPEG stands behind it (see
+ * artCandidates).
  */
-const LADDER = ["mqdefault", "hqdefault", "sddefault", "maxresdefault"] as const;
-const YT = /^https:\/\/i\.ytimg\.com\/vi(?:_webp)?\/([^/]+)\/(maxresdefault|sddefault|hqdefault|mqdefault)\.(?:jpg|webp)$/;
+const LADDER = ["mq", "hq", "sd", "maxres"] as const;
+const YT = /^https:\/\/i\.ytimg\.com\/vi(?:_webp)?\/([^/]+)\/(maxres|sd|hq|mq)(default|[123])\.(?:jpg|webp)$/;
 
 export function sizedArt(uri: string, width?: number) {
   if (!width) return uri;
@@ -49,7 +53,7 @@ export function sizedArt(uri: string, width?: number) {
   const px = width * PixelRatio.get();
   const want = px <= 320 ? 0 : px <= 480 ? 1 : px <= 640 ? 2 : 3;
   const step = LADDER[Math.min(want, LADDER.indexOf(match[2] as (typeof LADDER)[number]))];
-  return `https://i.ytimg.com/vi/${match[1]}/${step}.jpg`;
+  return `https://i.ytimg.com/vi/${match[1]}/${step}${match[3]}.jpg`;
 }
 
 /**
@@ -62,15 +66,26 @@ export function artCandidates(art: ArtSource, width?: number) {
   const sized = sizedArt(source, width);
   const list: string[] = [];
   const match = YT.exec(sized);
-  if (match && match[2] === "maxresdefault" && width && width > 480)
+  if (match && match[2] === "maxres" && match[3] === "default" && width && width > 480)
     list.push(`https://i.ytimg.com/vi_webp/${match[1]}/maxresdefault.webp`);
   list.push(sized, source, `https://i.ytimg.com/vi/${art.id}/hqdefault.jpg`);
   return [...new Set(list)];
 }
 
-/** The art for an id: the source's thumbnail, else YouTube's standard copy. */
+/**
+ * The art for an id: a hand-checked replacement where the source's is
+ * wrong, else the source's thumbnail, else YouTube's standard copy.
+ */
 export function artUri(art: ArtSource) {
-  return art.thumbnail || `https://i.ytimg.com/vi/${art.id}/hqdefault.jpg`;
+  return artOverride[art.id] ?? (art.thumbnail || `https://i.ytimg.com/vi/${art.id}/hqdefault.jpg`);
+}
+
+/**
+ * How much of the frame's width the poster fills, for art that's a poster
+ * with black bars down both sides (scripts/flag-artwork.py); else undefined.
+ */
+function posterShare(art: ArtSource) {
+  return artOverride[art.id] ? undefined : pillarboxed[art.id];
 }
 
 // ---- What's already on this device -------------------------------------------------
@@ -149,16 +164,22 @@ export function useArtOnDevice(uri: string | null, ask = true): boolean | null {
   return on;
 }
 
+/** The blur behind a poster shown alone (styles.backdropShade darkens it a little). */
+const BACKDROP_BLUR = 20;
+
 const FadeImage = memo(function FadeImage({
   uri,
   recyclingKey,
   priority,
+  share,
   onError,
   onLoad,
 }: {
   uri: string;
   recyclingKey: string;
   priority: "low" | "normal" | "high";
+  /** A poster with bars: the share of the width it fills (see posterShare). */
+  share?: number;
   onError: () => void;
   onLoad?: () => void;
 }) {
@@ -171,43 +192,65 @@ const FadeImage = memo(function FadeImage({
     onDevice.add(uri);
     onLoad?.();
   }, [uri, onLoad]);
-  if (ExpoImage) {
-    // The tint for the moment the cache takes to answer.
-    if (cached === null) return null;
-    return (
+  // The tint for the moment the cache takes to answer.
+  if (ExpoImage && cached === null) return null;
+  // A copy of the image filling `style`. Blurred, it's the backdrop: only
+  // the copy in front reports loading or failing.
+  const draw = (style: StyleProp<ImageStyle>, blurRadius?: number) =>
+    ExpoImage ? (
       <ExpoImage
         source={{ uri }}
-        style={StyleSheet.absoluteFill}
+        style={style}
         contentFit="cover"
         transition={cached ? 0 : artFade}
         cachePolicy="memory-disk"
         recyclingKey={recyclingKey}
         priority={priority}
-        onError={onError}
-        onLoad={onLoaded}
+        blurRadius={blurRadius}
+        onError={blurRadius ? undefined : onError}
+        onLoad={blurRadius ? undefined : onLoaded}
         accessible={false}
       />
+    ) : (
+      <AnimatedImage
+        source={{ uri }}
+        style={[
+          style,
+          {
+            opacity: loaded ? 1 : 0,
+            transitionProperty: "opacity",
+            transitionDuration: artFade,
+          },
+        ]}
+        resizeMode="cover"
+        blurRadius={blurRadius}
+        accessible={false}
+        onLoad={
+          blurRadius
+            ? undefined
+            : () => {
+                setLoaded(true);
+                onLoad?.();
+              }
+        }
+        onError={blurRadius ? undefined : onError}
+      />
     );
-  }
+  if (!share) return draw(StyleSheet.absoluteFill);
+  // A poster with black bars down its sides: the poster alone, centred and
+  // clipped out of the frame, over the same image scaled up until the
+  // poster fills the width, blurred and a little darker. One download.
+  const side = (1 - share) / 2;
   return (
-    <AnimatedImage
-      source={{ uri }}
-      style={[
-        StyleSheet.absoluteFill,
-        {
-          opacity: loaded ? 1 : 0,
-          transitionProperty: "opacity",
-          transitionDuration: artFade,
-        },
-      ]}
-      resizeMode="cover"
-      accessible={false}
-      onLoad={() => {
-        setLoaded(true);
-        onLoad?.();
-      }}
-      onError={onError}
-    />
+    <>
+      <View style={[StyleSheet.absoluteFill, { transform: [{ scale: 1 / share }] }]}>
+        {draw(StyleSheet.absoluteFill, BACKDROP_BLUR)}
+      </View>
+      <View style={styles.backdropShade} />
+      <View style={[styles.poster, { left: `${side * 100}%`, width: `${share * 100}%` }]}>
+        {draw([styles.posterImage, { left: `${(-side / share) * 100}%`, width: `${100 / share}%` }])}
+      </View>
+    </>
   );
 });
 
@@ -259,6 +302,7 @@ export const Artwork = memo(function Artwork({
   testID,
 }: ArtworkProps) {
   const candidates = useMemo(() => (art ? artCandidates(art, width) : []), [art, width]);
+  const share = art ? posterShare(art) : undefined;
   // Which copy failed last: the next one is tried, until none is left.
   const [failed, setFailed] = useState<{ key: string; count: number } | null>(null);
   const key = candidates.join(" ");
@@ -287,7 +331,15 @@ export const Artwork = memo(function Artwork({
     >
       <View style={[styles.clip, { borderRadius: r, backgroundColor: tint }]}>
         {uri && !broken ? (
-          <FadeImage key={uri} uri={uri} recyclingKey={art!.id} priority={priority} onError={onError} onLoad={onSettled} />
+          <FadeImage
+            key={uri}
+            uri={uri}
+            recyclingKey={art!.id}
+            priority={priority}
+            share={share}
+            onError={onError}
+            onLoad={onSettled}
+          />
         ) : load && fallback ? (
           <View style={styles.fallback}>
             <T style={styles.fallbackText} numberOfLines={2} maxFontSizeMultiplier={1.2}>
@@ -321,6 +373,9 @@ export const Artwork = memo(function Artwork({
 
 const styles = StyleSheet.create({
   clip: { ...StyleSheet.absoluteFill, overflow: "hidden" },
+  backdropShade: { ...StyleSheet.absoluteFill, backgroundColor: "rgba(15,17,21,0.2)" },
+  poster: { position: "absolute", top: 0, bottom: 0, overflow: "hidden" },
+  posterImage: { position: "absolute", top: 0, bottom: 0 },
   edge: {
     ...StyleSheet.absoluteFill,
     borderWidth: StyleSheet.hairlineWidth,

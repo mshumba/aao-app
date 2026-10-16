@@ -1,11 +1,11 @@
-import { memo, useMemo } from "react";
-import { StyleSheet, View, type LayoutChangeEvent } from "react-native";
+import { memo, useMemo, type Ref } from "react";
+import { StyleSheet, Text, View, type LayoutChangeEvent } from "react-native";
 import { relatedSermons, sermonCategoryIds, type Sermon } from "../data/sermons";
-import { Kicker, SectionHeader } from "../kit";
+import { SectionHeader } from "../kit";
 import { exitTo } from "../navigation";
-import { c, space, type } from "../theme";
+import { c, space, textCap, type } from "../theme";
 import { TopicNotice, TopicTags } from "../topics";
-import { Notice, SermonRow, SermonTitle, TextButton } from "../ui";
+import { Icon, Notice, SermonRow, T, Tap, TextButton } from "../ui";
 
 /*
  * The panel's sections below the fold. Each draws only when its own inputs
@@ -72,34 +72,71 @@ export const TopicsSection = memo(function TopicsSection({ sermon }: { sermon: S
   );
 });
 
-/** The exact title as published, kept with its source. */
+/**
+ * Where it's from, quietly: the exact title as published (kept in the
+ * details, the 14 October decision), a way to it on YouTube, and what
+ * playing it through YouTube means. The title is all there is to say about
+ * a sermon yet, so it's a line, not a section under its own heading; the
+ * menu's "About this sermon" brings it into view.
+ */
 export const AboutSermon = memo(function AboutSermon({
   sermon,
   onYouTube,
   onLayout,
+  ref,
+  first = false,
 }: {
   sermon: Sermon;
   onYouTube: () => void;
-  /** Where the section sits, for the menu's "About this sermon". */
-  onLayout: (e: LayoutChangeEvent) => void;
+  /** First on the panel (no path, series or moments above it). */
+  first?: boolean;
+  /** Once it's laid out, for the menu's "About this sermon". */
+  onLayout?: (e: LayoutChangeEvent) => void;
+  ref?: Ref<View>;
 }) {
   return (
-    <View onLayout={onLayout}>
-      <SectionHeader title="About this sermon" size="md" style={styles.sectionGap} />
+    <View
+      ref={ref}
+      onLayout={onLayout}
+      collapsable={false}
+      style={first ? styles.aboutFirst : styles.about}
+      testID="about-sermon"
+    >
+      {/* The link follows the title, or takes the next line when it doesn't fit. */}
       <View style={styles.source}>
-        <Kicker tone="muted">On YouTube</Kicker>
-        <SermonTitle title={sermon.title} style={styles.sourceTitle} />
-        <TextButton label="Open in YouTube" icon="open-outline" align="start" onPress={onYouTube} />
-        <Notice icon="logo-youtube">
-          Plays through YouTube. Loading the player connects to Google, which may set cookies.
-        </Notice>
+        <T style={styles.sourceText}>
+          {"On YouTube as “"}
+          {/* Its own span, in the line's style: the title exactly as published. */}
+          <Text>{sermon.title}</Text>
+          {"”"}
+        </T>
+        <Tap
+          accessibilityRole="button"
+          accessibilityLabel="Open in YouTube"
+          onPress={onYouTube}
+          feedback="dim"
+          hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
+          style={styles.link}
+        >
+          <T style={styles.linkText} maxFontSizeMultiplier={textCap.chip}>
+            Open in YouTube
+          </T>
+          <Icon name="open-outline" size={14} color={c.accent} />
+        </Tap>
       </View>
+      <Notice icon="logo-youtube">
+        Plays through YouTube. Loading the player connects to Google, which may set cookies.
+      </Notice>
     </View>
   );
 });
 
 const styles = StyleSheet.create({
   sectionGap: { marginTop: space.xxl, marginHorizontal: 4 },
-  source: { gap: space.sm, marginTop: space.md, marginHorizontal: 4 },
-  sourceTitle: { ...type.caption, color: c.text },
+  about: { gap: space.sm, marginTop: space.xl, marginHorizontal: 4 },
+  aboutFirst: { gap: space.sm, marginHorizontal: 4 },
+  source: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: space.sm },
+  sourceText: { ...type.meta, color: c.muted, maxWidth: "100%" },
+  link: { flexDirection: "row", alignItems: "center", gap: 4, minHeight: 32 },
+  linkText: { ...type.meta, fontFamily: type.label.fontFamily, color: c.accent },
 });

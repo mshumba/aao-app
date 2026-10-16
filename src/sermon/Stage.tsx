@@ -95,10 +95,13 @@ function SkipToPlayer() {
 }
 
 /**
- * The sermon's artwork where the video will play, with a 64pt white play
- * disc. Tapping it starts the sermon, like the Watch pill below it; the
- * pill is the one control assistive technology meets, so this stays out of
- * the accessibility tree.
+ * The sermon's artwork where the video will play, with a 52pt glass play
+ * disc in its lower-left corner, clear of the poster's own lettering. The
+ * art always fills the frame: where YouTube's 200pt minimum makes the frame
+ * taller than 16:9 (a narrow phone), it's drawn at the frame's height and
+ * its sides are clipped, never left with bars. Tapping it starts the
+ * sermon, like the Watch pill below it; the pill is the one control
+ * assistive technology meets, so this stays out of the accessibility tree.
  */
 export const Poster = memo(function Poster({
   sermon,
@@ -113,6 +116,7 @@ export const Poster = memo(function Poster({
   radius: number;
   onPress: () => void;
 }) {
+  const artWidth = Math.max(width, Math.round((height * 16) / 9));
   return (
     <Pressable
       onPress={onPress}
@@ -126,31 +130,29 @@ export const Poster = memo(function Poster({
         <>
           <Artwork
             art={sermon}
-            width={width}
+            width={artWidth}
             radius={corner}
             lift="none"
             priority="high"
             fallback={headline(sermon)}
-            style={{ width, height }}
+            style={{ width: artWidth, height, marginLeft: (width - artWidth) / 2 }}
           />
           <View style={[StyleSheet.absoluteFill, gradient(gradients.videoShade), { pointerEvents: "none" }]} />
-          <View style={[styles.center, { pointerEvents: "none" }]}>
-            <Animated.View
-              style={[
-                styles.disc,
-                {
-                  transform: [{ scale: pressed ? 0.94 : 1 }],
-                  transitionProperty: "transform",
-                  transitionDuration: 120,
-                  transitionTimingFunction: easeOut,
-                },
-              ]}
-            >
-              <View style={{ marginLeft: 3 }}>
-                <Icon name="play" size={28} color={c.accent} />
-              </View>
-            </Animated.View>
-          </View>
+          <Animated.View
+            style={[
+              styles.disc,
+              {
+                transform: [{ scale: pressed ? 0.94 : 1 }],
+                transitionProperty: "transform",
+                transitionDuration: 120,
+                transitionTimingFunction: easeOut,
+              },
+            ]}
+          >
+            <View style={{ marginLeft: 2 }}>
+              <Icon name="play" size={22} color={c.white} />
+            </View>
+          </Animated.View>
         </>
       )}
     </Pressable>
@@ -273,15 +275,20 @@ const styles = StyleSheet.create({
   },
   barTitleSlot: { flex: 1, minWidth: 0, paddingHorizontal: 12, alignItems: "center" },
   barTitle: { ...type.label, color: c.white, textAlign: "center" },
-  center: { ...StyleSheet.absoluteFill, alignItems: "center", justifyContent: "center" },
+  // Glass, like the stage's round buttons, 16pt in from the frame's corner.
   disc: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: "rgba(255,255,255,0.92)",
+    position: "absolute",
+    left: space.lg,
+    bottom: space.lg,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: c.glass,
+    borderWidth: 1,
+    borderColor: c.glassBorder,
     alignItems: "center",
     justifyContent: "center",
-    boxShadow: "0 10px 30px rgba(0,0,0,0.45)",
+    pointerEvents: "none",
   },
   // On the stage, where the video was: a quiet panel, white words.
   error: {

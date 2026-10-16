@@ -5,6 +5,7 @@ import React, {
   ReactNode,
   Ref,
   memo,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -16,6 +17,8 @@ import { spokenKicker } from "./kit/time";
 import {
   AccessibilityInfo,
   ActivityIndicator,
+  Animated,
+  Easing,
   Image,
   KeyboardAvoidingView,
   Platform,
@@ -31,14 +34,6 @@ import {
   ViewStyle,
   useWindowDimensions,
 } from "react-native";
-import Animated, {
-  Easing,
-  ReduceMotion,
-  useAnimatedStyle,
-  useSharedValue,
-  withSequence,
-  withTiming,
-} from "react-native-reanimated";
 import {
   SafeAreaView,
   useSafeAreaInsets,
@@ -48,6 +43,7 @@ import { eventLine, headline } from "./data/display";
 import { Sermon, sermonCategoryIds } from "./data/sermons";
 import { useReducedMotion } from "./motion";
 import { useGo, usePageTitle } from "./navigation";
+import { shortDay } from "./home/copy";
 import { useDockInset } from "./player/useDockInset";
 import { c, font, press, radius, shadows, space, tabular, textCap, type } from "./theme";
 export { c, T, web };
@@ -288,14 +284,23 @@ type Feedback = "scale" | "scaleLarge" | "highlight" | "dim";
 const MIN_PRESSED = 100;
 
 /**
- * The theme's easeOut as a timing curve. Tap swaps scaling for a dim under
- * Reduce Motion itself, so the timing never skips to its end.
+ * Phone: the longest the pressed look waits, once the finger lifts, for the
+ * press's work (often building the next screen) before letting go.
  */
-const pressTiming = {
-  duration: press.duration,
-  easing: Easing.bezier(0.23, 1, 0.32, 1),
-  reduceMotion: ReduceMotion.Never,
-};
+const MAX_HELD = 400;
+
+/** The theme's easeOut, as a curve for Animated. */
+const pressEase = Easing.bezier(0.23, 1, 0.32, 1);
+
+/** Web: the browser draws the press, on the theme's easeOut. */
+const pressTransition =
+  Platform.OS === "web"
+    ? ({
+        transitionProperty: "opacity, transform",
+        transitionDuration: `${press.duration}ms`,
+        transitionTimingFunction: "cubic-bezier(0.23, 1, 0.32, 1)",
+      } as unknown as ViewStyle)
+    : null;
 
 /**
  * Pressable with press-in feedback that commits on release.
@@ -305,10 +310,13 @@ const pressTiming = {
  * - dim: borderless text actions fade, like iOS text buttons.
  * Under Reduce Motion, scaling becomes a dim.
  *
- * The look runs on the UI thread, so it lets go on time even while the
- * press's work (often building the next screen) holds the JS thread, and a
- * quick tap, whose press-in and press-out arrive together after a press
- * delay, still shows for MIN_PRESSED.
+ * On a phone the look runs on Animated's native driver, on the UI thread. A
+ * press costs only a small update of the control as each step settles, and
+ * a Tap nobody presses never re-renders for its look (Reanimated's styles
+ * did, a second or so after every screen appeared, when it handed their
+ * settled values back to React). A quick tap still shows for MIN_PRESSED,
+ * and the look holds through the press's work, up to MAX_HELD, so a slow
+ * push never leaves a moment with nothing pressed.
  */
 export function Tap({
   style,
@@ -333,8 +341,9 @@ export function Tap({
 }) {
   const reduced = useReducedMotion();
   // 0 at rest, 1 pressed.
-  const pressed = useSharedValue(0);
+  const [pressed] = useState(() => new Animated.Value(0));
   const downAt = useRef<number | null>(null);
+  const webTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const live = !disabled && !busy;
   const scales = feedback === "scale" || feedback === "scaleLarge";
   const shrink =
@@ -345,30 +354,56 @@ export function Tap({
   const resting = disabled && !busy ? 0.45 : 1;
   const highlight = feedback === "highlight";
   const ground = highlight
-    ? (StyleSheet.flatten(style)?.backgroundColor ?? "transparent")
+    ? ((StyleSheet.flatten(style)?.backgroundColor ?? "transparent") as string)
     : "transparent";
-  const look = useAnimatedStyle(() => {
-    const p = live ? pressed.get() : 0;
-    const animated: ViewStyle = {
-      opacity: dims ? resting * (1 - 0.4 * p) : resting,
-      transform: [{ scale: 1 - shrink * p }],
+  // Kept across renders, so the animated nodes (on a phone, their native
+  // twins) are built once per look rather than on every parent render.
+  const look = useMemo(() => {
+    const toward = (rest: number, on: number) =>
+      live ? pressed.interpolate({ inputRange: [0, 1], outputRange: [rest, on] }) : rest;
+    return {
+      opacity: dims ? toward(resting, resting * 0.6) : resting,
+      transform: [{ scale: shrink ? toward(1, 1 - shrink) : 1 }],
+      // The tint switches halfway rather than fading through a darker mix.
+      ...(highlight && {
+        backgroundColor: live
+          ? pressed.interpolate({
+              inputRange: [0.5, 0.51],
+              outputRange: [ground, highlightColor],
+              extrapolate: "clamp",
+            })
+          : ground,
+      }),
+      ...pressTransition,
     };
-    if (highlight) animated.backgroundColor = p > 0.5 ? highlightColor : ground;
-    return animated;
-  });
+  }, [pressed, live, dims, resting, shrink, highlight, ground, highlightColor]);
+  // Eases the look to `to` (1 pressed, 0 at rest) after keeping it where it
+  // is for `hold` ms. On a phone the hold is part of the curve, since
+  // Animated's delays are JS timers, so it lets go on time however busy the
+  // press's work keeps the JS thread. On the web the value changes after the
+  // hold and the CSS transition draws it.
+  const move = (to: number, hold = 0) => {
+    if (Platform.OS === "web") {
+      if (webTimer.current) clearTimeout(webTimer.current);
+      webTimer.current = null;
+      if (hold > 0) webTimer.current = setTimeout(() => pressed.setValue(to), hold);
+      else pressed.setValue(to);
+      return;
+    }
+    const start = hold / (hold + press.duration);
+    Animated.timing(pressed, {
+      toValue: to,
+      duration: hold + press.duration,
+      easing: (t) => (t < start ? 0 : pressEase((t - start) / (1 - start))),
+      useNativeDriver: true,
+    }).start();
+  };
   // Lets go, after MIN_PRESSED from the press-in when the tap was quicker.
   const release = () => {
     if (downAt.current === null) return;
     const held = Date.now() - downAt.current;
     downAt.current = null;
-    pressed.set(
-      held < MIN_PRESSED
-        ? withSequence(
-            withTiming(1, { ...pressTiming, duration: MIN_PRESSED - held }),
-            withTiming(0, pressTiming),
-          )
-        : withTiming(0, pressTiming),
-    );
+    move(0, Math.max(MIN_PRESSED - held, 0));
   };
   const role = rest.accessibilityRole;
   const slop = webSlop(
@@ -395,14 +430,33 @@ export function Tap({
         busy || !onPress
           ? undefined
           : (e) => {
-              // React Native holds press-out until 130ms after press-in, so
-              // on a phone the release starts here, and the action waits a
-              // frame so its work (often the next screen) starts behind it.
               // The web keeps the action inside the click, which sharing,
-              // copying and playback need.
-              release();
-              if (Platform.OS === "web") onPress(e);
-              else requestAnimationFrame(() => onPress(e));
+              // copying and playback need. Its press-out comes first, so
+              // the look has already let go.
+              if (Platform.OS === "web") {
+                release();
+                onPress(e);
+                return;
+              }
+              // A phone sends the press as the finger lifts (press-out
+              // follows 130ms after press-in at the earliest). The look
+              // holds from here, shown at once if the press-in came with it,
+              // while the action's work runs, and lets go a frame after it,
+              // or after MAX_HELD on the UI thread if the work runs longer.
+              const at = downAt.current;
+              downAt.current = null;
+              if (at !== null) {
+                pressed.setValue(1);
+                move(0, MAX_HELD);
+              }
+              const lifted = Date.now();
+              onPress(e);
+              if (at === null) return;
+              requestAnimationFrame(() => {
+                // Unless the hold ran out or a new press has begun.
+                if (Date.now() - lifted >= MAX_HELD || downAt.current !== null) return;
+                move(0, Math.max(at + MIN_PRESSED - Date.now(), 0));
+              });
             }
       }
       // VoiceOver otherwise activates by tapping the control's centre, which
@@ -429,8 +483,10 @@ export function Tap({
           })
         : null)}
       onPressIn={(e) => {
-        downAt.current = Date.now();
-        pressed.set(withTiming(1, pressTiming));
+        if (live) {
+          downAt.current = Date.now();
+          move(1);
+        }
         onPressIn?.(e);
       }}
       onPressOut={(e) => {
@@ -969,9 +1025,9 @@ export function useNarrow() {
   return (Math.min(width, 760) - space.gutter * 2) / fontScale < 300;
 }
 
-/** Row artwork: 128pt, 112pt on a narrow phone (320pt). */
+/** Row artwork: 112pt, 96pt on a narrow phone (320pt). */
 export function rowArtWidth(width: number) {
-  return width < 360 ? 112 : 128;
+  return width < 360 ? 96 : 112;
 }
 
 /**
@@ -1006,9 +1062,14 @@ export function sermonLabel(
     .join(" ");
 }
 
-/** "23 Sep 2026 · 2 hr 28 min", unbroken inside each part. */
-export function sermonMeta(sermon: Pick<Sermon, "date" | "duration">) {
-  return sermon.duration ? `${nowrap(sermon.date)} · ${nowrap(sermon.duration)}` : nowrap(sermon.date);
+/**
+ * "11 Oct · 1 hr 36 min", with the year only when it isn't this one ("23
+ * Sep 2025 · 2 hr 28 min"), unbroken inside each part. Spoken labels keep
+ * the full date (sermonLabel).
+ */
+export function sermonMeta(sermon: Pick<Sermon, "day" | "date" | "duration">, now = new Date()) {
+  const date = nowrap((sermon.day && shortDay(sermon.day, now)) || sermon.date);
+  return sermon.duration ? `${date} · ${nowrap(sermon.duration)}` : date;
 }
 
 /**
@@ -1080,12 +1141,14 @@ export const SermonRow = memo(function SermonRow({
       />
       <View style={s.rowBody}>
         {top ? (
-          <T style={s.rowKicker} numberOfLines={stacked ? undefined : 2} maxFontSizeMultiplier={textCap.section}>
+          <T style={s.rowKicker} numberOfLines={stacked ? undefined : 1} maxFontSizeMultiplier={textCap.section}>
             {top}
           </T>
         ) : null}
         <SermonTitle list title={title ?? headline(sermon)} numberOfLines={stacked ? 0 : 2} />
-        <T style={s.rowMeta}>{sermonMeta(sermon)}</T>
+        <T style={s.rowMeta} numberOfLines={stacked ? undefined : 1}>
+          {sermonMeta(sermon)}
+        </T>
         {detail ? <T style={s.rowDetail}>{detail}</T> : null}
       </View>
     </Tap>
@@ -1368,10 +1431,14 @@ export const s = StyleSheet.create({
     alignItems: "center",
     gap: space.lg,
     minHeight: 72,
+    // 4pt more between rows in every list, without each list changing its gap.
+    paddingVertical: 2,
   },
   rowStacked: { flexDirection: "column", alignItems: "stretch", gap: 10 },
   rowBody: { flex: 1, minWidth: 0, gap: 3, alignSelf: "stretch", justifyContent: "center" },
-  rowKicker: { ...type.overline, color: c.gold },
+  // One line, tracked a little tighter than other eyebrows so an event's
+  // name fits beside the artwork.
+  rowKicker: { ...type.overline, letterSpacing: 0.4, color: c.gold },
   rowMeta: { ...type.meta, color: c.muted, ...tabular },
   rowDetail: { ...type.meta, fontFamily: font.bold, color: c.accent, ...tabular },
   /** A sermon's title in any list (SermonTitle `list`). */

@@ -71,6 +71,8 @@ export const c = {
   artTrack: "rgba(255, 255, 255, 0.35)",
   /** Path progress on sand ("part of your path"). */
   accentTrack: "rgba(31, 58, 95, 0.16)",
+  /** Over the Home hero's artwork, under its scrim: a flyer's own lettering a step quieter. */
+  heroArtDim: "rgba(15, 17, 21, 0.30)",
 };
 
 /**
@@ -79,14 +81,16 @@ export const c = {
  * experimental_backgroundImage on native). Values are the concept's own.
  */
 export const gradients = {
-  /** Home hero: a wash under the status bar, dark on the left for the title. */
+  /**
+   * Home hero: a wash under the status bar, dark on the left for the title,
+   * past the flyer's own lettering (to 58%, fading out by 88%).
+   */
   heroScrim:
     "linear-gradient(180deg, rgba(15,17,21,0.62) 0px, rgba(15,17,21,0) 130px), " +
-    "linear-gradient(90deg, rgba(15,17,21,0.99) 0%, rgba(15,17,21,0.98) 51%, rgba(15,17,21,0.6) 61%, rgba(15,17,21,0.15) 71%, rgba(15,17,21,0) 80%), " +
+    "linear-gradient(90deg, rgba(15,17,21,0.99) 0%, rgba(15,17,21,0.98) 58%, rgba(15,17,21,0.6) 68%, rgba(15,17,21,0.15) 78%, rgba(15,17,21,0) 88%), " +
     "linear-gradient(180deg, rgba(15,17,21,0) 40%, rgba(15,17,21,0.5) 70%, rgba(15,17,21,0.3) 84%)",
-  /** The bottom 68pt of the Home hero, melting into the ivory page. */
-  heroFade:
-    "linear-gradient(180deg, rgba(247,244,238,0) 0%, rgba(247,244,238,0.85) 60%, #f7f4ee 100%)",
+  /** The bottom 24pt of the Home hero: a short, crisp step into the ivory page. */
+  heroFade: "linear-gradient(180deg, rgba(247,244,238,0) 0%, #f7f4ee 100%)",
   /** Home's "Your path" card: navy light from the top right, a little gold low left. */
   pathCard:
     "radial-gradient(260px 200px at 92% 0%, rgba(31,58,95,0.95) 0%, rgba(31,58,95,0) 70%), " +

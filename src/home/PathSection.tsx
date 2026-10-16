@@ -2,7 +2,6 @@ import { memo, useCallback, useMemo, useState } from "react";
 import { ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
 import { useProgressOf } from "../auth/AccountProvider";
 import { useCatalogue } from "../catalogue/CatalogueProvider";
-import { headline } from "../data/display";
 import type { Sermon } from "../data/sermons";
 import {
   CardFan,
@@ -16,8 +15,6 @@ import {
   type ArtSource,
 } from "../kit";
 import {
-  doneLabel,
-  messagesLabel,
   trustLine,
   useEnrollment,
   type ActivePath,
@@ -50,10 +47,11 @@ export function todayProgress(day: PathDayWithSermon, watch: Parameters<typeof d
 
 /**
  * The navy "Your path · Day 3 of 7" card: the fan of today's sermon and the
- * two before it, the path's name, progress by day, and "Today · …" with a
- * play circle that plays today's sermon, whole, from where the viewer left
- * off. The sermon's page knows it's today's day, so watching it marks the
- * day done. A teaching series says "Your series · Teaching 3 of 12".
+ * two before it, the path's name, progress by day, and "Today · <the day's
+ * theme>", as the path page says it, with what's left of its sermon and a
+ * play circle that plays it, whole, from where the viewer left off. The
+ * sermon's page knows it's today's day, so watching it marks the day done.
+ * A teaching series says "Your series · Teaching 3 of 12".
  */
 export const YourPath = memo(function YourPath({
   active,
@@ -82,7 +80,6 @@ export const YourPath = memo(function YourPath({
     return [...new Set(ids)].slice(0, 3).map((id) => art(find, id));
   }, [day, total, days, find]);
 
-  const title = today ? (today.sermon ? headline(today.sermon) : today.theme) : "";
   return (
     <PathCardNavy
       testID="your-path"
@@ -95,10 +92,12 @@ export const YourPath = memo(function YourPath({
       partial={now.partial}
       fan={fan}
       kicker={words.series ? `Your series · ${words.unit} ${day} of ${total}` : undefined}
+      shortKicker={words.series ? `${words.unit} ${day} of ${total}` : undefined}
       todayLead={words.series ? "Next" : undefined}
       playLabel={words.series ? `Play teaching ${day}` : undefined}
-      todayTitle={title}
-      todayMeta={now.meta ? `${now.meta} · ${doneLabel(done.length, total)}` : doneLabel(done.length, total)}
+      todayTitle={today?.theme ?? ""}
+      // The kicker and the segments already say how many are done.
+      todayMeta={now.meta}
       onOpen={() => onOpenPath(path.id)}
       onPlay={() => today && onPlay(today.youtubeId)}
       style={styles.card}
@@ -183,9 +182,10 @@ export const StartPathRail = memo(function StartPathRail({
 });
 
 /**
- * The first path to start, as Home's navy card: "Start here · 7 messages",
- * its name and who set its order, and Day 1 to play (a guest is asked for a
- * free account first; signing up starts the path and plays Day 1).
+ * The first path to start, as Home's navy card: "Start here · 7 days" (just
+ * "Start here" on a narrow phone), its name and who set its order, and Day
+ * 1 to play (a guest is asked for a free account first; signing up starts
+ * the path and plays Day 1).
  */
 const StartHere = memo(function StartHere({
   path,
@@ -227,7 +227,8 @@ const StartHere = memo(function StartHere({
       total={total}
       done={EMPTY}
       fan={fan}
-      kicker={`Start here · ${messagesLabel(total)}`}
+      kicker={`Start here · ${pathWords(path).count(total)}`}
+      shortKicker="Start here"
       trust={path.status}
       todayLead="Day 1"
       playLabel="Start the path with day 1"
@@ -256,7 +257,7 @@ const PathTile = memo(function PathTile({
   width: number;
   onOpen: (id: string) => void;
 }) {
-  const length = messagesLabel(path.dayCount);
+  const length = pathWords(path).count(path.dayCount);
   const trust = trustLine(path.status)?.text;
   const scale = (FAN_SCALE * width) / TILE_W;
   return (

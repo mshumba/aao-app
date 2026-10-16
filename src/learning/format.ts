@@ -60,11 +60,18 @@ export function doneLabel(done: number, total: number) {
   return `${done} of ${total} done`;
 }
 
-/** "29 Mar 2026 · 2 hr 16 min" for a search result's sermon. */
+/**
+ * "29 Mar 2026 · 2 hr 16 min" for a search result's sermon, each part kept
+ * whole on narrow phones (no-break spaces, as ui.tsx's nowrap(): importing
+ * it here would bring React Native into the unit tests).
+ */
 export function searchSermonMeta(sermon: Pick<SearchSermon, "preachedOn" | "publishedAt" | "durationSeconds">) {
   const date = formatDay(sermon.preachedOn ?? sermon.publishedAt.slice(0, 10));
   const length = formatDuration(sermon.durationSeconds);
-  return length ? `${date} · ${length}` : date;
+  return [date, length]
+    .filter(Boolean)
+    .map((part) => part.replace(/ /g, " "))
+    .join(" · ");
 }
 
 /** Thumbnail for a search sermon, falling back to YouTube's standard one. */

@@ -47,3 +47,103 @@ export function seriesRows(list: readonly Sermon[], seriesName: string | null) {
   const clash = rows.some((row, i) => themes.includes(texts[i]) && others.has(row.title));
   return clash ? list.map((sermon) => ({ sermon, ...seriesRowText(sermon, seriesName) })) : rows;
 }
+
+// ---- A gathering, by day -------------------------------------------------------------
+
+/** "Day 2 Evening" → its day, "Day 2", and the rest, "Evening"; "Grand Finale" has no day. */
+export function splitSession(session: string) {
+  const match = session.match(/^(Day \d+)\b\s*(.*)$/i);
+  return match ? { day: match[1], rest: match[2].trim() } : { day: null, rest: session.trim() };
+}
+
+const WEEKDAYS = "Sunday Monday Tuesday Wednesday Thursday Friday Saturday".split(" ");
+const MONTHS = "January February March April May June July August September October November December".split(" ");
+
+/**
+ * "2024-05-21" → "Tue 21 May", or "Tuesday 21 May" to be read aloud. No
+ * year: the cover's dates give it.
+ */
+export function sessionDate(day: string, long = false) {
+  const [y, m, d] = day.split("-").map(Number);
+  if (!y || !m || !d) return day;
+  const weekday = WEEKDAYS[new Date(Date.UTC(y, m - 1, d)).getUTCDay()];
+  const month = MONTHS[m - 1];
+  return long ? `${weekday} ${d} ${month}` : `${weekday.slice(0, 3)} ${d} ${month.slice(0, 3)}`;
+}
+
+export type SessionRow = {
+  sermon: Sermon;
+  /**
+   * Under a day: "Morning", "Grand Finale", a message's own title
+   * ("Hospital Dedication"), or "Message" for the day's one message.
+   * Without days: the session whole, "Day 2 · Evening" (as seriesRows).
+   */
+  title: string;
+  /** A guest preacher, and the time of day under a message's own title. */
+  label: string | null;
+};
+
+export type SessionDay = {
+  /** "Day 2"; null for a session not named by its day ("Grand Finale" on a day of its own). */
+  day: string | null;
+  /** The day it was preached (YYYY-MM-DD); null when only an upload's date is known. */
+  date: string | null;
+  rows: SessionRow[];
+};
+
+/** A gathering: every one of its sermons is a session ("Day 2 Evening", "Grand Finale"). */
+export function isGathering(list: readonly Sermon[]) {
+  return list.length > 0 && list.every((sermon) => !!sermon.session);
+}
+
+/**
+ * A gathering's sessions by day, in the series' order (IEC 2024: "Day 2"
+ * with its Morning and Evening). A session named by its day joins the day
+ * before it when that's the same day ("Day 7 Morning" twice, a run's Day 1
+ * apart from the next run's); one that isn't ("Grand Finale") joins the day
+ * it was preached on, else has its own. Under a day a session reads as its
+ * time of day; a real message title stays, its time of day under it; a
+ * day's one plain session is its "Message"; and sessions that would read
+ * alike are told apart in order ("Evening · Part 2").
+ *
+ * `grouped` is false when no day has more than one session: the rows then
+ * read as their whole session ("Day 3", as seriesRows has them), each with
+ * its date, and the page draws no day headings.
+ */
+export function sessionDays(list: readonly Sermon[], seriesName: string | null) {
+  const days: SessionDay[] = [];
+  const whole: SessionRow[][] = [];
+  for (const row of seriesRows(list, seriesName)) {
+    const { sermon } = row;
+    const session = sermon.session ?? "";
+    const { day, rest } = splitSession(session);
+    const titled = row.title !== sessionLabel(session);
+    const under: SessionRow = titled
+      ? { sermon, title: row.title, label: [sermon.speaker, rest].filter(Boolean).join(" · ") || null }
+      : { sermon, title: rest, label: row.label };
+    const last = days[days.length - 1];
+    const joins = !!last && (day ? last.day === day : last.rows[0].sermon.day === sermon.day);
+    if (joins) {
+      last.rows.push(under);
+      whole[whole.length - 1].push(row);
+      if (!last.date && sermon.preached) last.date = sermon.day;
+    } else {
+      days.push({ day, date: sermon.preached ? sermon.day : null, rows: [under] });
+      whole.push([row]);
+    }
+  }
+  const grouped = days.some((d) => d.rows.length > 1);
+  if (!grouped) return { grouped, days: days.map((d, i) => ({ ...d, rows: whole[i] })) };
+  for (const d of days) {
+    const counts = new Map<string, number>();
+    for (const row of d.rows) counts.set(row.title, (counts.get(row.title) ?? 0) + 1);
+    const seen = new Map<string, number>();
+    d.rows = d.rows.map((row) => {
+      if (counts.get(row.title)! < 2) return row.title ? row : { ...row, title: "Message" };
+      const n = (seen.get(row.title) ?? 0) + 1;
+      seen.set(row.title, n);
+      return { ...row, title: row.title ? `${row.title} · Part ${n}` : `Part ${n}` };
+    });
+  }
+  return { grouped, days };
+}

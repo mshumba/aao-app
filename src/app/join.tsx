@@ -30,11 +30,13 @@ import {
 import { eventLine, headline } from "../data/display";
 import { useCatalogue } from "../catalogue/CatalogueProvider";
 import type { Sermon } from "../data/sermons";
-import { Artwork, CardFan, ItalicTitle, spokenText } from "../kit";
-import { messagesLabel, teachingsLabel, usePath } from "../learning";
+import { Artwork, CardFan, ItalicTitle, fanSize, spokenText } from "../kit";
+import { keepLastWord } from "../kit/paths";
+import { usePath } from "../learning";
 import { useReducedMotion } from "../motion";
 import { firstParam, useGo, usePageTitle } from "../navigation";
 import { motion } from "../onboarding/parts";
+import { pathWords } from "../paths/model";
 import { easeOut, radius, space, type } from "../theme";
 import {
   RoundBack,
@@ -82,6 +84,10 @@ function leadFor(mode: Mode, reason: Reason, guestsWatch: boolean) {
 
 // Close button row above the scrolling part.
 const TOP_ROW = 48;
+// On the web, Close floats in the sheet's top corner (no row of its own),
+// 16pt in; what runs beside it keeps this clear of it.
+const FLOAT_CLOSE = Platform.OS === "web";
+const CLOSE_ROOM = 40;
 // Above the Close row: as much as the sides on the web; on iOS a little
 // more, clear of the sheet's grabber.
 const SHEET_TOP = Platform.OS === "web" ? space.lg : space.xl;
@@ -196,6 +202,13 @@ export default function Join() {
     height - insets.top - SHEET_GAP - SHEET_TOP - topRow - bottom,
   );
 
+  // What was tapped, above the headline: the path being started, or the sermon.
+  const context = unavailable ? null : pathId && reason === "path" ? (
+    <PathContext id={pathId} />
+  ) : sermon ? (
+    <Context sermon={sermon} />
+  ) : null;
+
   const body = unavailable ? (
     <>
       <Intro title={UNAVAILABLE_TITLE} lead={UNAVAILABLE_LEAD} />
@@ -209,18 +222,13 @@ export default function Join() {
         title={mode === "sign-in" ? "Welcome back" : headlines[reason]}
         italic={mode === "sign-in" ? null : italics[reason]}
         lead={leadFor(mode, reason, account.guestWatch === "all")}
+        besideClose={FLOAT_CLOSE && !context}
       />
 
       <View style={styles.actions}>
         <ProviderButtons next={next} mode={mode} task={task} />
         <FormAlert message={task.error} />
       </View>
-
-      {mode === "sign-up" && (
-        <View style={styles.legal}>
-          <LegalNote />
-        </View>
-      )}
 
       <View style={styles.tertiary}>
         {mode === "sign-up" ? (
@@ -242,6 +250,13 @@ export default function Join() {
         )}
       </View>
 
+      {/* Last, under every way in, so Sign in stays on a small phone's screen. */}
+      {mode === "sign-up" && (
+        <View style={styles.legal}>
+          <LegalNote />
+        </View>
+      )}
+
       <View style={styles.notice}>
         <TestModeNotice />
       </View>
@@ -252,22 +267,25 @@ export default function Join() {
     <View style={[styles.sheet, { paddingBottom: bottom }]}>
       {/* No swiping the sheet away while Apple or Google is finishing. */}
       <Stack.Screen options={{ gestureEnabled: !busy }} />
+      {FLOAT_CLOSE ? (
+        <View style={styles.closeFloat}>
+          <RoundBack close testID="join-close" onPress={close} />
+        </View>
+      ) : null}
       <View
         style={styles.column}
         onLayout={(event) => setTopRow(Math.ceil(event.nativeEvent.layout.height))}
       >
-        <View style={styles.top}>
-          {unavailable ? (
-            <View style={{ flex: 1 }} />
-          ) : pathId && reason === "path" ? (
-            <PathContext id={pathId} />
-          ) : sermon ? (
-            <Context sermon={sermon} />
-          ) : (
-            <View style={{ flex: 1 }} />
-          )}
-          <RoundBack close testID="join-close" onPress={close} />
-        </View>
+        {FLOAT_CLOSE ? (
+          context ? (
+            <View style={[styles.top, styles.besideClose]}>{context}</View>
+          ) : null
+        ) : (
+          <View style={styles.top}>
+            {context ?? <View style={{ flex: 1 }} />}
+            <RoundBack close testID="join-close" onPress={close} />
+          </View>
+        )}
       </View>
       {Platform.OS === "web" ? (
         <ScrollView
@@ -295,7 +313,18 @@ export default function Join() {
   );
 }
 
-function Intro({ title, italic, lead }: { title: string; italic?: string | null; lead: string }) {
+function Intro({
+  title,
+  italic,
+  lead,
+  besideClose = false,
+}: {
+  title: string;
+  italic?: string | null;
+  lead: string;
+  /** The headline starts beside the floating Close (nothing above it). */
+  besideClose?: boolean;
+}) {
   return (
     <View style={styles.intro}>
       <ItalicTitle
@@ -304,7 +333,7 @@ function Intro({ title, italic, lead }: { title: string; italic?: string | null;
         accessibilityRole="header"
         {...web({ "aria-level": 1 })}
         nativeID="join-title"
-        style={styles.headline}
+        style={[styles.headline, besideClose && styles.besideClose]}
         maxFontSizeMultiplier={1.5}
       />
       <T style={styles.lead}>{lead}</T>
@@ -316,22 +345,33 @@ function pathOf(intent: ReturnType<typeof peekPendingIntent>) {
   return intent?.kind === "watch" && intent.path ? intent.path.id : null;
 }
 
+/** The fan beside a path's name: about 64pt wide. */
+const PATH_FAN_SCALE = 64 / fanSize("compact").width;
+
+
 /** The path being started: a small fan of its first days, its name and its length. */
 function PathContext({ id }: { id: string }) {
   const { path, days } = usePath(id);
   if (!path) return <View style={{ flex: 1 }} />;
   const total = days.length || path.dayCount;
-  const meta = path.kind === "series" ? teachingsLabel(total) : messagesLabel(total);
+  const meta = pathWords(path).count(total);
   const fan = days.slice(0, 2).map((d) => d.sermon ?? { id: d.youtubeId });
+  const shown = keepLastWord(path.name, path.italic);
   return (
     <View
       style={styles.context}
       accessible={Platform.OS !== "web"}
       accessibilityLabel={`${path.name}. ${spokenText(meta.replace(" · ", ". "))}`}
     >
-      <CardFan sermons={fan} size="compact" />
+      <CardFan sermons={fan} size="compact" scale={PATH_FAN_SCALE} />
       <View style={styles.contextText}>
-        <ItalicTitle text={path.name} italic={path.italic} numberOfLines={2} style={styles.pathName} />
+        <ItalicTitle
+          text={shown.text}
+          italic={shown.italic}
+          accessibilityLabel={path.name}
+          numberOfLines={2}
+          style={styles.pathName}
+        />
         <T style={s.meta}>{meta}</T>
       </View>
     </View>
@@ -528,6 +568,8 @@ const styles = StyleSheet.create({
     gap: space.md,
     minHeight: TOP_ROW,
   },
+  closeFloat: { position: "absolute", top: space.lg, right: space.lg, zIndex: 1 },
+  besideClose: { paddingRight: CLOSE_ROOM },
   context: { flex: 1, flexDirection: "row", alignItems: "center", gap: space.md },
   contextText: { flex: 1, gap: 2 },
   pathName: type.prose,

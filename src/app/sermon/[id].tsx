@@ -196,7 +196,7 @@ function NowPlayingScreen({ sermon, link }: { sermon: Sermon; link: SermonParams
   const openPath = useOpenPath();
   const scroll = useRef<NativeScrollView>(null);
   const toggle = useRef<View>(null);
-  const aboutY = useRef(0);
+  const about = useRef<View>(null);
   // Watch's button is replaced by the transport, so focus moves to Play/Pause.
   const [watched, setWatched] = useState(false);
   // Bumped when playback jumps to a moment, so the band's thumb glides.
@@ -331,7 +331,7 @@ function NowPlayingScreen({ sermon, link }: { sermon: Sermon; link: SermonParams
   }, [playOnOpen, staged]);
   const seekOnOpen =
     playOnOpen && loadedOnOpen && staged && current && startAt != null && !seeked ? startAt : null;
-  // More sermons, Topics and About sit below the fold. They're drawn once
+  // About, Topics and More sermons sit below the fold. They're drawn once
   // the push has settled (the stage is set then), so the tap that opens the
   // page builds only what it shows first.
   const [settled, setSettled] = useState(staged);
@@ -394,9 +394,24 @@ function NowPlayingScreen({ sermon, link }: { sermon: Sermon; link: SermonParams
     if (session.sermon?.id === sermon.id) session.watchOnYouTube();
     else Linking.openURL(sermon.source).catch(() => {});
   }, [sermon]);
-  const onAbout = useCallback((e: LayoutChangeEvent) => {
-    aboutY.current = e.nativeEvent.layout.y;
+  // The menu's "About this sermon": brings the source line into view. It's
+  // measured when asked (moments arriving above it, or the video pinning,
+  // move it); asked before the push has settled, it waits for the line.
+  const aboutAsked = useRef(false);
+  const showAbout = useCallback(() => {
+    const target = about.current;
+    const view = scroll.current?.getNativeScrollRef();
+    aboutAsked.current = !target || !view;
+    if (!target || !view) return;
+    target.measureInWindow((_x, y) => {
+      view.measureInWindow((_vx, top) => {
+        scroll.current?.scrollTo({ y: Math.max(0, offset.current + y - top - space.lg), animated: true });
+      });
+    });
   }, []);
+  const onAbout = useCallback(() => {
+    if (aboutAsked.current) requestAnimationFrame(showAbout);
+  }, [showAbout]);
   const openMenu = useCallback(() => setMenu(true), []);
   const closeMenu = useCallback(() => setMenu(false), []);
 
@@ -414,10 +429,10 @@ function NowPlayingScreen({ sermon, link }: { sermon: Sermon; link: SermonParams
         key: "about",
         label: "About this sermon",
         icon: "information-circle-outline",
-        onPress: () => scroll.current?.scrollTo({ y: aboutY.current, animated: true }),
+        onPress: showAbout,
       },
     ],
-    [openYouTube, pathId, pathName, openPath, inSeries, seriesName, openSeries],
+    [openYouTube, pathId, pathName, openPath, inSeries, seriesName, openSeries, showAbout],
   );
 
   const sideGutter = (window.width - column) / 2;
@@ -498,15 +513,14 @@ function NowPlayingScreen({ sermon, link }: { sermon: Sermon; link: SermonParams
               <View style={styles.actions}>
                 {current && !failed ? (
                   <Transport toggle={toggle} focusTransport={watched}>
-                    <SaveButton sermon={sermon} />
-                    <ShareButton sermon={sermon} />
+                    <SaveButton sermon={sermon} bare />
+                    <ShareButton sermon={sermon} bare />
                   </Transport>
                 ) : (
                   <View style={styles.preplay}>
                     {!failed ? (
                       <View style={styles.watchSlot}>
                         <WatchButton
-                          sermon={sermon}
                           startAt={startAt}
                           resumeAt={resumeAt}
                           watched={saved && resumeAt ? fraction(saved) : 0}
@@ -549,18 +563,26 @@ function NowPlayingScreen({ sermon, link }: { sermon: Sermon; link: SermonParams
               markedAt={link.t}
               onStart={start}
               onJump={jumped}
+              first={!pathDay && !inSeries}
             />
 
+            {/* This sermon's own details first, then where to go next. */}
             {settled ? (
               <>
+                <AboutSermon
+                  ref={about}
+                  sermon={sermon}
+                  onYouTube={openYouTube}
+                  onLayout={onAbout}
+                  first={!pathDay && !inSeries && !moments.length}
+                />
+                <TopicsSection sermon={sermon} />
                 <MoreSermons
                   sermon={sermon}
                   sermons={catalogue.sermons}
                   seriesName={inSeries && pathDay ? seriesName! : null}
                   onSeries={openSeries}
                 />
-                <TopicsSection sermon={sermon} />
-                <AboutSermon sermon={sermon} onYouTube={openYouTube} onLayout={onAbout} />
               </>
             ) : null}
           </View>
@@ -659,13 +681,12 @@ function seriesFan(series: Sermon[], sermon: Sermon) {
 }
 
 /**
- * The stage's call to play before the player loads. It says where it starts
- * and how long, always of the whole sermon (a path day included): "Watch ·
- * 1 hr 53 min", "Resume · 1 hr 16 min left" (with how far in), "Play from
- * 34:12".
+ * The stage's call to play before the player loads. It says where it starts,
+ * always in the whole sermon (a path day included): "Watch" (the kicker
+ * above gives the length), "Resume · 1 hr 16 min left" (with how far in),
+ * "Play from 34:12".
  */
 const WatchButton = memo(function WatchButton({
-  sermon,
   startAt,
   resumeAt,
   watched,
@@ -673,7 +694,6 @@ const WatchButton = memo(function WatchButton({
   guest,
   onPress,
 }: {
-  sermon: Sermon;
   startAt: number | null;
   resumeAt: number;
   watched: number;
@@ -707,7 +727,6 @@ const WatchButton = memo(function WatchButton({
   return (
     <WatchPill
       label="Watch"
-      detail={sermon.duration}
       accessibilityLabel="Watch sermon"
       hint={ask ?? "Starts the sermon in the YouTube player"}
       onPress={onPress}
@@ -774,5 +793,5 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: radius.r28,
     borderTopRightRadius: radius.r28,
   },
-  panelInner: { alignSelf: "center", paddingHorizontal: space.s20, paddingTop: space.s20 },
+  panelInner: { alignSelf: "center", paddingHorizontal: space.s20, paddingTop: space.xl },
 });

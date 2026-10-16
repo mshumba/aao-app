@@ -47,6 +47,7 @@ export const MomentsSection = memo(function MomentsSection({
   markedAt,
   onStart,
   onJump,
+  first = false,
 }: {
   moments: readonly Moment[];
   /** This sermon is the one loaded in the player. */
@@ -57,6 +58,8 @@ export const MomentsSection = memo(function MomentsSection({
   onStart: (at: number) => void;
   /** Playback jumped to a moment, so the band's thumb can glide there. */
   onJump: () => void;
+  /** First on the panel: its heading starts at the panel's own padding. */
+  first?: boolean;
 }) {
   const [all, setAll] = useState(false);
   if (!moments.length) return null;
@@ -67,7 +70,7 @@ export const MomentsSection = memo(function MomentsSection({
         title="Moments in this sermon"
         size="sermon"
         count={`${moments.length} moment${moments.length === 1 ? "" : "s"}`}
-        style={styles.header}
+        style={first ? styles.headerFirst : styles.header}
       />
       {current ? (
         <LiveRows moments={list} onJump={onJump} />
@@ -168,5 +171,6 @@ function Rows({
 
 const styles = StyleSheet.create({
   header: { marginTop: 20, marginBottom: 6, marginHorizontal: 4 },
+  headerFirst: { marginBottom: 6, marginHorizontal: 4 },
   more: { marginTop: 4 },
 });

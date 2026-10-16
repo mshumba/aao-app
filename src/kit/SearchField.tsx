@@ -53,6 +53,8 @@ export type SearchFieldProps = Common &
         arrow?: boolean;
         /** Drawn as focused (navy edge and ring) while results show for what's typed. */
         active?: boolean;
+        /** 48pt tall instead of 58: a field that only finds titles in a list (All sermons). */
+        compact?: boolean;
         /**
          * The leading glyph: the sparkle (search by meaning, the default) or a
          * plain icon for a field that only matches titles.
@@ -172,6 +174,7 @@ function PageField({
   onClear,
   arrow = false,
   active = false,
+  compact = false,
   leading = "spark",
   autoFocus,
   inputRef,
@@ -191,6 +194,7 @@ function PageField({
       <View
         style={[
           styles.page,
+          compact && styles.pageCompact,
           lit
             ? { borderColor: c.accent, borderWidth: 1.5, boxShadow: shadows.fieldFocus }
             : { borderColor: fieldBorder, borderWidth: 1, boxShadow: shadows.fieldRest },
@@ -312,6 +316,7 @@ const styles = StyleSheet.create({
     paddingLeft: 14,
     paddingRight: 10,
   },
+  pageCompact: { minHeight: 48 },
   inputWrap: { flex: 1, justifyContent: "center", minHeight: 44 },
   input: {
     ...type.field,

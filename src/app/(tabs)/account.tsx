@@ -14,7 +14,7 @@ import { useCatalogue } from "../../catalogue/CatalogueProvider";
 import { getCategory } from "../../data/categories";
 import { Card, ListGroup, ListRow } from "../../kit";
 import { useGo, usePageTitle } from "../../navigation";
-import { font, space, textCap, type } from "../../theme";
+import { font, radius, space, textCap, type } from "../../theme";
 import { useToast } from "../../toast";
 import { sermonCount } from "../../topics";
 import {
@@ -25,7 +25,7 @@ import {
   Notice,
   Page,
   T,
-  TextButton,
+  Tap,
   c,
   s,
   web,
@@ -51,11 +51,12 @@ const provider: Record<Provider, { label: string; icon: IconName }> = {
 const version = Constants.expoConfig?.version;
 
 /**
- * Account, in the Immersive look: "Account" as the gold kicker (the page's
- * heading, as "Paths" is on its tab), then who you are (a navy avatar and
- * your name in the serif) or, for a guest, a sand card inviting a free
- * account. Settings sit in white grouped cards; signing out is a quiet
- * pill, deleting the account a red row set apart.
+ * Account, in the Immersive look: who you are first (a navy avatar, your
+ * name, or your email when there's none, in the serif as the page's
+ * heading) or, for a guest, a sand card inviting a free account. Settings
+ * sit in white grouped cards (your name, then your library, then about);
+ * signing out is a small centred pill, deleting the account a plain red
+ * row set apart, still on this screen as the App Store asks.
  */
 export default function AccountTab() {
   usePageTitle("Account");
@@ -75,7 +76,7 @@ export default function AccountTab() {
   const { saved: savedIds, savedError } = useSaved();
   const saved = savedIds.filter((id) => catalogue.find(id)).length;
 
-  const yours: Row[] = [
+  const library: Row[] = [
     ...(user
       ? [
           {
@@ -96,21 +97,19 @@ export default function AccountTab() {
       route: "/account/topics",
       value: topics || "Not set",
     },
-    ...(user
-      ? [
-          {
-            title: "Name",
-            icon: "person-outline",
-            route: "/account/name",
-            value: account.profile
-              ? account.displayName?.trim() || "Not set"
-              : account.profileError
-                ? "Couldn’t load"
-                : undefined,
-          } satisfies Row,
-        ]
-      : []),
   ];
+
+  // Right under who you are: the one thing about you to change.
+  const name: Row = {
+    title: "Name",
+    icon: "person-outline",
+    route: "/account/name",
+    value: account.profile
+      ? account.displayName?.trim() || "Not set"
+      : account.profileError
+        ? "Couldn’t load"
+        : undefined,
+  };
 
   const about: Row[] = [
     { title: "About AAO", icon: "information-circle-outline", route: "/about" },
@@ -152,10 +151,6 @@ export default function AccountTab() {
 
   return (
     <Page>
-      <Heading level={1} style={styles.kicker} maxFontSizeMultiplier={textCap.section}>
-        Account
-      </Heading>
-
       {!account.ready ? (
         <View style={styles.loading}>
           <ActivityIndicator color={c.accent} accessibilityLabel="Loading your account" />
@@ -168,9 +163,10 @@ export default function AccountTab() {
         <GuestCard />
       )}
 
+      {user && <ListGroup style={styles.nameGroup}>{rows([name])}</ListGroup>}
       {account.ready && (
-        <ListGroup title={user ? "Your account" : "On this device"} style={styles.group}>
-          {rows(yours)}
+        <ListGroup title={user ? "Library" : "On this device"} style={styles.group}>
+          {rows(library)}
         </ListGroup>
       )}
       <ListGroup title="About" style={styles.group}>
@@ -181,14 +177,7 @@ export default function AccountTab() {
         <>
           <View style={styles.signOut}>
             <FormAlert message={task.error} />
-            <Button
-              testID="sign-out"
-              label="Sign out"
-              icon="log-out-outline"
-              variant="secondary"
-              busy={task.busy === "sign-out"}
-              onPress={signOut}
-            />
+            <SignOutPill busy={task.busy === "sign-out"} onPress={signOut} />
           </View>
           <ListGroup style={styles.danger}>
             {rows([
@@ -224,10 +213,13 @@ function initials(name: string | null, email: string | null) {
     .toLocaleUpperCase();
 }
 
-/** Who's signed in: the navy avatar, the name in the serif, the email and how. */
+/**
+ * Who's signed in: the navy avatar, then the name (or the email, when
+ * there's no name) in the serif as the page's heading, the email under a
+ * name, and how this session signed in.
+ */
 function Profile() {
   const account = useAccount();
-  const go = useGo();
   const user = account.user;
   if (!user) return null;
   const name = account.displayName?.trim() || null;
@@ -251,26 +243,51 @@ function Profile() {
         )}
       </View>
       <View style={styles.profileText}>
-        <Heading level={2} style={styles.name} maxFontSizeMultiplier={textCap.display}>
-          {name ?? "Your account"}
+        <Heading
+          level={1}
+          // An address wraps after its "@" when it must, not mid-word.
+          accessibilityLabel={name ?? user.email ?? "Your account"}
+          style={[styles.name, wrapAnywhere]}
+          maxFontSizeMultiplier={textCap.display}
+        >
+          {name ?? user.email?.replace("@", "@\u200b") ?? "Your account"}
         </Heading>
-        {user.email ? (
+        {name && user.email ? (
           <T style={[styles.email, wrapAnywhere]}>{user.email}</T>
         ) : null}
         <View style={styles.provider}>
           <Icon name={via.icon} size={15} color={c.muted} />
           <T style={s.meta}>{via.label}</T>
         </View>
-        {!name && account.profile ? (
-          <TextButton
-            label="Add your name"
-            icon="chevron-forward"
-            align="start"
-            onPress={() => go.push("/account/name")}
-          />
-        ) : null}
       </View>
     </View>
+  );
+}
+
+/** Sign out: a small outlined pill, centred under the settings (40pt, 44pt to touch). */
+function SignOutPill({ busy, onPress }: { busy: boolean; onPress: () => void }) {
+  return (
+    <Tap
+      testID="sign-out"
+      accessibilityRole="button"
+      accessibilityLabel="Sign out"
+      aria-disabled={busy}
+      aria-busy={busy}
+      disabled={busy}
+      busy={busy}
+      onPress={onPress}
+      hitSlop={{ top: 2, bottom: 2 }}
+      style={styles.signOutPill}
+    >
+      {busy ? (
+        <ActivityIndicator color={c.accent} size="small" />
+      ) : (
+        <Icon name="log-out-outline" size={16} color={c.accent} />
+      )}
+      <T style={styles.signOutText} maxFontSizeMultiplier={textCap.chip}>
+        Sign out
+      </T>
+    </Tap>
   );
 }
 
@@ -279,7 +296,7 @@ function GuestCard() {
   const go = useGo();
   return (
     <Card tone="sand" style={styles.invite}>
-      <Heading level={2} style={styles.inviteTitle} maxFontSizeMultiplier={textCap.section}>
+      <Heading level={1} style={styles.inviteTitle} maxFontSizeMultiplier={textCap.section}>
         Create your free account
       </Heading>
       <AccountBenefits />
@@ -311,7 +328,7 @@ function GuestCard() {
 function ComingSoonCard() {
   return (
     <Card tone="sand" style={styles.invite}>
-      <Heading level={2} style={styles.inviteTitle} maxFontSizeMultiplier={textCap.section}>
+      <Heading level={1} style={styles.inviteTitle} maxFontSizeMultiplier={textCap.section}>
         Accounts are coming soon
       </Heading>
       <T style={s.body}>You can browse and watch every sermon without one.</T>
@@ -327,9 +344,8 @@ const wrapAnywhere =
     : null;
 
 const styles = StyleSheet.create({
-  kicker: { ...type.overline, color: c.gold, marginTop: space.xl },
   loading: { paddingVertical: space.xxl, alignItems: "center" },
-  profile: { marginTop: space.lg, gap: space.lg },
+  profile: { marginTop: space.xl, flexDirection: "row", alignItems: "center", gap: space.lg },
   avatar: {
     width: 64,
     height: 64,
@@ -344,14 +360,28 @@ const styles = StyleSheet.create({
     lineHeight: 28,
     color: c.onAccent,
   },
-  profileText: { gap: 4 },
-  name: { ...type.title, color: c.text },
+  profileText: { flex: 1, minWidth: 0, gap: 2 },
+  name: { ...type.sectionSmall, color: c.text },
   email: { ...type.body, color: c.text },
   provider: { flexDirection: "row", alignItems: "center", gap: 6 },
-  invite: { marginTop: space.lg, gap: space.lg },
+  invite: { marginTop: space.xl, gap: space.lg },
   inviteTitle: { ...type.sectionSmall, color: c.text },
   actions: { gap: space.md },
+  nameGroup: { marginTop: space.xl },
   group: { marginTop: space.xxl },
   signOut: { marginTop: space.xxl, gap: space.md },
+  signOutPill: {
+    alignSelf: "center",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space.sm,
+    minHeight: 40,
+    paddingHorizontal: space.s20,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: c.border,
+    backgroundColor: c.surface,
+  },
+  signOutText: { ...type.label, color: c.accent },
   danger: { marginTop: space.xl },
 });

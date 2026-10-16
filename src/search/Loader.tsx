@@ -1,5 +1,5 @@
 import { requireOptionalNativeModule } from "expo";
-import { memo, useEffect } from "react";
+import { memo, useCallback, useEffect, useState } from "react";
 import { Platform, StyleSheet, View } from "react-native";
 import Animated, {
   Easing,
@@ -26,10 +26,12 @@ import { T, web } from "../ui";
  * answer never flashes it.
  *
  * The fan runs on the UI thread: one repeating clock, each card working out
- * its own place from it, so nothing re-renders while it plays. It is
- * decorative and hidden from screen readers; the screen's polite live region
- * reads the line instead (loaderStatus). Under Reduce Motion the fan stays
- * still and only the line crossfades.
+ * its own place from it, so nothing re-renders while it plays. A card joins
+ * the fan only once its picture is on the device (never a dark empty tile);
+ * until then its place is simply empty. It is decorative and hidden from
+ * screen readers; the screen's polite live region reads the line instead
+ * (loaderStatus). Under Reduce Motion the fan stays still and only the line
+ * crossfades.
  */
 
 /** Tiles in the fan: three show (front straight, two behind), up to two more wait behind them. */
@@ -230,9 +232,34 @@ const FanTile = memo(function FanTile({
       transform: [{ translateX: x }, { translateY: y }, { rotate: `${rotate}deg` }, { scale }],
     };
   });
+  // Shown once its picture has loaded (and drawn), never as a dark tile
+  // waiting for one.
+  const uri = art ? artCandidates(art, TILE_W)[0] : null;
+  const [fetched, setFetched] = useState(false);
+  const [drawn, setDrawn] = useState(false);
+  useEffect(() => {
+    if (!uri) return;
+    let alive = true;
+    fetchArt(uri).then((ok) => {
+      if (alive && ok) setFetched(true);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [uri]);
+  const onSettled = useCallback(() => setDrawn(true), []);
+  const ready = fetched && drawn;
   return (
     <Animated.View testID="fan-tile" style={[styles.tile, style]}>
-      <Artwork art={art} width={TILE_W} radius={10} lift="none" />
+      <Animated.View
+        style={[
+          styles.card,
+          ready ? styles.cardIn : styles.cardOut,
+          { transitionProperty: "opacity", transitionDuration: 240 },
+        ]}
+      >
+        <Artwork art={art} width={TILE_W} radius={10} lift="none" onSettled={onSettled} />
+      </Animated.View>
     </Animated.View>
   );
 });
@@ -246,31 +273,38 @@ const ExpoImage: ExpoImageType | null =
       (require("expo-image") as typeof import("expo-image")).Image
     : null;
 
+/** Each fan picture's fetch: true once it's on the device. One that failed is tried again next time. */
+const fetches = new Map<string, Promise<boolean>>();
+
+function fetchArt(uri: string) {
+  let pending = fetches.get(uri);
+  if (!pending) {
+    pending = ExpoImage
+      ? ExpoImage.prefetch(uri, "memory-disk")
+          .catch(() => false)
+          .then((ok) => {
+            if (!ok) fetches.delete(uri);
+            return ok;
+          })
+      : Promise.resolve(true);
+    fetches.set(uri, pending);
+  }
+  return pending;
+}
+
 /**
  * Fetches the fan's artwork into the image cache ahead of time (the newest
  * sermons, which Home has usually shown already), so the loader never waits
  * on the network for a picture.
  */
 export function warmArt(art: readonly ArtSource[]) {
-  if (!ExpoImage || !art.length) return;
-  ExpoImage.prefetch(
-    art.map((a) => artCandidates(a, TILE_W)[0]),
-    "memory-disk",
-  ).catch(() => {});
+  for (const a of art) fetchArt(artCandidates(a, TILE_W)[0]);
 }
 
 const appear = {
   animationName: css.keyframes({ from: { opacity: 0 }, to: { opacity: 1 } }),
   animationDuration: 240,
   animationFillMode: "backwards" as const,
-};
-
-/** Static sand placeholders breathe while search works (opacity 1 ↔ 0.55, 1.6s). No shimmer. */
-export const breathe = {
-  animationName: css.keyframes({ "0%": { opacity: 1 }, "50%": { opacity: 0.55 }, "100%": { opacity: 1 } }),
-  animationDuration: 1600,
-  animationIterationCount: "infinite" as const,
-  animationTimingFunction: "ease-in-out" as const,
 };
 
 const styles = StyleSheet.create({
@@ -282,10 +316,10 @@ const styles = StyleSheet.create({
     top: 8,
     width: TILE_W,
     height: TILE_H,
-    borderRadius: 10,
-    backgroundColor: c.feature,
-    boxShadow: shadows.art,
   },
+  card: { flex: 1, borderRadius: 10 },
+  cardIn: { opacity: 1, boxShadow: shadows.art },
+  cardOut: { opacity: 0 },
   status: { alignSelf: "stretch", marginTop: 10 },
   sizer: { opacity: 0 },
   statusText: { ...type.label, fontFamily: font.medium, color: c.muted, textAlign: "center" },

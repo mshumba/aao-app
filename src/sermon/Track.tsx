@@ -8,6 +8,12 @@ import { T, web } from "../ui";
 /** The strip you can grab: the track's centre line sits this far down it. */
 export const STRIP_HEIGHT = 34;
 const CENTRE = 9;
+/**
+ * The rail stops this far in from each side of the strip, level with the
+ * times under it, so the thumb is whole at 0:00 and at the end. The strip
+ * itself still runs edge to edge, to be easy to grab.
+ */
+export const RAIL_INSET = 20;
 /** "Find the minute": the thumb travels to a moment over this long. */
 export const GLIDE_MS = 600;
 
@@ -17,11 +23,11 @@ export type Tick = { key: string; at: number; active?: boolean };
 const clamp = (f: number) => Math.min(1, Math.max(0, Number.isFinite(f) ? f : 0));
 
 /**
- * The stage's progress line, from the approved concept: a 4pt white-22%
- * rail edge to edge under the video, the played part in white, moment
- * ticks (4×12, ringed in the stage colour so they read on the fill) and a
- * 16pt white thumb. A path day plays its whole sermon, so nothing marks a
- * part of it.
+ * The stage's progress line: a 4pt white-22% rail under the video, inset to
+ * line up with the times, the played part in white, each moment a 6pt gold
+ * dot on the rail (8pt for the one playing or searched for: marks, not
+ * handles) and a 16pt white thumb. A path day plays its whole sermon, so
+ * nothing marks a part of it.
  * Decorative: the strip around it carries the slider semantics.
  *
  * `glide` moves the thumb to a new place over 600ms (a jump to a moment);
@@ -48,7 +54,9 @@ export const Track = memo(function Track({
   played?: boolean;
 }) {
   const reduced = useReducedMotion();
-  const x = position == null ? 0 : clamp(position) * width;
+  const rail = Math.max(1, width - RAIL_INSET * 2);
+  const at = (f: number) => RAIL_INSET + clamp(f) * rail;
+  const x = position == null ? RAIL_INSET : at(position);
   const travel = glide && !reduced && !dragging ? GLIDE_MS : 0;
   const motion = {
     transitionDuration: travel,
@@ -63,12 +71,18 @@ export const Track = memo(function Track({
     >
       <View style={styles.rail} />
       {played ? (
-        <Animated.View style={[styles.fill, { width: x, transitionProperty: "width", ...motion }]} />
+        <Animated.View
+          style={[styles.fill, { width: x - RAIL_INSET, transitionProperty: "width", ...motion }]}
+        />
       ) : null}
       {ticks.map((tick) => (
         <View
           key={tick.key}
-          style={[styles.tick, tick.active && styles.tickActive, { left: clamp(tick.at) * width - 2 }]}
+          style={[
+            styles.tick,
+            tick.active && styles.tickActive,
+            { left: at(tick.at) - (tick.active ? 4 : 3) },
+          ]}
         />
       ))}
       {position != null ? (
@@ -94,6 +108,11 @@ export const Track = memo(function Track({
     </View>
   );
 });
+
+/** Where a touch `x` points along a strip `width` wide: 0 to 1 along the rail. */
+export function railFraction(x: number, width: number) {
+  return clamp((x - RAIL_INSET) / Math.max(1, width - RAIL_INSET * 2));
+}
 
 /** Measures the strip so the track can place things in points. */
 export function useStripWidth(initial = 1) {
@@ -148,8 +167,9 @@ export function TimesRow({
 }) {
   const { width, fontScale } = useWindowDimensions();
   // A narrow phone or large text: the times share a row, the context sits
-  // on its own line under them, so nothing is cut off.
-  const stacked = (width < 360 || fontScale >= 1.35) && !!center;
+  // on its own line under them, so nothing is cut off. Without times the
+  // context has the row to itself.
+  const stacked = (width < 360 || fontScale >= 1.35) && !!center && (left != null || right != null);
   const leftText =
     left != null ? (
       <T
@@ -204,29 +224,30 @@ const styles = StyleSheet.create({
   box: { ...StyleSheet.absoluteFill },
   rail: {
     position: "absolute",
-    left: 0,
-    right: 0,
+    left: RAIL_INSET,
+    right: RAIL_INSET,
     top: CENTRE - 2,
     height: 4,
+    borderRadius: 2,
     backgroundColor: c.onMediaRail,
   },
   fill: {
     position: "absolute",
-    left: 0,
+    left: RAIL_INSET,
     top: CENTRE - 2,
     height: 4,
+    borderRadius: 2,
     backgroundColor: c.white,
   },
   tick: {
     position: "absolute",
-    top: CENTRE - 6,
-    width: 4,
-    height: 12,
-    borderRadius: 2,
-    backgroundColor: c.white,
-    boxShadow: `0 0 0 1.5px ${c.media}`,
+    top: CENTRE - 3,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: c.goldOnDark,
   },
-  tickActive: { top: CENTRE - 8, height: 16 },
+  tickActive: { top: CENTRE - 4, width: 8, height: 8, borderRadius: 4 },
   knobSlot: { position: "absolute", left: 0, top: CENTRE - 8, width: 16, height: 16 },
   knob: {
     width: 16,

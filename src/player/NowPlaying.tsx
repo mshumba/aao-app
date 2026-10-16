@@ -14,11 +14,18 @@ import {
   Image,
   StyleSheet,
   View,
-  useWindowDimensions,
 } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
-import { STRIP_HEIGHT, TimesRow, Track, useGlide, useStripWidth, type Tick } from "../sermon/Track";
-import { c, font, radius, tabular, textCap, type } from "../theme";
+import {
+  STRIP_HEIGHT,
+  TimesRow,
+  Track,
+  railFraction,
+  useGlide,
+  useStripWidth,
+  type Tick,
+} from "../sermon/Track";
+import { c, font, fontSize, radius, space, tabular, textCap, type } from "../theme";
 import { Icon, T, Tap, moveFocus, web } from "../ui";
 import {
   asksViewer,
@@ -78,7 +85,7 @@ export const LiveBand = memo(function LiveBand({
   // every second). `seek` is new each second, but it only depends on the
   // length, which is listed.
   const gesture = useMemo(() => {
-    const at = (x: number) => Math.min(1, Math.max(0, x / width));
+    const at = (x: number) => railFraction(x, width);
     const seekTo = (fraction: number) => seek(fraction * duration);
     const pan = Gesture.Pan()
       .enabled(ready)
@@ -250,10 +257,11 @@ export function PlayerCenter({
 }
 
 /**
- * The transport on the stage, for the loaded sermon: back 15, a big white
- * play/pause, forward 30, then the speed and whatever the page adds (Save,
- * Share). After Watch or Try again the pressed control disappears, so focus
- * continues from Play/Pause.
+ * The transport on the stage, for the loaded sermon, in two centred rows:
+ * back 15, a big white play/pause and forward 30, then the quieter speed
+ * and whatever the page adds (Save and Share, as bare icons). After Watch or
+ * Try again the pressed control disappears, so focus continues from
+ * Play/Pause.
  */
 export function Transport({
   toggle,
@@ -263,7 +271,7 @@ export function Transport({
   toggle: RefObject<View | null>;
   /** Watch was just pressed here, so its button has gone. */
   focusTransport?: boolean;
-  /** The round actions after the speed (Save, Share). */
+  /** The bare actions after the speed (Save, Share). */
   children?: ReactNode;
 }) {
   const session = usePlayerSession();
@@ -279,13 +287,9 @@ export function Transport({
   }, [attempt, focusTransport]);
   const loading = session.phase === "loading";
   const playing = p.playing;
-  const { width, fontScale } = useWindowDimensions();
-  // A narrow phone or large text: back · play · forward on one row, the
-  // speed and actions centred on the next (never a broken wrap).
-  const narrow = width < 352 || fontScale >= 1.35;
   return (
-    <View style={[styles.transport, narrow && styles.transportNarrow]}>
-      <View style={[styles.group, narrow && styles.groupNarrow]}>
+    <View style={styles.transport}>
+      <View style={styles.group}>
         <Skip seconds={-15} disabled={loading} />
         <Tap
           ref={toggle}
@@ -302,13 +306,13 @@ export function Transport({
             <ActivityIndicator color={c.media} />
           ) : (
             <View style={!playing && styles.playNudge}>
-              <Icon name={playing ? "pause" : "play"} color={c.media} size={24} />
+              <Icon name={playing ? "pause" : "play"} color={c.media} size={28} />
             </View>
           )}
         </Tap>
         <Skip seconds={30} disabled={loading} />
       </View>
-      <View style={[styles.acts, narrow && styles.actsNarrow]}>
+      <View style={styles.acts}>
         <Tap
           accessibilityRole="button"
           accessibilityLabel={`Playback speed ${p.rate} times`}
@@ -387,48 +391,37 @@ const styles = StyleSheet.create({
     color: c.white,
     textDecorationLine: "underline",
   },
-  transport: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    alignItems: "center",
-    justifyContent: "space-between",
-    rowGap: 12,
-  },
-  // The 28pt skip glyphs sit in 44pt targets; the margin keeps the first
-  // glyph on the text's left edge, as in the concept.
-  group: { flexDirection: "row", alignItems: "center", gap: 14, marginLeft: -8 },
+  // Two centred rows at every width: the transport, then the quiet actions.
+  transport: { alignItems: "center", rowGap: space.md },
+  // The 28pt skip glyphs sit in 44pt targets, 28pt either side of play.
+  group: { flexDirection: "row", alignItems: "center", gap: 28 },
   skip: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
   glyph: { width: 28, height: 28, tintColor: c.white },
   play: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
     backgroundColor: c.white,
     alignItems: "center",
     justifyContent: "center",
   },
   // The play triangle's visual centre sits right of its box centre.
   playNudge: { transform: [{ translateX: 2 }] },
-  acts: { flexDirection: "row", alignItems: "center", gap: 10 },
-  transportNarrow: { flexDirection: "column", alignItems: "center", rowGap: 14 },
-  groupNarrow: { marginLeft: 0, gap: 24 },
-  actsNarrow: { justifyContent: "center" },
-  // A ring only: the one readout here you can change. Grows for "1.25×".
+  acts: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: space.xl },
+  // Bare, like Save and Share beside it: a 36pt readout in a 44pt target.
+  // Grows for "1.25×".
   speed: {
-    minWidth: 40,
-    height: 40,
-    paddingHorizontal: 6,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.25)",
+    minWidth: 44,
+    height: 44,
+    paddingHorizontal: 4,
     alignItems: "center",
     justifyContent: "center",
   },
   speedText: {
     fontFamily: font.extrabold,
-    fontSize: 13,
-    lineHeight: 16,
-    color: c.white,
+    fontSize: fontSize.lead,
+    lineHeight: 20,
+    color: c.onMediaMuted,
     ...tabular,
   },
 });

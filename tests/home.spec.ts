@@ -120,6 +120,28 @@ test("the hero pager moves only when the viewer moves it", async ({ page }) => {
   expect(box.width).toBeGreaterThanOrEqual(44);
 });
 
+test("the hero italicises a title's closing word, never an event's part or a short word", async ({ page }) => {
+  await page.goto("/");
+  await onPage(page, 1);
+  // Every page's title, showing or not: only "Pray Without Ceasing" ends on
+  // italics ("Grand Finale", "Day Two Morning" and "Day One" stay upright).
+  const italics = await page.getByTestId("hero-pager").evaluate((pager) =>
+    Array.from(pager.querySelectorAll("*"))
+      .filter((el) => !el.children.length && /Italic/.test(getComputedStyle(el).fontFamily))
+      .map((el) => el.textContent),
+  );
+  expect(italics).toEqual(["Ceasing"]);
+});
+
+test("on a narrow phone, Start here's kicker is just that, still read in full", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 640 });
+  await page.goto("/");
+  const card = page.getByTestId("start-here");
+  await expect(card).toContainText("Start here");
+  await expect(card).not.toContainText("5 days");
+  await expect(card.getByRole("button", { name: /^Start here\. 5 days\. Learning to wait on God\./ })).toBeVisible();
+});
+
 test("with reduced motion the pager changes page without sliding", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/");
@@ -222,6 +244,8 @@ test("not on a path: Home offers paths to start, opening with hope rather than s
   await expect(
     first.getByRole("button", { name: /^Start the path with day 1\. God is a King, not a servant\. / }),
   ).toBeVisible();
+  // Counted in days, as its promise and "Day 1" are.
+  await expect(first).toContainText("Start here · 5 days");
   // A draft carries no label, and never claims the ministry set its order.
   await expect(first).toContainText("Learning to wait on God");
   await expect(first).not.toContainText(/Draft|awaiting ministry review/);
@@ -275,10 +299,14 @@ test.describe("on a path", () => {
         exact: true,
       }),
     ).toBeVisible();
+    // Today by its theme, as the path page says it; how many are done is
+    // the kicker's and the segments' to say.
     const play = card.getByRole("button", { name: /^Play today, day 3\. / });
     await expect(play).toHaveAccessibleName(
-      "Play today, day 3. Apostolic Shift: Day Two Morning. 2 hours 49 minutes. 2 of 7 done",
+      "Play today, day 3. Stop sin while it is a thought. 2 hours 49 minutes",
     );
+    await expect(card).toContainText("Today · Stop sin while it is a thought");
+    await expect(card).not.toContainText("Apostolic Shift");
     await expect(shown(page.getByTestId("start-a-path"))).toHaveCount(0);
     await play.click();
     await expect(page).toHaveURL(new RegExp(`/sermon/${SERMON.dayTwo}$`));
@@ -306,7 +334,7 @@ test.describe("on a path", () => {
     await fakeYouTube(page, { duration: LENGTH[SERMON.dayTwo] });
     await page.goto("/");
     const play = page.getByTestId("your-path").getByRole("button", { name: /^Play today, day 3\. / });
-    await expect(play).toHaveAccessibleName(/\. 9 minutes left\. 2 of 7 done$/);
+    await expect(play).toHaveAccessibleName(/\. 9 minutes left$/);
     await play.click();
     await expect(page).toHaveURL(new RegExp(`/sermon/${SERMON.dayTwo}$`));
     expect((await ytLog(page)).starts).toEqual([9670]);
@@ -418,9 +446,11 @@ test.describe("a new account", () => {
     await page.goto("/");
     await expect(page.getByTestId("start-here")).toBeVisible();
     await signUpFromHome(page);
-    // A short burst over the Start here card, that nothing has to wait for.
+    // A short burst over the Start here card, that nothing has to wait for,
+    // and a line saying what's next in place of "You're signed in".
     const confetti = page.getByTestId("welcome-confetti");
     await expect(confetti).toBeVisible();
+    await expect(page.getByTestId("toast")).toContainText("Welcome, Google. Day 1 is ready.");
     await expect(page.getByTestId("start-here")).toBeVisible();
     await expect(confetti).toHaveCount(0, { timeout: 3000 });
     expect(await confettiShown(page)).toBe(1);
@@ -444,11 +474,12 @@ test.describe("a new account", () => {
     expect(await confettiShown(page)).toBe(0);
   });
 
-  test("with Reduce Motion: no confetti", async ({ page }) => {
+  test("with Reduce Motion: no confetti, just the welcome", async ({ page }) => {
     await page.emulateMedia({ reducedMotion: "reduce" });
     await countConfetti(page);
     await page.goto("/");
     await signUpFromHome(page);
+    await expect(page.getByTestId("toast")).toContainText("Day 1 is ready");
     await page.waitForTimeout(2000);
     expect(await confettiShown(page)).toBe(0);
   });

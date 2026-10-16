@@ -85,8 +85,12 @@ test("a slow search shuffles real artwork over what it's doing, then shows the r
   await expect(live(page)).toHaveText("Searching 4 sermons…");
   await expect(page.getByTestId("search-loader-status").last()).toHaveText("Searching 4 sermons…");
   await expect(live(page)).toHaveText("Choosing the clearest moments…");
-  // Sand placeholders hold the results' place meanwhile.
-  await expect(page.getByTestId("result-placeholder")).toHaveCount(3);
+  // The loader shows alone: no second loader of sand cards, no heading
+  // ahead of the results.
+  await expect(page.getByTestId("result-placeholder")).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Moments that speak to this" })).toHaveCount(0);
+  // The question has folded away above the field; screen readers still have it.
+  await expect(page.getByRole("heading", { level: 1, name: "What are you going through?" })).toHaveCount(1);
   // The fan is shuffling.
   const before = await tilePlaces(page);
   await page.waitForTimeout(450);

@@ -3,18 +3,13 @@ import { router, useFocusEffect, useIsFocused, useLocalSearchParams } from "expo
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AccessibilityInfo, Platform, StyleSheet, View, useWindowDimensions } from "react-native";
-import Animated, {
-  interpolate,
-  useAnimatedScrollHandler,
-  useAnimatedStyle,
-  useSharedValue,
-  Extrapolation,
-} from "react-native-reanimated";
+import Animated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAccount, useProgressOf } from "../../auth/AccountProvider";
 import { useCatalogue } from "../../catalogue/CatalogueProvider";
-import { Kicker, RoundButton, StickyCTA, TrustLine, useStickyCTASpace } from "../../kit";
-import { nextDay, useEnrollment, usePath, type PathDayWithSermon } from "../../learning";
+import { Kicker, RoundButton, StickyCTA, useStickyCTASpace } from "../../kit";
+import { BAND, CoverBand, CoverNav, useCoverScroll } from "../../kit/CoverPage";
+import { nextDay, trustLine, useEnrollment, usePath, type PathDayWithSermon } from "../../learning";
 import { firstParam, useGo, usePageTitle } from "../../navigation";
 import { DayCompleteSheet } from "../../paths/DayCompleteSheet";
 import { DayCarousel, type DayItem } from "../../paths/DayCarousel";
@@ -32,19 +27,17 @@ import {
   stateOf,
 } from "../../paths/model";
 import { toPathsTab, usePlayDay } from "../../paths/navigation";
-import { COVER_OVERLAP, PathCover, coverFanHeight } from "../../paths/PathCover";
+import { COVER_OVERLAP, PathCover, coverFanHeight, coverTop } from "../../paths/PathCover";
 import { markSeen, seenDone } from "../../paths/seen";
 import { sharePath } from "../../paths/share";
 import { useDockInset } from "../../player/useDockInset";
 import { useToast } from "../../toast";
 import { c, radius, space, textCap, type } from "../../theme";
-import { StatePanel, T, TextButton, web } from "../../ui";
+import { StatePanel, T, TextButton } from "../../ui";
 
 const EMPTY: number[] = [];
 /** A day finished this soon after the page was last open still gets its "Day 3 done." */
 const RECENT_MS = 6 * 60 * 60 * 1000;
-/** The pinned header band: under the status bar, then the 40pt buttons and a little air. */
-const BAND = 52;
 /** The page's column, as wide as a phone held sideways at most. */
 const COLUMN = 760;
 /** "Why this path" folds to three lines with "Read more" when it runs longer. */
@@ -55,8 +48,9 @@ const WHY_LINES = 3;
  * its fan, name and progress; on an ivory panel, the days as a row of cards
  * that opens on today's with the next day at its edge (the owner: "see only
  * your day and the next day, and if you want to scroll ahead, scroll
- * ahead"), a quiet "Mark Day 3 done", then "Why this path" in three lines
- * with "Order set by the ministry" (published paths only); and the navy
+ * ahead"), today's with its "Mark Day 3 done" ring, then "Why this path" in
+ * three lines, "Order set by the ministry" under it (published paths
+ * only); and the navy
  * call to action, "Continue Day 3 · 48 min left" or "Start Day 1 · 2 hr 16
  * min". Every day plays its whole sermon, from where the viewer left off.
  * Once a day is done (watched, or marked done) the page shows "Day 3 done."
@@ -174,22 +168,19 @@ export default function PathScreen() {
     };
   }, [focused, path, progressLoading, doneKey, owner, total, words.series, words.unit]);
 
-  // ---- Scroll: the pinned band ----------------------------------------------------------
+  // ---- Scroll: the pinned header --------------------------------------------------------
 
-  // Once the cover's title has scrolled up under the buttons, a dark band
-  // (the cover's own colour) fades in behind them with the path's name, so
-  // the name never shows twice. On a short path it never needs to.
-  const [titleBottom, setTitleBottom] = useState(() => top + 34 + coverFanHeight(width) + 80);
-  const scrollY = useSharedValue(0);
-  const onScroll = useAnimatedScrollHandler({
-    onScroll: (e) => {
-      scrollY.set(e.contentOffset.y);
-    },
-  });
-  const bandStyle = useAnimatedStyle(() => {
-    const under = titleBottom - (top + BAND);
-    return { opacity: interpolate(scrollY.get(), [under - 16, under + 8], [0, 1], Extrapolation.CLAMP) };
-  });
+  // Once the cover's title has scrolled up under the buttons, a light header
+  // (CoverBand) pins them with the path's name, so the name never shows
+  // twice, and the status bar and buttons turn dark. On a short path it
+  // never needs to.
+  const [titleBottom, setTitleBottom] = useState(() => top + coverTop(width) + coverFanHeight(width) + 80);
+  const under = titleBottom - (top + BAND);
+  const { scrollY, onScroll } = useCoverScroll();
+  const share = useMemo(
+    () => (path ? { label: "Share path", onPress: () => sharePath(path, toast), testID: "path-share" } : undefined),
+    [path, toast],
+  );
 
   // "Why this path": three lines, the rest a tap away when it runs long.
   // Whether it does is measured: an unseen copy, whole, against the three.
@@ -285,7 +276,8 @@ export default function PathScreen() {
           </View>
         ) : (
           <View
-            style={[styles.coverGhost, { height: top + 316 }]}
+            // About the cover's height (its words under the fan), so the page doesn't jump.
+            style={[styles.coverGhost, { height: top + coverTop(width) + coverFanHeight(width) + 160 }]}
             accessible
             accessibilityLabel={loading || !ready ? "Loading path" : undefined}
           />
@@ -321,31 +313,13 @@ export default function PathScreen() {
       : null;
 
   const column = Math.min(width, COLUMN);
+  const trust = trustLine(path.status);
   return (
     <View style={styles.screen}>
-      {focused ? <StatusBar style="light" animated /> : null}
       {/* Pinned over the page once the cover's title has scrolled away. First
-          in order (it's drawn above), so Back is read before the page. */}
-      <Animated.View
-        style={[styles.band, { height: top + BAND }, bandStyle]}
-        accessible={false}
-        accessibilityElementsHidden
-        importantForAccessibility="no-hide-descendants"
-      >
-        <T style={styles.bandTitle} numberOfLines={1} aria-hidden>
-          {path.name}
-        </T>
-      </Animated.View>
-      <View style={[styles.nav, { top: top + 2 }]} {...web({ dataSet: { dark: "true" } })}>
-        <RoundButton icon="chevron-back" label="Back" onPress={go.back} iconSize={20} testID="path-back" />
-        <RoundButton
-          icon="share-outline"
-          label="Share path"
-          onPress={() => sharePath(path, toast)}
-          iconSize={18}
-          testID="path-share"
-        />
-      </View>
+          in order (they're drawn above), so Back is read before the page. */}
+      <CoverBand title={path.name} top={top} under={under} scrollY={scrollY} />
+      <CoverNav top={top} under={under} scrollY={scrollY} onBack={go.back} backTestID="path-back" share={share} />
       <Animated.ScrollView
         onScroll={onScroll}
         scrollEventThrottle={16}
@@ -367,10 +341,7 @@ export default function PathScreen() {
         <View style={styles.panel}>
           <DayCarousel days={items} focus={today ?? 1} column={column} active={focused} markDone={markDone} />
           <View style={styles.column}>
-            <View style={[styles.whyRow, !markDone && styles.whyRowAlone]}>
-              <Kicker>{`Why this ${words.noun}`}</Kicker>
-              <TrustLine status={path.status} />
-            </View>
+            <Kicker style={styles.whyKicker}>{`Why this ${words.noun}`}</Kicker>
             {path.why ? (
               <View>
                 <T
@@ -408,6 +379,8 @@ export default function PathScreen() {
                 />
               </View>
             ) : null}
+            {/* Who set the order, quietly under the prose (published paths only). */}
+            {trust ? <T style={[styles.trust, longWhy && styles.trustAfterMore]}>{trust.text}</T> : null}
           </View>
         </View>
       </Animated.ScrollView>
@@ -485,20 +458,12 @@ const styles = StyleSheet.create({
     borderTopRightRadius: radius.r28,
   },
   column: { width: "100%", maxWidth: COLUMN, alignSelf: "center" },
-  whyRow: {
-    marginTop: 14,
-    flexDirection: "row",
-    flexWrap: "wrap",
-    alignItems: "center",
-    justifyContent: "space-between",
-    columnGap: 12,
-    rowGap: 4,
-    paddingHorizontal: space.gutter,
-  },
-  // With no "Mark Day 3 done" between them, a little more air under the days.
-  whyRowAlone: { marginTop: 18 },
+  whyKicker: { marginTop: 18, paddingHorizontal: space.gutter },
   why: { color: c.text, marginTop: 6, paddingHorizontal: space.gutter },
   whyMore: { paddingHorizontal: space.gutter - 2, marginTop: -4 },
+  trust: { ...type.caption, color: c.muted, marginTop: 8, paddingHorizontal: space.gutter },
+  // "Read more" brings its own room.
+  trustAfterMore: { marginTop: 0 },
   // The unseen copy "Why this path" is measured by, whole.
   measure: { position: "absolute", top: 0, left: 0, right: 0, opacity: 0, pointerEvents: "none" },
   nav: {
@@ -510,21 +475,6 @@ const styles = StyleSheet.create({
     pointerEvents: "box-none",
     zIndex: 20,
   },
-  band: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: c.media,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: c.onMediaHairline,
-    justifyContent: "flex-end",
-    paddingHorizontal: 76,
-    paddingBottom: 15,
-    zIndex: 10,
-    pointerEvents: "none",
-  },
-  bandTitle: { ...type.cardTitle, color: c.white, textAlign: "center" },
   ctaSlot: { position: "absolute", left: 0, right: 0, pointerEvents: "box-none", zIndex: 30 },
   coverGhost: { backgroundColor: c.media },
   missing: { flex: 1, paddingHorizontal: space.gutter },

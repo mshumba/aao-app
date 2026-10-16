@@ -139,13 +139,13 @@ test.describe("honest words", () => {
     expect(messagesLabel(7)).toBe("7 messages");
   });
 
-  test("a search sermon reads by when it was preached, else published", () => {
+  test("a search sermon reads by when it was preached, else published, each part unbroken", () => {
     expect(
       searchSermonMeta({ preachedOn: "2026-09-27", publishedAt: "2026-09-28T10:00:00Z", durationSeconds: 12914 }),
-    ).toBe("27 Sep 2026 · 3 hr 35 min");
+    ).toBe("27\u00a0Sep\u00a02026 · 3\u00a0hr\u00a035\u00a0min");
     expect(
       searchSermonMeta({ preachedOn: null, publishedAt: "2026-09-28T10:00:00Z", durationSeconds: null }),
-    ).toBe("28 Sep 2026");
+    ).toBe("28\u00a0Sep\u00a02026");
   });
 
   test("Home only calls a sermon new within a week of upload", () => {

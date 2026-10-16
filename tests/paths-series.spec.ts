@@ -12,7 +12,7 @@ test("the Paths tab lists teaching series in a section of their own", async ({ p
   await page.goto("/");
   await tab(page, "Paths").click();
   // The masthead and "More paths" are guided paths only.
-  await expect(page.getByTestId("paths-featured")).toHaveAccessibleName(/^Start here\. 5 messages\. Learning to wait on God\./);
+  await expect(page.getByTestId("paths-featured")).toHaveAccessibleName(/^Start here\. 5 days\. Learning to wait on God\./);
   await expect(shown(page.getByText("1 path", { exact: true }))).toBeVisible();
   const heading = shown(page.getByRole("heading", { name: "Teaching series" }));
   await expect(heading).toBeVisible();

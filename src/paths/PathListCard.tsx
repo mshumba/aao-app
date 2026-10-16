@@ -1,29 +1,38 @@
 import { memo } from "react";
-import { StyleSheet, View, type StyleProp, type ViewStyle } from "react-native";
-import { CardFan, ItalicTitle, Kicker, PathProgress, Wash, spokenText, type ArtSource } from "../kit";
+import { StyleSheet, View, useWindowDimensions, type StyleProp, type ViewStyle } from "react-native";
+import { CardFan, ItalicTitle, PathProgress, Wash, fanSize, spokenText, type ArtSource } from "../kit";
+import { keepLastWord } from "../kit/paths";
 import type { Path } from "../learning";
-import { c, radius, tabular, textCap, type } from "../theme";
+import { artRadius, c, font, fontSize, space, tabular, textCap, type } from "../theme";
 import { Icon, T, Tap, web } from "../ui";
 import { isSingleTeaching, pathWords } from "./model";
+import { TotalTime } from "./TotalTime";
 
 export type ListProgress =
   | { kind: "none" }
   | { kind: "on"; day: number; done: readonly number[]; partial: number }
   | { kind: "finished" };
 
+/** The leading tile: a small dark cover, its fan scaled to its height. Smaller on a narrow phone. */
+const TILE = { w: 104, h: 58 };
+const TILE_NARROW = { w: 88, h: 50 };
+const fanScale = (tileH: number) => (tileH - 6) / fanSize("card").height;
+
 /**
- * A path on the Paths tab: a small copy of the path page's dark cover (its
- * fan under navy light, "7 MESSAGES" or "12 TEACHINGS" and the name in
- * white serif), so opening it feels like stepping into it; then on ivory the
- * one-line promise and your progress once you've started it. One element to
+ * A path on the Paths tab, as a row under the "Start here" masthead: a
+ * small copy of the path page's dark cover (its fan under navy light),
+ * then the name in serif, the one-line promise and "7 days · ◷ 18h" ("12
+ * teachings" for a series), or, once started, where you are on it. A
+ * hairline parts it from the row above (`first`: none). One element to
  * assistive tech.
  */
 export const PathListCard = memo(function PathListCard({
   path,
   fan,
   total,
-  width,
+  length,
   progress,
+  first = false,
   onPress,
   style,
 }: {
@@ -31,15 +40,19 @@ export const PathListCard = memo(function PathListCard({
   /** Front first. */
   fan: readonly ArtSource[];
   total: number;
-  /** The card's width, to size the fan. */
-  width: number;
+  /** The sermons, whole, together (seconds); null until every one's length is known. */
+  length: number | null;
   progress: ListProgress;
+  /** The first row under its heading: no hairline above it. */
+  first?: boolean;
   onPress: () => void;
   style?: StyleProp<ViewStyle>;
 }) {
-  const scale = Math.max(0.6, Math.min(0.8, (width - 40) / 340));
+  const narrow = useWindowDimensions().width < 360;
+  const tile = narrow ? TILE_NARROW : TILE;
   const words = pathWords(path);
-  const kicker = words.count(total);
+  const count = words.count(total);
+  const name = keepLastWord(path.name, path.italic);
   const single = isSingleTeaching(path, total);
   const status =
     progress.kind === "on"
@@ -47,14 +60,9 @@ export const PathListCard = memo(function PathListCard({
       : progress.kind === "finished"
         ? "Finished"
         : null;
-  // One label, in words: "Breaking free from habitual sin. 7 messages.
+  // One label, in words: "Breaking free from habitual sin. 7 days.
   // <promise>."
-  const label = [
-    path.name,
-    spokenText(kicker),
-    path.promise,
-    status,
-  ]
+  const label = [path.name, spokenText(count), path.promise, status]
     .filter((part): part is string => !!part)
     .map((part) => part.trim().replace(/[.!?]$/, ""))
     .join(". ")
@@ -66,25 +74,32 @@ export const PathListCard = memo(function PathListCard({
       accessibilityLabel={label}
       accessibilityHint={single ? "Opens the teaching" : `Opens the ${words.noun}`}
       onPress={onPress}
-      feedback="scaleLarge"
-      style={style}
+      feedback="dim"
+      style={[styles.row, !first && styles.rule, style]}
       testID={`path-card-${path.id}`}
     >
-      <View style={styles.art} {...web({ dataSet: { dark: "true" } })}>
+      <View
+        style={[styles.tile, { width: tile.w, height: tile.h, borderRadius: artRadius(tile.w) }]}
+        {...web({ dataSet: { dark: "true" } })}
+      >
         <Wash kind="pathCover" />
-        <CardFan sermons={fan} size="cover" scale={scale} style={styles.fan} />
-        <Kicker tone="onMedia" style={styles.kicker}>
-          {kicker}
-        </Kicker>
+        <CardFan sermons={fan} size="card" scale={fanScale(tile.h)} />
+      </View>
+      <View style={styles.text}>
         <ItalicTitle
-          text={path.name}
-          italic={path.italic}
-          style={[type.pathName, styles.name]}
+          text={name.text}
+          italic={name.italic}
+          accessibilityLabel={path.name}
+          numberOfLines={2}
+          style={styles.name}
           maxFontSizeMultiplier={textCap.section}
         />
-      </View>
-      <View style={styles.body}>
-        {path.promise ? <T style={styles.promise}>{path.promise}</T> : null}
+        {/* A third line on a narrow phone, where the column is short. */}
+        {path.promise ? (
+          <T style={styles.promise} numberOfLines={narrow ? 3 : 2}>
+            {path.promise}
+          </T>
+        ) : null}
         {progress.kind === "on" ? (
           <PathProgress
             total={total}
@@ -93,37 +108,54 @@ export const PathListCard = memo(function PathListCard({
             partial={progress.partial}
             tone="onLight"
             thickness={3}
+            gap={3}
             // The segments show what's done: the words just say where you are.
             caption={{ left: `${words.unit} ${progress.day} of ${total}` }}
             style={styles.progress}
           />
         ) : progress.kind === "finished" ? (
-          <View style={styles.finished}>
-            <Icon name="checkmark-circle" size={16} color={c.accent} />
-            <T style={styles.finishedText}>Finished</T>
+          <View style={styles.meta}>
+            <Icon name="checkmark-circle" size={14} color={c.accent} />
+            <T style={styles.finished}>Finished</T>
           </View>
-        ) : null}
+        ) : (
+          <View style={styles.meta}>
+            <T style={styles.metaText}>{length ? `${count} ·` : count}</T>
+            {length ? <TotalTime seconds={length} tone="onLight" /> : null}
+          </View>
+        )}
       </View>
     </Tap>
   );
 });
 
 const styles = StyleSheet.create({
-  art: {
-    borderRadius: radius.r22,
+  row: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 14,
+    paddingVertical: space.lg,
+  },
+  rule: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: c.divider },
+  tile: {
     backgroundColor: c.media,
     overflow: "hidden",
     alignItems: "center",
-    paddingTop: 22,
-    paddingBottom: 22,
-    paddingHorizontal: 20,
+    justifyContent: "center",
   },
-  fan: { marginBottom: 14 },
-  kicker: { textAlign: "center" },
-  name: { color: c.white, textAlign: "center", marginTop: 6 },
-  body: { paddingTop: 12, paddingHorizontal: 2 },
-  promise: { ...type.body, color: c.muted },
-  progress: { marginTop: 12 },
-  finished: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 10 },
-  finishedText: { ...type.labelSmall, color: c.accent, ...tabular },
+  text: { flex: 1, minWidth: 0 },
+  name: {
+    fontFamily: font.serif,
+    fontSize: fontSize.heading,
+    lineHeight: 24,
+    letterSpacing: -0.2,
+    color: c.text,
+    // Its first line sits level with the tile's top edge.
+    marginTop: -3,
+  },
+  promise: { ...type.meta, color: c.muted, marginTop: 2 },
+  meta: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 6 },
+  metaText: { ...type.metaSmall, color: c.muted, ...tabular },
+  finished: { ...type.metaSmall, color: c.accent },
+  progress: { marginTop: 8 },
 });

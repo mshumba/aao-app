@@ -14,7 +14,9 @@ import { STRIP_HEIGHT, TimesRow, Track, useStripWidth } from "./Track";
  * The band before the player loads: the same track, read-only. Its thumb
  * sits where Play will start (a shared time, a search moment, where you
  * left off); opened at a moment, it travels there once
- * ("Find the minute"). Decorative: the Watch pill says where it starts.
+ * ("Find the minute"). The times show only then: from the beginning they'd
+ * repeat the length the kicker already gives ("0:00 / −2:07:00").
+ * Decorative: the Watch pill says where it starts.
  */
 export const StaticBand = memo(function StaticBand({
   marks,
@@ -40,7 +42,7 @@ export const StaticBand = memo(function StaticBand({
   const { ticks } = bandTicks(marks, 0);
   // Elapsed and remaining from where Play will start, as the playing band shows.
   const start = (position ?? 0) * marks.estimate;
-  const times = marks.estimate > 0;
+  const times = marks.estimate > 0 && (arrive || start > 0);
   return (
     <View>
       <View

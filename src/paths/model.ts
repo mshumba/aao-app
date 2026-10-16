@@ -2,7 +2,7 @@ import type { Href } from "expo-router";
 import type { WatchProgress } from "../auth/types";
 import { durationText, leftText, parseDuration, splitItalic, spokenText, type ArtSource } from "../kit";
 import type { Path, PathDayWithSermon } from "../learning";
-import { messagesLabel, teachingsLabel } from "../learning/format";
+import { teachingsLabel } from "../learning/format";
 import { resumePoint } from "../player/progress";
 
 /**
@@ -82,8 +82,12 @@ export function pathWords(path: Pick<Path, "kind">) {
     kind: series ? "Teaching series" : "Guided path",
     /** "path" or "series", in sentences ("Your path", "Why this series"). */
     noun: series ? "series" : "path",
-    /** "7 messages" or "12 teachings". */
-    count: (n: number) => (series ? teachingsLabel(n) : messagesLabel(n)),
+    /**
+     * "7 days" or "12 teachings": a path counts its days, as its promise
+     * ("Seven days…") and "Day 3 of 7" do; a conference, not a path, keeps
+     * "messages".
+     */
+    count: (n: number) => (series ? teachingsLabel(n) : `${n} day${n === 1 ? "" : "s"}`),
   };
 }
 

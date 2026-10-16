@@ -79,10 +79,18 @@ async function blessingShown(page: Page) {
   return which;
 }
 
+/**
+ * On Home. Its page heading is the greeting, or, just after the blessing
+ * has greeted the viewer, a heading only screen readers meet ("Home").
+ */
 async function onHome(page: Page) {
   await expect(page).toHaveURL(/\/$/);
   await expect(blessingScreen(page)).toHaveCount(0);
-  await expect(shown(page.getByRole("heading", { level: 1 }))).toHaveText(/^Good (morning|afternoon|evening)/);
+  await expect(homeHeading(page)).toHaveText(/^(Good (morning|afternoon|evening)|Home$)/);
+}
+
+function homeHeading(page: Page) {
+  return shown(page.getByRole("heading", { level: 1 }));
 }
 
 /** The app going to the background (another app, a hidden tab) or coming back. */
@@ -191,9 +199,11 @@ test.describe("in the evening", () => {
 
     await continueButton(page).click();
     await onHome(page);
-    await expect(
-      page.getByRole("heading", { level: 1, name: "Good evening, Mufaro", exact: true }),
-    ).toBeVisible();
+    // Greeted a moment ago, so the hero doesn't say good evening again; the
+    // page keeps its heading for screen readers, and the avatar its place.
+    await expect(homeHeading(page)).toHaveText("Home");
+    await expect(shown(page.getByText("Good evening, Mufaro"))).toHaveCount(0);
+    await expect(page.getByTestId("home-avatar")).toBeVisible();
     // The hero no longer carries the blessing.
     await expect(page.getByTestId("home-blessing")).toHaveCount(0);
     await expect(page.getByText(BLESSINGS[0].text)).toHaveCount(0);
@@ -282,13 +292,15 @@ test("not again on a quick switch away and back, but after 30 minutes away, a ne
   const first = await blessingShown(page);
   await continueButton(page).click();
   await onHome(page);
+  await expect(homeHeading(page)).toHaveText("Home");
 
-  // Away for five minutes: straight back to Home.
+  // Away for five minutes: straight back to Home, which greets this visit.
   await setVisible(page, false);
   await page.clock.setFixedTime(start + 5 * MINUTE);
   await setVisible(page, true);
   await page.waitForTimeout(800);
   await onHome(page);
+  await expect(homeHeading(page)).toHaveText("Good morning");
 
   // Away for 31 minutes: a new blessing, over Home.
   await setVisible(page, false);

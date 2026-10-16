@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
   ActivityIndicator,
   PixelRatio,
@@ -23,13 +23,14 @@ import Animated, {
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { scheduleOnRN } from "react-native-worklets";
+import { blessingGreeted, subscribeCover } from "../blessing/schedule";
 import { headline } from "../data/display";
 import type { Sermon } from "../data/sermons";
 import { Artwork, Avatar, ItalicTitle, Kicker, PlayPill, RoundButton, Wash, artCandidates, artUri, sizedArt, spokenKicker, spokenText, spokenTime } from "../kit";
 import { useArtOnDevice } from "../kit/Artwork";
 import { useReducedMotion } from "../motion";
-import { artFade, c, fontSize, radius, shadows, textCap, type } from "../theme";
-import { T, Tap, gradient, web, type WebKey } from "../ui";
+import { artFade, c, fontSize, radius, textCap, type } from "../theme";
+import { Heading, T, Tap, gradient, web, type WebKey } from "../ui";
 import { greeting, heroKicker } from "./copy";
 
 /**
@@ -49,8 +50,13 @@ import { greeting, heroKicker } from "./copy";
  * at the column's, fading into the dark beyond it.
  */
 
-/** The question field overlaps the hero's bottom edge by this much. */
-export const HERO_OVERLAP = 56;
+/**
+ * The question field overlaps the hero's bottom edge by this much: about
+ * half its height, so it straddles a crisp edge.
+ */
+export const HERO_OVERLAP = 30;
+/** The hero's last few points, fading into the ivory page. */
+const FADE = 24;
 /** Home's page column, which the hero's words and artwork keep to. */
 export const COLUMN = 760;
 
@@ -108,6 +114,27 @@ const LOADING_AFTER_MS = 400;
 const DOT = 6;
 const DOT_ON = 18;
 const DOT_COLOR = "rgba(255,255,255,0.45)";
+/** The web has no end-of-swipe events: the pager has come to rest once it's still this long. */
+const WEB_REST_MS = 90;
+const WEB = Platform.OS === "web";
+/**
+ * Last words a title never sets in italics: an event's part ("Grand
+ * Finale", "Day Two Morning"), not the message's own word.
+ */
+const UPRIGHT_LAST = new Set(["finale", "morning", "evening", "service", "session", "part", "day", "night"]);
+
+/**
+ * Whether a sermon's title ends on a word worth the editor's italic, as
+ * "Pray Without *Ceasing*" and "…as a *Priest*" do: a title of three words
+ * or more, ending on a word of four letters or more (never a number), and
+ * not an event's part ("Grand Finale", "Day 2" stay upright).
+ */
+function italicEnds(title: string) {
+  const words = title.trim().split(/\s+/);
+  if (words.length < 3) return false;
+  const last = words[words.length - 1].replace(/[?!.,;:’'"”)]+$/, "");
+  return /^[A-Za-z\u00C0-\u024F’']{4,}$/.test(last) && !UPRIGHT_LAST.has(last.toLowerCase());
+}
 
 /** Where Home's column sits in a window `width` wide: its left edge and width. */
 export function heroColumn(width: number) {
@@ -116,17 +143,17 @@ export function heroColumn(width: number) {
 }
 
 /**
- * The scrim across a page, as the concept draws it: dark to 51% of the
- * column (further when the title's longest line runs past that, `edge` in
- * points from the window's left), then fading out by 80%, so busy flyer
- * lettering never shows through the words and the face stays bright. On a
- * wide window the artwork then fades into the dark past the column's right
- * edge, so it never ends in a hard line.
+ * The scrim across a page: dark to 58% of the column (further when the
+ * title's longest line runs past that, `edge` in points from the window's
+ * left), then fading out by 88%, so a flyer's own lettering stays behind
+ * the title and the face stays bright. On a wide window the artwork then
+ * fades into the dark past the column's right edge, so it never ends in a
+ * hard line. (gradients.heroScrim is the same, while sermons load.)
  */
 function heroScrim(edge: number | null, width: number) {
   const col = heroColumn(width);
   const w = col.width;
-  const d = Math.round(col.left + Math.max(w * 0.51, edge != null ? edge - col.left - 32 : 0));
+  const d = Math.round(col.left + Math.max(w * 0.58, edge != null ? edge - col.left - 32 : 0));
   const right = col.left + w;
   const side =
     width - right >= SIDE_MIN
@@ -135,7 +162,7 @@ function heroScrim(edge: number | null, width: number) {
   return (
     "linear-gradient(180deg, rgba(15,17,21,0.62) 0px, rgba(15,17,21,0) 130px), " +
     side +
-    `linear-gradient(90deg, rgba(15,17,21,0.99) 0px, rgba(15,17,21,0.98) ${d}px, rgba(15,17,21,0.6) ${Math.round(d + w * 0.1)}px, rgba(15,17,21,0.15) ${Math.round(d + w * 0.2)}px, rgba(15,17,21,0) ${Math.round(d + w * 0.29)}px), ` +
+    `linear-gradient(90deg, rgba(15,17,21,0.99) 0px, rgba(15,17,21,0.98) ${d}px, rgba(15,17,21,0.6) ${Math.round(d + w * 0.1)}px, rgba(15,17,21,0.15) ${Math.round(d + w * 0.2)}px, rgba(15,17,21,0) ${Math.round(d + w * 0.3)}px), ` +
     "linear-gradient(180deg, rgba(15,17,21,0) 40%, rgba(15,17,21,0.5) 70%, rgba(15,17,21,0.3) 84%)"
   );
 }
@@ -284,8 +311,10 @@ export const HomeHero = memo(function HomeHero({
   const current = sermons[Math.min(index, Math.max(0, count - 1))];
 
   const onDrag = useCallback(() => setRest(true), []);
-  // Native says when a swipe has ended; the web only stops scrolling, so
-  // resting on a page (to the point) is the sign on both.
+  // A page is chosen only once the pager has come to rest on it (to the
+  // point), never as a fling passes through it: on iOS and Android when the
+  // swipe's momentum ends, or the finger lifts with none; on the web, which
+  // has no such events, once it has been still a moment (restAt).
   const settle = (x: number) => {
     "worklet";
     const i = Math.max(0, Math.min(count - 1, Math.round(x / width)));
@@ -298,16 +327,27 @@ export const HomeHero = memo(function HomeHero({
     chosen.set(i);
     scheduleOnRN(setIndex, i);
   };
+  const resting = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const restAt = (x: number) => {
+    clearTimeout(resting.current);
+    resting.current = setTimeout(() => settle(x), WEB_REST_MS);
+  };
+  useEffect(() => {
+    const timer = resting;
+    return () => clearTimeout(timer.current);
+  }, []);
   const onScroll = useAnimatedScrollHandler({
     onScroll: (e) => {
       offset.set(e.contentOffset.x);
-      settle(e.contentOffset.x);
+      if (WEB) scheduleOnRN(restAt, e.contentOffset.x);
     },
     onBeginDrag: () => {
       target.set(-1);
       scheduleOnRN(onDrag);
     },
-    onEndDrag: (e) => settle(e.contentOffset.x),
+    onEndDrag: (e) => {
+      if (Math.abs(e.velocity?.x ?? 0) < 0.01) settle(e.contentOffset.x);
+    },
     onMomentumEnd: (e) => settle(e.contentOffset.x),
   });
   const select = useCallback(
@@ -325,14 +365,22 @@ export const HomeHero = memo(function HomeHero({
     target.set(-1);
     scroller.current?.scrollTo({ x: chosen.get() * width, animated: false });
   }, [chosen, target, scroller, width]);
-  // The list changed under the pager (the library arrived): back to the
-  // newest, which is then chosen as any page the pager rests on.
+  // The list changed under the pager (the library arrived on a later
+  // page): back to the newest, chosen at once rather than left to a scroll
+  // event the jump may not send.
   const firstId = sermons[0]?.id;
+  const [listFirst, setListFirst] = useState(firstId);
+  if (listFirst !== firstId) {
+    setListFirst(firstId);
+    setIndex(0);
+  }
   useEffect(() => {
-    if (chosen.get() === 0) return;
     target.set(-1);
+    if (chosen.get() === 0) return;
+    chosen.set(0);
+    offset.set(0);
     scroller.current?.scrollTo({ x: 0, animated: false });
-  }, [chosen, target, scroller, firstId]);
+  }, [chosen, target, offset, scroller, firstId]);
 
   const saved = current ? isSaved(current.id) : false;
   const resume = current ? resumeAt(current.id) : 0;
@@ -344,14 +392,7 @@ export const HomeHero = memo(function HomeHero({
           screen readers and the keyboard meet the page's heading first. */}
       <View style={[styles.top, { top, left: inset, right: inset }]} onLayout={onRow}>
         <View style={styles.greetingRow}>
-          <ItalicTitle
-            text={greeting(name)}
-            italicLast={!!name}
-            accessibilityRole="header"
-            {...web({ "aria-level": 1 })}
-            style={[type.greeting, styles.greeting, width < 360 && styles.greetingNarrow]}
-            maxFontSizeMultiplier={textCap.display}
-          />
+          <Greeting name={name} narrow={width < 360} />
           {member ? (
             <Avatar name={name} onPress={onAccount} testID="home-avatar" />
           ) : (
@@ -415,7 +456,7 @@ export const HomeHero = memo(function HomeHero({
         </>
       )}
 
-      <Wash kind="heroFade" band="bottom" height={68} />
+      <Wash kind="heroFade" band="bottom" height={FADE} />
 
       {current ? (
         <View style={[styles.actions, { left: inset, right: inset, bottom: ACTIONS_BOTTOM }]}>
@@ -447,6 +488,36 @@ export const HomeHero = memo(function HomeHero({
         </View>
       ) : null}
     </View>
+  );
+});
+
+// ---- The greeting ----------------------------------------------------------------------
+
+/**
+ * "Good evening, *Mufaro*", the page's heading. Not said again just after
+ * the blessing screen has said it (blessingGreeted): the row keeps its
+ * place, with the avatar or Sign in, and screen readers still find the
+ * page's heading.
+ */
+const Greeting = memo(function Greeting({ name, narrow }: { name: string | null; narrow: boolean }) {
+  const greeted = useSyncExternalStore(subscribeCover, blessingGreeted, blessingGreeted);
+  if (greeted)
+    return (
+      <View style={styles.greetingGone}>
+        <Heading level={1} style={styles.unseen}>
+          Home
+        </Heading>
+      </View>
+    );
+  return (
+    <ItalicTitle
+      text={greeting(name)}
+      italicLast={!!name}
+      accessibilityRole="header"
+      {...web({ "aria-level": 1 })}
+      style={[type.greeting, styles.greeting, narrow && styles.greetingNarrow]}
+      maxFontSizeMultiplier={textCap.display}
+    />
   );
 });
 
@@ -494,6 +565,7 @@ const HeroPage = memo(function HeroPage({
   const { fontScale } = useWindowDimensions();
   const kicker = useMemo(() => heroKicker(sermon), [sermon]);
   const title = headline(sermon);
+  const italicLast = italicEnds(title);
   const column = Math.min(width - 2 * inset, TITLE_MAX);
 
   // The title's size: the largest step that fits (see TITLE_STEPS), found by
@@ -636,7 +708,9 @@ const HeroPage = memo(function HeroPage({
           />
         </Animated.View>
       ) : null}
-      <View style={[StyleSheet.absoluteFill, styles.noTouch, scrim]} aria-hidden />
+      {/* The artwork a step darker under the scrim, so its own lettering
+          never competes with the title. */}
+      <View style={[StyleSheet.absoluteFill, styles.noTouch, styles.dim, scrim]} aria-hidden />
       <View style={bodyBox} onLayout={onLayout}>
         {/* A Tap on every page, the one showing reachable by the keyboard:
             the words never remount as the pager settles. */}
@@ -653,7 +727,7 @@ const HeroPage = memo(function HeroPage({
           <ItalicTitle
             ref={titleRef}
             text={title}
-            italicLast
+            italicLast={italicLast}
             onLayout={onTitleLayout}
             onTextLayout={Platform.OS === "web" ? undefined : onTextLayout}
             style={[type.masthead, TITLE_STEPS[step], styles.title, { maxWidth: column }]}
@@ -740,6 +814,7 @@ const styles = StyleSheet.create({
   // Each page crops its own artwork, so a neighbour's never shows through.
   page: { overflow: "hidden" },
   art: { position: "absolute" },
+  dim: { backgroundColor: c.heroArtDim },
   top: {
     position: "absolute",
     zIndex: 2,
@@ -755,17 +830,23 @@ const styles = StyleSheet.create({
   },
   greeting: { color: c.white, flexShrink: 1 },
   greetingNarrow: { fontSize: fontSize.heading, lineHeight: 26 },
-  // Navy with the avatar's white ring, so it holds on bright artwork too.
+  // Holds the greeting's side of the row, so the avatar keeps its place.
+  greetingGone: { flex: 1, alignSelf: "stretch" },
+  // Read by screen readers, not drawn.
+  unseen: { position: "absolute", left: 0, top: 0, width: 1, height: 1, overflow: "hidden" },
+  // Glass, as Save beside Watch: it holds on bright artwork without
+  // outshouting the title.
   signIn: {
     minHeight: 36,
-    paddingHorizontal: 16,
+    paddingHorizontal: 14,
     borderRadius: radius.pill,
-    backgroundColor: c.accent,
-    boxShadow: shadows.avatarRing,
+    backgroundColor: c.glass,
+    borderWidth: 1,
+    borderColor: c.glassBorder,
     alignItems: "center",
     justifyContent: "center",
   },
-  signInText: { ...type.button, color: c.white },
+  signInText: { ...type.label, color: c.white },
   body: { position: "absolute", pointerEvents: "box-none" },
   // The concept keeps the title off the preacher's face (TITLE_MAX).
   title: { color: c.white, marginTop: 6, alignSelf: "flex-start" },

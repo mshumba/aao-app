@@ -117,6 +117,7 @@ export default function AllSermons() {
         onClear={clearQuery}
         leading="search-outline"
         placeholder="Search sermon titles"
+        compact
         style={styles.field}
       />
       <Filters
@@ -199,7 +200,8 @@ const Intro = memo(function Intro() {
       <PageTitle
         kicker="The library"
         title="All sermons"
-        lead="Every sermon from the Apostle Arome Osayi channel. Find one by its title, or narrow by topic, series or year."
+        // One line: the count under the filters already says how many, newest first.
+        lead="Search by title or filter by topic, series or year."
       />
     </>
   );
