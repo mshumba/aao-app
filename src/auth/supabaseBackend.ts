@@ -27,16 +27,20 @@ import {
 } from "./types";
 
 /**
- * Google's own sign-in sheet on iPhone, so signing in with Google never
- * passes through the account service's web page. A build made before it was
- * added (TestFlight build 2, Expo Go) lacks its native module, and loading
+ * Google's own sign-in sheet on iPhone and Android, so signing in with Google
+ * never passes through the account service's web page. A build made before it
+ * was added (TestFlight build 2, Expo Go) lacks its native module, and loading
  * the library there would throw at once, so it's only loaded when the module
- * is found (the same lookup the library makes). Those builds, Android and the
- * web keep the web flow.
+ * is found (the same lookup the library makes). Those builds and the web keep
+ * the web flow.
  */
 type GoogleSignInModule = typeof import("@react-native-google-signin/google-signin");
+const hasGoogleClient =
+  Platform.OS === "ios"
+    ? Boolean(googleClientIds.ios)
+    : Platform.OS === "android" && Boolean(googleClientIds.web);
 const nativeGoogle: GoogleSignInModule | null =
-  Platform.OS === "ios" && googleClientIds.ios && TurboModuleRegistry.get("RNGoogleSignin")
+  hasGoogleClient && TurboModuleRegistry.get("RNGoogleSignin")
     ? // eslint-disable-next-line @typescript-eslint/no-require-imports
       (require("@react-native-google-signin/google-signin") as GoogleSignInModule)
     : null;
@@ -220,17 +224,20 @@ export function createSupabaseBackend(): AuthBackend {
     const { GoogleSignin, statusCodes } = google;
     if (!googleConfigured) {
       GoogleSignin.configure({
-        iosClientId: googleClientIds.ios,
+        ...(Platform.OS === "ios" ? { iosClientId: googleClientIds.ios } : null),
         webClientId: googleClientIds.web || undefined,
       });
       googleConfigured = true;
     }
     let token: string | null;
     try {
+      if (!(await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true })))
+        throw new AuthError("provider_unavailable");
       const response = await GoogleSignin.signIn();
       if (response.type === "cancelled") return { status: "cancelled" };
       token = response.data.idToken;
     } catch (error) {
+      if (error instanceof AuthError) throw error;
       if ((error as { code?: string }).code === statusCodes.SIGN_IN_CANCELLED)
         return { status: "cancelled" };
       throw new AuthError("provider_unavailable", String(error));
