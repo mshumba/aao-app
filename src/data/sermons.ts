@@ -34,6 +34,8 @@ export type Sermon = {
   date: string;
   /** The same day as YYYY-MM-DD, for ordering. */
   day: string;
+  /** Whether `day` is when it was preached; else it's the upload's, which can be days late. */
+  preached: boolean;
   publishedAt: string;
   /** "3 hr 35 min" */
   duration: string;
@@ -83,6 +85,7 @@ export function toSermon(record: SermonRecord, seriesName?: string | null): Serm
       record.event ?? (seriesName ? withoutYear(seriesName) : null) ?? record.venue ?? CHANNEL,
     date: formatDay(day),
     day,
+    preached: record.preached_on != null,
     publishedAt: record.published_at,
     duration: formatDuration(record.duration_seconds),
     thumbnail: record.thumbnail_url ?? defaultThumbnail(record.youtube_id),
@@ -275,19 +278,68 @@ function timeOfDay(session: string | null) {
   return 1.5;
 }
 
-/** A series in order: by the day preached, part, time of day, then upload. */
-export function compareInSeries(a: Sermon, b: Sermon) {
+/** Within a day: by part, time of day, then upload. */
+function compareWithinDay(a: Sermon, b: Sermon) {
   return (
-    a.day.localeCompare(b.day) ||
     (a.part ?? Number.MAX_SAFE_INTEGER) - (b.part ?? Number.MAX_SAFE_INTEGER) ||
     timeOfDay(a.session) - timeOfDay(b.session) ||
     a.publishedAt.localeCompare(b.publishedAt)
   );
 }
 
+/** Days further apart than this are another run of the gathering. */
+const RUN_GAP_DAYS = 14;
+
+const daysApart = (from: string, to: string) => (Date.parse(to) - Date.parse(from)) / 86_400_000;
+
+/** Preached that day, or with no part to place it by. */
+const onItsDay = (sermon: Sermon) => sermon.preached || sermon.part == null;
+
+/**
+ * A series in order. Its sermons fall into runs, a gathering's days each
+ * within a fortnight of the one before, and the runs follow each other by
+ * date: Minnesota Apostolic Conference 2025 met in September and again in
+ * December. Within a run: by the day preached, part, time of day, then
+ * upload. A sermon with no preached date has only its upload's, which can
+ * come days late, so it takes the day its run preached the nearest part:
+ * School of the Prophets 2021's Day 1 Evening, uploaded after Day 3, still
+ * comes first.
+ */
+export function inSeriesOrder(sermons: readonly Sermon[]) {
+  const byDay = [...sermons].sort((a, b) => a.day.localeCompare(b.day) || compareWithinDay(a, b));
+  if (byDay.every(onItsDay)) return byDay;
+  const runs: Sermon[][] = [];
+  for (const sermon of byDay) {
+    const run = runs[runs.length - 1];
+    if (run && daysApart(run[run.length - 1].day, sermon.day) <= RUN_GAP_DAYS) run.push(sermon);
+    else runs.push([sermon]);
+  }
+  return runs.flatMap(inRunOrder);
+}
+
+/** A run in order: a sermon with no preached date on its nearest part's day (else the run's first). */
+function inRunOrder(run: Sermon[]) {
+  if (run.every(onItsDay)) return run;
+  // The day each part was first preached.
+  const partDays = new Map<number, string>();
+  for (const { preached, part, day } of run) {
+    if (preached && part != null && !partDays.has(part)) partDays.set(part, day);
+  }
+  const dayOf = (sermon: Sermon) => {
+    if (sermon.preached || sermon.part == null) return sermon.day;
+    let nearest: number | null = null;
+    for (const part of partDays.keys()) {
+      if (nearest == null || Math.abs(part - sermon.part) < Math.abs(nearest - sermon.part)) nearest = part;
+    }
+    return nearest == null ? run[0].day : partDays.get(nearest)!;
+  };
+  const days = new Map(run.map((sermon) => [sermon, dayOf(sermon)]));
+  return run.sort((a, b) => days.get(a)!.localeCompare(days.get(b)!) || compareWithinDay(a, b));
+}
+
 /** Every sermon in a series, in order. */
 export function seriesSermons(list: Sermon[], key: string) {
-  return list.filter((sermon) => sermon.seriesKey === key).sort(compareInSeries);
+  return inSeriesOrder(list.filter((sermon) => sermon.seriesKey === key));
 }
 
 export type SeriesRail = { key: string; name: string; sermons: Sermon[] };
@@ -312,7 +364,7 @@ export function seriesRails(
   // Map order is first-seen order: the series with the newest sermon first.
   for (const [key, sermons] of groups) {
     if (sermons.length < min) continue;
-    rails.push({ key, name: name(key) ?? sermons[0].collection, sermons: sermons.sort(compareInSeries) });
+    rails.push({ key, name: name(key) ?? sermons[0].collection, sermons: inSeriesOrder(sermons) });
     if (rails.length === count) break;
   }
   return rails;

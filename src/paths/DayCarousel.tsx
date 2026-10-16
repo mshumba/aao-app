@@ -29,7 +29,7 @@ import type { DayState } from "./model";
  * moment plays from that moment; under the row, a quiet "Mark Day 3 done".
  * Each card is one button to assistive tech, its label composed by the
  * screen; on the web the arrow keys move between cards, and on a wide
- * window arrows at the row's ends scroll it.
+ * window arrows under the row, at the column's end, scroll it.
  */
 export type DayItem = {
   day: number;
@@ -65,7 +65,7 @@ const GAP = 12;
 const PEEK = 40;
 /** On a wide window, today and the next day side by side, the one after peeking. */
 const MAX_CARD = 340;
-/** Arrows at the row's ends from this width (a mouse, usually). */
+/** Arrows under the row from this width (a mouse, usually). */
 const ARROWS_FROM = 700;
 
 /**
@@ -163,6 +163,23 @@ export const DayCarousel = memo(function DayCarousel({
     nodes.current[i] = node;
   }, []);
 
+  const mark = markDone ? (
+    <Tap
+      accessibilityRole="button"
+      accessibilityLabel={markDone.label}
+      accessibilityHint={markDone.hint}
+      onPress={markDone.onPress}
+      feedback="dim"
+      style={styles.mark}
+      testID={`path-day-${markDone.day}-mark-done`}
+    >
+      <Icon name="checkmark-circle-outline" size={17} color={c.muted} />
+      <T style={[type.meta, styles.muted]} maxFontSizeMultiplier={textCap.chip}>
+        {markDone.label}
+      </T>
+    </Tap>
+  ) : null;
+
   return (
     <View style={[{ marginLeft: side }, style]}>
       <View style={styles.rowFrame}>
@@ -194,43 +211,40 @@ export const DayCarousel = memo(function DayCarousel({
             />
           ))}
         </ScrollView>
-        {arrows && ends.start ? (
-          <RoundButton
-            icon="chevron-back"
-            label="Earlier days"
-            tone="surface"
-            iconSize={18}
-            onPress={() => by(-1)}
-            style={[styles.arrow, styles.arrowStart]}
-          />
-        ) : null}
-        {arrows && ends.end ? (
-          <RoundButton
-            icon="chevron-forward"
-            label="Later days"
-            tone="surface"
-            iconSize={18}
-            onPress={() => by(1)}
-            style={[styles.arrow, { right: side + 4 }]}
-          />
-        ) : null}
       </View>
-      {markDone ? (
-        <Tap
-          accessibilityRole="button"
-          accessibilityLabel={markDone.label}
-          accessibilityHint={markDone.hint}
-          onPress={markDone.onPress}
-          feedback="dim"
-          style={styles.mark}
-          testID={`path-day-${markDone.day}-mark-done`}
-        >
-          <Icon name="checkmark-circle-outline" size={17} color={c.muted} />
-          <T style={[type.meta, styles.muted]} maxFontSizeMultiplier={textCap.chip}>
-            {markDone.label}
-          </T>
-        </Tap>
-      ) : null}
+      {arrows && (ends.start || ends.end) ? (
+        // Under the row, at the column's end: on the cards they'd cover the artwork.
+        // Each keeps its place while the other comes and goes.
+        <View style={[styles.foot, { marginRight: side + space.gutter }]}>
+          {mark}
+          <View style={styles.arrows}>
+            {ends.start ? (
+              <RoundButton
+                icon="chevron-back"
+                label="Earlier days"
+                tone="surface"
+                iconSize={18}
+                onPress={() => by(-1)}
+              />
+            ) : (
+              <View style={styles.arrowSpace} />
+            )}
+            {ends.end ? (
+              <RoundButton
+                icon="chevron-forward"
+                label="Later days"
+                tone="surface"
+                iconSize={18}
+                onPress={() => by(1)}
+              />
+            ) : (
+              <View style={styles.arrowSpace} />
+            )}
+          </View>
+        </View>
+      ) : (
+        mark
+      )}
     </View>
   );
 });
@@ -392,8 +406,10 @@ const styles = StyleSheet.create({
   // Today's: a button of its own under the card's, 36pt and more to touch.
   keyButton: { marginTop: 0, marginHorizontal: 16, paddingBottom: 12 },
   keyTime: { fontFamily: font.bold, color: c.accent, ...tabular },
-  arrow: { position: "absolute", top: "50%", marginTop: -30, boxShadow: shadows.card },
-  arrowStart: { left: -2 },
+  // The arrows share the line under the row with "Mark Day 3 done".
+  foot: { flexDirection: "row", alignItems: "center" },
+  arrows: { flexDirection: "row", gap: 8, marginLeft: "auto" },
+  arrowSpace: { width: 40, height: 40 },
   // Quiet: a muted line under the row, 44pt to touch.
   mark: {
     flexDirection: "row",
