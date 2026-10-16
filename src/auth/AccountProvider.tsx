@@ -435,7 +435,9 @@ export function AccountProvider({ children }: { children: ReactNode }) {
       promise: backend.listProgress(id).then(
         (items) => {
           entry.items = items;
-          progressStore.set({ userId: id, items });
+          // A slow answer for an account that has since signed out must not
+          // replace what the account signed in now is showing.
+          if (progressLoad.current === entry) progressStore.set({ userId: id, items });
           return items;
         },
         // Kept unloaded: nothing is saved over what can't be seen.

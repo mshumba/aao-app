@@ -21,6 +21,8 @@ import {
  * - The password "wrong-password" is rejected at sign-in.
  * - Password sign-in as unconfirmed@example.com says the email isn't
  *   confirmed yet, like an account whose sign-up code was never entered.
+ * - slow@example.com's watch progress arrives after 6 s, so switching to
+ *   another account while it's still on its way can be tested.
  *
  * Like the real service, the profile and saved list come back a moment
  * after they're asked for (as they were when asked), and fail while the
@@ -30,6 +32,7 @@ export const LOCAL_CODE = "123456";
 const EXPIRED_CODE = "000000";
 const TAKEN = "taken@example.com";
 const UNCONFIRMED = "unconfirmed@example.com";
+const SLOW_PROGRESS = "local:slow@example.com";
 const WRONG = "wrong-password";
 
 // Accounts stored before watch progress existed have no `progress`.
@@ -204,7 +207,7 @@ export function createLocalBackend(): AuthBackend {
     async listProgress(userId) {
       reachable();
       const { progress = [] } = await load(userId);
-      await wait(250);
+      await wait(userId === SLOW_PROGRESS ? 6000 : 250);
       return [...progress].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
     },
     async saveProgress(userId, progress) {
