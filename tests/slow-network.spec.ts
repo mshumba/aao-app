@@ -133,6 +133,12 @@ function fakeSupabase(rows: ReturnType<typeof record>[]) {
     const limit = Number(url.searchParams.get("limit"));
     const offset = Number(url.searchParams.get("offset"));
     const order = url.searchParams.get("order");
+    // The newest change, asked for before any rows: the next sync's cursor.
+    if (order === "updated_at.desc") {
+      log.push("newest change");
+      const stamps = (table === "sermons" ? rows : series).map((row) => row.updated_at).sort();
+      return new Response(JSON.stringify([{ updated_at: stamps.at(-1) }]));
+    }
     const tag = `${table} ${offset}+${limit}`;
     log.push(`start ${tag}`);
     await new Promise((resolve) => setTimeout(resolve, 5));
@@ -173,6 +179,8 @@ test("the whole fetch asks for the newest sermons alone first, then the rest tog
     expect(all.syncedAt).toBe("2026-10-09T00:00:00+00:00");
     expect(all.sermons[0]).not.toHaveProperty("updated_at");
 
+    // The newest change (both tables) before any rows.
+    expect(supabase.log.slice(0, 2)).toEqual(["newest change", "newest change"]);
     const log = supabase.log.filter((line) => line.includes("sermons") || line === "newest reported");
     // One request for the newest; then, once it's in, the other three at once.
     expect(log.slice(0, 2)).toEqual([`start sermons 0+${NEWEST}`, `end sermons 0+${NEWEST}`]);
