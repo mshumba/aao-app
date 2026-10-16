@@ -35,17 +35,21 @@ test("guest browse, exact sermon identity, search and back navigation", async ({
     page.getByRole("heading", { level: 1, name: "Pray Without Ceasing", exact: true }),
   ).toBeVisible();
   await expect(
-    shown(page.getByText("27 Sep 2026 · 3 hr 35 min", { exact: true })),
+    shown(page.getByText("27 Sep 2026", { exact: true })),
   ).toBeVisible();
+  await expect(
+    shown(page.getByText("3 hr 35 min", { exact: true })),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Watch sermon", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("tab", { name: "About", exact: true }).click();
   await expect(
     shown(page.getByText("Apostle Arome Osayi · Lioness Conference · Grand Finale", { exact: true })),
   ).toBeVisible();
   await expect(shown(page.getByText(lioness, { exact: true }))).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Open in YouTube", exact: true }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "Watch sermon", exact: true }),
   ).toBeVisible();
   await expect(page.locator("iframe")).toHaveCount(0);
   await page.getByRole("button", { name: "Back", exact: true }).click();
@@ -77,6 +81,10 @@ test("each screen has one visible page heading", async ({ page }) => {
     await expect(shown(page.locator("h1"))).toHaveCount(1);
   }
   await page.goto("/sermon/nUW8NT2Pe88");
+  await expect(
+    page.getByRole("heading", { level: 2, name: "Moments in this sermon" }),
+  ).toBeVisible();
+  await page.getByRole("tab", { name: "About", exact: true }).click();
   await expect(
     page.getByRole("heading", { level: 2, name: "More sermons" }),
   ).toBeVisible();
@@ -202,23 +210,15 @@ test("Watch starts playback and nothing stays over the provider player", async (
   expect((await ytLog(page)).commands).toContain("play");
   await expect(page.getByTestId("player-cover")).toHaveCount(0);
   await expect(page.getByTestId("player-full")).toBeVisible();
-  // The provider's player is the topmost thing at its centre and corners.
   const box = (await page.getByTestId("player-full").boundingBox())!;
-  const unobscured = await page.evaluate(
-    ({ x, y, width, height }) =>
-      [
-        [0.5, 0.5],
-        [0.05, 0.95],
-        [0.95, 0.95],
-      ].every(([fx, fy]) =>
-        document
-          .elementFromPoint(x + width * fx, y + height * fy)
-          ?.closest('[data-testid="fake-yt"]'),
-      ),
-    box,
-  );
-  expect(unobscured).toBe(true);
   expect(box.height).toBeGreaterThanOrEqual(200);
+  // Tapping the stage backdrop hides the custom overlay controls.
+  await page
+    .getByRole("button", { name: "Hide video controls", exact: true })
+    .click({ position: { x: 24, y: 24 } });
+  await expect(
+    page.getByRole("button", { name: "Show video controls", exact: true }),
+  ).toBeVisible();
 });
 
 test("Now Playing controls drive the provider player", async ({ page }) => {
@@ -229,7 +229,7 @@ test("Now Playing controls drive the provider player", async ({ page }) => {
   await page.getByRole("button", { name: "Pause", exact: true }).click();
   await expect(page.getByTestId("playback-status")).toHaveText("Paused");
   await page
-    .getByRole("button", { name: "Forward 30 seconds", exact: true })
+    .getByRole("button", { name: "Forward 15 seconds", exact: true })
     .click();
   await page
     .getByRole("button", { name: "Playback speed 1 times", exact: true })
@@ -243,8 +243,8 @@ test("Now Playing controls drive the provider player", async ({ page }) => {
   await expect(page.getByTestId("elapsed")).toHaveText(/^(4:5\d|5:0\d)$/);
   const { commands } = await ytLog(page);
   expect(commands).toContain("pause");
-  // Forward 30 from wherever playback had reached (a few seconds in).
-  expect(commands.some((c) => /^seek:(3\d|4\d)$/.test(c))).toBe(true);
+  // Forward 15 from wherever playback had reached (a few seconds in).
+  expect(commands.some((c) => /^seek:(1[5-9]|2\d)$/.test(c))).toBe(true);
   expect(commands).toContain("rate:1.25");
   // Middle of a 10-minute bar, give or take a pixel.
   expect(commands.some((c) => /^seek:(29\d|30\d)$/.test(c))).toBe(true);
@@ -296,7 +296,8 @@ test("starting another sermon replaces the docked one", async ({ page }) => {
   await page.goto("/sermon/nUW8NT2Pe88");
   await page.getByRole("button", { name: "Watch sermon", exact: true }).click();
   await expect(page.getByTestId("playback-status")).toHaveText("Playing");
-  // Open another sermon from "More sermons": the first keeps playing, docked.
+  // Open another sermon from "More sermons" on the About tab: the first keeps playing, docked.
+  await page.getByRole("tab", { name: "About", exact: true }).click();
   await rows(page).first().click();
   await expect(page.getByTestId("player-dock")).toBeVisible();
   // Playing: the dock says how much is left ("9:56 left"), or "Playing".

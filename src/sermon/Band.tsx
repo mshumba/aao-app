@@ -77,7 +77,7 @@ export function SearchPill({ q }: { q: string }) {
       accessible
       accessibilityLabel={`From your search: ${q}`}
     >
-      <Spark size={12} color={c.goldOnDark} />
+      <Spark size={12} color={c.gold} />
       <T style={styles.pillText} numberOfLines={2} maxFontSizeMultiplier={textCap.chip}>
         From your search: <T style={styles.pillQuery}>{q}</T>
       </T>
@@ -105,11 +105,11 @@ const styles = StyleSheet.create({
     minHeight: 24,
     paddingHorizontal: 10,
     borderRadius: 12,
-    backgroundColor: c.glassOnStage,
+    backgroundColor: c.feature,
     borderWidth: 1,
-    borderColor: c.glassBorder,
+    borderColor: c.border,
   },
-  pillText: { ...type.metaSmall, color: c.onMediaMuted, flexShrink: 1 },
-  pillQuery: { fontFamily: font.bold, color: c.white },
+  pillText: { ...type.metaSmall, color: c.muted, flexShrink: 1 },
+  pillQuery: { fontFamily: font.bold, color: c.text },
   caption: { ...type.metaSmall, color: c.onMediaMuted, flexShrink: 1, pointerEvents: "none", ...tabular },
 });

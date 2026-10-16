@@ -11,7 +11,8 @@ export type PlayerCommand =
   | { type: "play" }
   | { type: "pause" }
   | { type: "seek"; seconds: number }
-  | { type: "rate"; rate: number };
+  | { type: "rate"; rate: number }
+  | { type: "captions"; enabled: boolean };
 
 export type EmbedHandle = {
   command: (command: PlayerCommand) => void;

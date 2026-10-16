@@ -139,6 +139,7 @@ export const VideoOverlay = memo(function VideoOverlay({
 
       <Animated.View
         pointerEvents={visible ? "box-none" : "none"}
+        {...web({ onFocusCapture: registerInteraction })}
         style={[
           styles.overlayBox,
           {
@@ -148,7 +149,6 @@ export const VideoOverlay = memo(function VideoOverlay({
             transitionTimingFunction: easeOut,
           },
         ]}
-        {...web({ "aria-hidden": !visible })}
       >
         {/* Soft dark scrim at the top and bottom */}
         <View

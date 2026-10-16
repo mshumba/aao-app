@@ -1,14 +1,13 @@
 import { useSyncExternalStore } from "react";
-import { StyleSheet } from "react-native";
+import { StyleSheet, type View } from "react-native";
 
 // Shared geometry so the sermon screen's player slot and the app-wide player
 // agree on exactly where the video sits, without measuring during transitions.
 /**
- * The sermon stage's dark bar between the status bar and the video: 44pt of
- * round buttons (down and "…") and 6pt of air. The buttons sit here, never
- * over the video, so they can't cover YouTube's own controls.
+ * The sermon stage's light header between the status bar and the video: 44pt
+ * of round buttons (Back and the days/moments drawer) and 12pt of air.
  */
-export const STAGE_BAR = 50;
+export const STAGE_BAR = 56;
 // Pill 56 (plus its hairline border) + 8 above + 8 below. Used until measured.
 const TAB_BAR_HEIGHT = 72 + StyleSheet.hairlineWidth * 2;
 const DOCK_BAR_HEIGHT = 48;
@@ -49,16 +48,62 @@ export function useChrome() {
   return useSyncExternalStore(subscribe, () => chrome, () => chrome);
 }
 
+export type StageMarks = {
+  moments: readonly { key: string; at: number }[];
+  activeKey?: string | null;
+  estimate: number;
+};
+
+export type StageOverlayState = {
+  marks: StageMarks;
+  glideKey: number;
+  fullscreen: boolean;
+  focusToggleKey: number;
+};
+
+const EMPTY_MARKS: StageMarks = { moments: [], activeKey: null, estimate: 0 };
+let stageOverlay: StageOverlayState = {
+  marks: EMPTY_MARKS,
+  glideKey: 0,
+  fullscreen: false,
+  focusToggleKey: 0,
+};
+
+/** Shared ref to the Play/Pause button on the stage overlay, for focus management. */
+export const stageToggleRef: { current: View | null } = { current: null };
+let pendingToggleFocus = false;
+
+export function setStageOverlay(partial: Partial<StageOverlayState>) {
+  stageOverlay = { ...stageOverlay, ...partial };
+  listeners.forEach((listener) => listener());
+}
+
+export function bumpStageFocusToggle() {
+  pendingToggleFocus = true;
+  stageOverlay = { ...stageOverlay, focusToggleKey: stageOverlay.focusToggleKey + 1 };
+  listeners.forEach((listener) => listener());
+}
+
+export function consumeStageFocusToggle() {
+  if (!pendingToggleFocus) return false;
+  pendingToggleFocus = false;
+  return true;
+}
+
+export function useStageOverlay() {
+  return useSyncExternalStore(subscribe, () => stageOverlay, () => stageOverlay);
+}
+
 /**
  * Where the video sits on the sermon (Now Playing) screen: flush under the
  * stage bar, edge to edge on a phone (the stage is the whole width). On a
  * wide or short window it keeps 16:9 at a height that leaves room for the
- * page below, centred on the dark stage.
+ * page below, centred on the page.
  */
 export function fullFrame(window: Size, insets: Insets) {
   const top = insets.top + STAGE_BAR;
   let width = window.width;
-  let height = Math.max(MIN_PLAYER, (width * 9) / 16);
+  let height = Math.max(MIN_PLAYER, Math.round((width * 9) / 16));
   // At most 45% of the window (a desktop browser), and never so tall on a
   // short window that the title and controls can't scroll into view.
   const room = Math.max(

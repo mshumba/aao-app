@@ -30,7 +30,7 @@ export default function Embed({
   const source = useMemo(() => {
     const vars = {
       autoplay: 0,
-      controls: 1,
+      controls: 0,
       playsinline: 1,
       rel: 0,
       // Captions are off unless the viewer turns them on in the player
@@ -40,11 +40,11 @@ export default function Embed({
       ...(baseUrl ? { origin: baseUrl.slice(0, -1) } : {}),
     };
     const html = `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="strict-origin-when-cross-origin"><style>html,body,#player{margin:0;width:100%;height:100%;background:#000}</style></head><body><div id="player"></div><script>
- var p, ready=false, ccChecked=false; function send(e){window.ReactNativeWebView.postMessage(JSON.stringify(e))}
+ var p, ready=false, ccChecked=false, ccWanted=false; function send(e){window.ReactNativeWebView.postMessage(JSON.stringify(e))}
  function ccOff(){try{p.unloadModule("captions");p.unloadModule("cc")}catch(e){}}
  function dur(){try{return p.getDuration()}catch(e){return 0}}
- window.__aao=function(c){if(!ready)return;if(c.type==="play")p.playVideo();else if(c.type==="pause")p.pauseVideo();else if(c.type==="seek")p.seekTo(c.seconds,true);else if(c.type==="rate")p.setPlaybackRate(c.rate)};
- function onYouTubeIframeAPIReady(){p=new YT.Player("player",{videoId:${JSON.stringify(videoId)},width:"100%",height:"100%",playerVars:${JSON.stringify(vars)},events:{onReady:function(){ready=true;ccOff();send({type:"ready",duration:dur()})},onError:function(e){send({type:"error",code:e.data})},onStateChange:function(e){if(e.data===1&&!ccChecked){ccChecked=true;ccOff()}send({type:"state",state:e.data,seconds:p.getCurrentTime(),duration:dur()})},onPlaybackRateChange:function(e){send({type:"rate",rate:e.data})}}})}
+ window.__aao=function(c){if(!ready)return;if(c.type==="play")p.playVideo();else if(c.type==="pause")p.pauseVideo();else if(c.type==="seek")p.seekTo(c.seconds,true);else if(c.type==="rate")p.setPlaybackRate(c.rate);else if(c.type==="captions"){ccWanted=!!c.enabled;try{if(c.enabled){p.loadModule&&p.loadModule("captions");p.setOption&&p.setOption("captions","track",{languageCode:"en"})}else{p.setOption&&p.setOption("captions","track",{});ccOff()}}catch(_){}}};
+ function onYouTubeIframeAPIReady(){p=new YT.Player("player",{videoId:${JSON.stringify(videoId)},width:"100%",height:"100%",playerVars:${JSON.stringify(vars)},events:{onReady:function(){ready=true;if(!ccWanted)ccOff();send({type:"ready",duration:dur()})},onError:function(e){send({type:"error",code:e.data})},onStateChange:function(e){if(e.data===1&&!ccChecked){ccChecked=true;if(!ccWanted)ccOff()}send({type:"state",state:e.data,seconds:p.getCurrentTime(),duration:dur()})},onPlaybackRateChange:function(e){send({type:"rate",rate:e.data})}}})}
  setInterval(function(){if(ready&&p.getPlayerState()===1)send({type:"state",state:1,seconds:p.getCurrentTime(),duration:dur()})},1000);
  </script><script src="https://www.youtube.com/iframe_api" onerror="send({type:'error',code:0})"></script></body></html>`;
     return { html, ...(baseUrl ? { baseUrl } : {}) };

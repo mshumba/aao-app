@@ -17,8 +17,9 @@ test("before play, the length is given once and the band only times a real place
   await page.goto("/sermon/nUW8NT2Pe88");
   const pill = page.getByRole("button", { name: watch, exact: true });
   await expect(pill).toBeVisible();
-  // The kicker gives the length; the pill and the band don't repeat it.
-  await expect(shown(page.getByText("27 Sep 2026 · 3 hr 35 min", { exact: true }))).toBeVisible();
+  // The meta block gives the date and length once; the poster and rail don't repeat it.
+  await expect(shown(page.getByText("27 Sep 2026", { exact: true }))).toBeVisible();
+  await expect(shown(page.getByText("3 hr 35 min", { exact: true }))).toBeVisible();
   await expect(pill).not.toContainText("hr");
   // (The band's times are hidden from screen readers, so look on screen.)
   await expect(page.getByText("−3:35:00", { exact: true }).filter({ visible: true })).toHaveCount(0);
@@ -36,7 +37,7 @@ test("the menu's About this sermon shows the source line, even straight after op
   await page.goto("/");
   await rows(page).first().click();
   // At once, before the page below the stage has been drawn.
-  await page.getByRole("button", { name: "More options" }).last().click();
+  await page.getByTestId("stage-header-right").last().click();
   await page.getByRole("menuitem", { name: "About this sermon" }).click();
   const about = page.getByTestId("about-sermon").last();
   await expect(about).toBeInViewport();
@@ -64,6 +65,7 @@ test("Watch on YouTube while the player loads cancels the start", async ({
   await fakeYouTube(page, { readyAfter: 1500 });
   await page.goto("/sermon/nUW8NT2Pe88");
   await page.getByRole("button", { name: watch, exact: true }).click();
+  await page.getByRole("tab", { name: "About", exact: true }).click();
   await page
     .getByRole("button", { name: "Open in YouTube", exact: true })
     .click();
@@ -119,7 +121,7 @@ test("keyboard: focus follows Watch and Close, and the scrubber is a slider", as
   await page.keyboard.press("ArrowRight");
   await expect
     .poll(async () => Number(await slider.getAttribute("aria-valuenow")))
-    .toBeGreaterThanOrEqual(before + 30);
+    .toBeGreaterThanOrEqual(before + 15);
   expect((await ytLog(page)).commands.some((c) => c.startsWith("seek:"))).toBe(
     true,
   );
@@ -153,8 +155,8 @@ test("dragging the scrubber sideways seeks where it's released", async ({
   await expect(page.getByTestId("playback-status")).toHaveText("Playing");
   const bar = (await page.getByTestId("scrubber").boundingBox())!;
   const y = bar.y + bar.height / 2;
-  // The rail stops 20px in from each side of the strip, level with the times.
-  const at = (f: number) => bar.x + 20 + (bar.width - 40) * f;
+  // The rail stops 8px in from each side of the strip.
+  const at = (f: number) => bar.x + 8 + (bar.width - 16) * f;
   await page.mouse.move(at(0.2), y);
   await page.mouse.down();
   for (let i = 1; i <= 10; i++) await page.mouse.move(at(0.2 + i * 0.06), y);
@@ -202,12 +204,16 @@ test("on a short window the player leaves room for the page", async ({
   const video = (await page.getByTestId("player-full").boundingBox())!;
   expect(video.height).toBeGreaterThanOrEqual(200);
   expect(video.width).toBeGreaterThanOrEqual(200);
-  // The title and controls can still be scrolled into view below it.
+  // Play/Pause sits on the video, and the title below can be scrolled into view.
   const toggle = page.getByTestId("now-playing-toggle");
-  await toggle.scrollIntoViewIfNeeded();
   const t = (await toggle.boundingBox())!;
-  expect(t.y).toBeGreaterThanOrEqual(video.y + video.height);
-  expect(t.y + t.height).toBeLessThanOrEqual(360);
+  expect(t.y).toBeGreaterThanOrEqual(video.y);
+  expect(t.y + t.height).toBeLessThanOrEqual(video.y + video.height);
+  const h1 = shown(page.locator("h1"));
+  await h1.scrollIntoViewIfNeeded();
+  const h = (await h1.boundingBox())!;
+  expect(h.y).toBeGreaterThanOrEqual(video.y + video.height - 2);
+  expect(h.y + h.height).toBeLessThanOrEqual(360);
   // Docked, there's no room for a video: the dock becomes a paused bar.
   await page.getByRole("button", { name: "Back", exact: true }).click();
   const dock = page.getByTestId("player-dock");
@@ -333,6 +339,7 @@ test("with a sermon docked, another sermon's page still has room", async ({
   await page.goto("/sermon/nUW8NT2Pe88");
   await page.getByRole("button", { name: watch, exact: true }).click();
   await expect(page.getByTestId("playback-status")).toHaveText("Playing");
+  await page.getByRole("tab", { name: "About", exact: true }).click();
   await rows(page).first().click();
   const dock = (await page.getByTestId("player-dock").boundingBox())!;
   // The poster scrolls with the page instead of being pinned above it, so
@@ -397,3 +404,33 @@ test("on a desktop window the video leaves room and the dock is a corner card", 
   expect(dock.height).toBeLessThanOrEqual(280);
   expect(dock.x + dock.width).toBeGreaterThan(1280 - 40);
 });
+
+test("stage overlay controls toggle captions and full screen without reloading the player", async ({
+  page,
+}) => {
+  await fakeYouTube(page);
+  await page.goto("/sermon/nUW8NT2Pe88");
+  await page.getByRole("button", { name: watch, exact: true }).click();
+  await expect(page.getByTestId("playback-status")).toHaveText("Playing");
+  // Toggle captions on and off through YouTube's captions module.
+  const cc = page.getByTestId("player-cc-button");
+  await expect(cc).toHaveAttribute("aria-label", "Closed captions off");
+  await cc.click();
+  await expect(cc).toHaveAttribute("aria-label", "Closed captions on");
+  await cc.click();
+  await expect(cc).toHaveAttribute("aria-label", "Closed captions off");
+  const log = await ytLog(page);
+  expect(log.commands).toContain("captions:en");
+  expect(log.commands).toContain("captions:off");
+  // Toggle full screen in place without remounting the player.
+  const fs = page.getByTestId("player-fullscreen-button");
+  await expect(fs).toHaveAttribute("aria-label", "Full screen");
+  await fs.click();
+  await expect(fs).toHaveAttribute("aria-label", "Exit full screen");
+  const box = (await page.getByTestId("player-full").boundingBox())!;
+  expect(box.y).toBe(0);
+  await fs.click();
+  await expect(fs).toHaveAttribute("aria-label", "Full screen");
+  expect((await ytLog(page)).created).toBe(1);
+});
+

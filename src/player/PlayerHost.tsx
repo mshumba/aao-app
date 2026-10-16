@@ -21,6 +21,7 @@ import {
   TextButton,
   Thumbnail,
   c,
+  moveFocus,
   s,
   web,
 } from "../ui";
@@ -28,12 +29,17 @@ import Embed from "./Embed";
 import {
   DOCK_MARGIN,
   DOCK_PAD,
+  consumeStageFocusToggle,
   dockFrame,
   fullFrame,
   setChrome,
+  setStageOverlay,
+  stageToggleRef,
   useChrome,
+  useStageOverlay,
 } from "./layout";
 import { clock, usePlayback, usePlayerSession } from "./PlayerProvider";
+import { VideoOverlay } from "./stage/VideoOverlay";
 import { headline } from "../data/display";
 import { canRetry, playerError } from "./types";
 import { useDayDoneNotice } from "./dayDone";
@@ -52,10 +58,12 @@ export function PlayerHost() {
   const insets = useSafeAreaInsets();
   const aboveTabs = useDockAboveTabs();
   const chrome = useChrome();
+  const overlay = useStageOverlay();
   const { sermon, phase, cover, attempt, start, attach, onEvent, hold } =
     session;
   const pathname = usePathname();
   const full = !!sermon && session.stage === sermon.id;
+  const isFullscreen = full && overlay.fullscreen;
   const d = dockFrame(window, insets, aboveTabs, chrome);
   const hidden = !!sermon && !full && d.compact;
   // The room screens keep below their content so it scrolls clear of the dock.
@@ -67,10 +75,23 @@ export function PlayerHost() {
   useEffect(() => {
     if (hidden || covered) hold();
   }, [hidden, covered, hold]);
+  // Exit fullscreen if the sermon docks or on Escape (web).
+  useEffect(() => {
+    if (!full && overlay.fullscreen) setStageOverlay({ fullscreen: false });
+  }, [full, overlay.fullscreen]);
+  useEffect(() => {
+    if (Platform.OS !== "web" || !isFullscreen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setStageOverlay({ fullscreen: false });
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [isFullscreen]);
   if (!sermon) return null;
   // The Now Playing screen shows its own error panel and poster.
   if (full && phase === "error") return null;
   const f = fullFrame(window, insets);
+  const videoHeight = isFullscreen ? window.height : full ? f.height : d.videoHeight;
   return (
     // box-none must stay a prop: react-native-web only honours it there, and
     // as a style this full-screen layer would swallow every tap in the app.
@@ -83,9 +104,18 @@ export function PlayerHost() {
         })}
         style={[
           styles.shell,
-          full
-            ? { left: f.left, top: f.top, width: f.width }
-            : { left: d.left, bottom: d.bottom, width: d.width },
+          isFullscreen
+            ? {
+                left: 0,
+                top: 0,
+                width: window.width,
+                height: window.height,
+                backgroundColor: "#000",
+                zIndex: 100,
+              }
+            : full
+              ? { left: f.left, top: f.top, width: f.width }
+              : { left: d.left, bottom: d.bottom, width: d.width },
           !full && styles.dock,
           covered && styles.gone,
         ]}
@@ -93,16 +123,18 @@ export function PlayerHost() {
         <View
           style={[
             styles.video,
-            full
-              ? { height: f.height, borderRadius: f.radius }
-              : {
-                  height: d.videoHeight,
-                  margin: DOCK_PAD,
-                  marginBottom: 0,
-                  // Flush in the dock's top corners.
-                  borderTopLeftRadius: radius.lg,
-                  borderTopRightRadius: radius.lg,
-                },
+            isFullscreen
+              ? { height: window.height, borderRadius: 0 }
+              : full
+                ? { height: f.height, borderRadius: f.radius }
+                : {
+                    height: d.videoHeight,
+                    margin: DOCK_PAD,
+                    marginBottom: 0,
+                    // Flush in the dock's top corners.
+                    borderTopLeftRadius: radius.lg,
+                    borderTopRightRadius: radius.lg,
+                  },
             // Kept mounted, so opening Now Playing picks up where it paused.
             hidden && styles.gone,
           ]}
@@ -112,7 +144,7 @@ export function PlayerHost() {
               key={attempt}
               ref={attach}
               videoId={sermon.id}
-              height={full ? f.height : d.videoHeight}
+              height={videoHeight}
               startSeconds={start}
               onEvent={onEvent}
             />
@@ -123,7 +155,7 @@ export function PlayerHost() {
           )}
           {cover !== "off" && (
             // Never receives touches, and is gone once the player is ready,
-            // so YouTube's own controls are never covered.
+            // so controls are never covered.
             <Animated.View
               testID="player-cover"
               style={[
@@ -139,7 +171,7 @@ export function PlayerHost() {
             >
               <Thumbnail
                 sermon={sermon}
-                height={full ? f.height : d.videoHeight}
+                height={videoHeight}
               />
               <View style={styles.center}>
                 <View style={styles.spinner}>
@@ -148,10 +180,48 @@ export function PlayerHost() {
               </View>
             </Animated.View>
           )}
+          {full && phase !== "error" ? <StageFullOverlay /> : null}
         </View>
         {!full && <DockBar compact={d.compact} />}
       </View>
     </View>
+  );
+}
+
+/**
+ * Connects the Mindvalley VideoOverlay to the active player session when the
+ * player is shown full-size on the sermon screen.
+ */
+function StageFullOverlay() {
+  const session = usePlayerSession();
+  const p = usePlayback();
+  const overlay = useStageOverlay();
+
+  useEffect(() => {
+    if (consumeStageFocusToggle()) {
+      moveFocus(stageToggleRef.current);
+    }
+  }, [overlay.focusToggleKey, session.attempt]);
+
+  return (
+    <VideoOverlay
+      playing={p.playing}
+      loading={session.phase === "loading"}
+      seconds={p.seconds}
+      duration={p.duration}
+      rate={p.rate}
+      captionsOn={p.captionsOn}
+      fullscreen={overlay.fullscreen}
+      marks={overlay.marks}
+      glideKey={overlay.glideKey}
+      toggleRef={stageToggleRef}
+      onTogglePlay={p.toggle}
+      onSkip={p.skip}
+      onSeek={p.seek}
+      onCycleRate={p.cycleRate}
+      onToggleCaptions={p.toggleCaptions}
+      onToggleFullscreen={() => setStageOverlay({ fullscreen: !overlay.fullscreen })}
+    />
   );
 }
 

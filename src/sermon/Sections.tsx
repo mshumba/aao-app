@@ -132,9 +132,9 @@ export const AboutSermon = memo(function AboutSermon({
 });
 
 const styles = StyleSheet.create({
-  sectionGap: { marginTop: space.xxl, marginHorizontal: 4 },
-  about: { gap: space.sm, marginTop: space.xl, marginHorizontal: 4 },
-  aboutFirst: { gap: space.sm, marginHorizontal: 4 },
+  sectionGap: { marginTop: space.xxl },
+  about: { gap: space.sm, marginTop: space.xl },
+  aboutFirst: { gap: space.sm },
   source: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: space.sm },
   sourceText: { ...type.meta, color: c.muted, maxWidth: "100%" },
   link: { flexDirection: "row", alignItems: "center", gap: 4, minHeight: 32 },

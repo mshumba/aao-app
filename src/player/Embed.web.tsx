@@ -9,7 +9,9 @@ type YouTubePlayer = {
   pauseVideo: () => void;
   seekTo: (seconds: number, allowSeekAhead: boolean) => void;
   setPlaybackRate: (rate: number) => void;
-  unloadModule: (module: string) => void;
+  loadModule?: (module: string) => void;
+  unloadModule?: (module: string) => void;
+  setOption?: (module: string, option: string, value: unknown) => void;
 };
 
 // Captions are off unless the viewer turns them on in the player (owner,
@@ -17,8 +19,8 @@ type YouTubePlayer = {
 // first starts, so they're switched off at both.
 function captionsOff(p: YouTubePlayer | undefined) {
   try {
-    p?.unloadModule("captions");
-    p?.unloadModule("cc");
+    p?.unloadModule?.("captions");
+    p?.unloadModule?.("cc");
   } catch {
     // Not loaded: nothing to switch off.
   }
@@ -81,6 +83,8 @@ export default function Embed({
   useEffect(() => {
     callback.current = onEvent;
   }, [onEvent]);
+  // Whether the viewer turned captions on with CC; until then they're kept off.
+  const captionsWanted = useRef(false);
   // App controls reach the provider's own player through its official API.
   useImperativeHandle(ref, () => ({
     command: (command) => {
@@ -90,6 +94,20 @@ export default function Embed({
       else if (command.type === "pause") p.pauseVideo();
       else if (command.type === "seek") p.seekTo(command.seconds, true);
       else if (command.type === "rate") p.setPlaybackRate(command.rate);
+      else if (command.type === "captions") {
+        captionsWanted.current = command.enabled;
+        try {
+          if (command.enabled) {
+            p.loadModule?.("captions");
+            p.setOption?.("captions", "track", { languageCode: "en" });
+          } else {
+            p.setOption?.("captions", "track", {});
+            p.unloadModule?.("captions");
+          }
+        } catch {
+          /* Captions module may not be available on every video. */
+        }
+      }
     },
     focus: () => holder.current?.querySelector("iframe")?.focus(),
   }));
@@ -116,7 +134,7 @@ export default function Embed({
           playerVars: {
             autoplay: 0,
             start: startSeconds,
-            controls: 1,
+            controls: 0,
             playsinline: 1,
             rel: 0,
             cc_load_policy: 0,
@@ -130,7 +148,7 @@ export default function Embed({
             onReady: () => {
               if (disposed) return;
               ready.current = true;
-              captionsOff(player.current);
+              if (!captionsWanted.current) captionsOff(player.current);
               callback.current({ type: "ready", duration: duration() });
             },
             onError: (e: { data: number }) => {
@@ -140,7 +158,7 @@ export default function Embed({
               if (disposed) return;
               if (e.data === 1 && !captionsChecked) {
                 captionsChecked = true;
-                captionsOff(player.current);
+                if (!captionsWanted.current) captionsOff(player.current);
               }
               callback.current({
                 type: "state",
