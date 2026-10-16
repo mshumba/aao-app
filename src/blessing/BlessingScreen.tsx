@@ -301,7 +301,9 @@ export function BlessingScreen({ opening }: { opening: Opening | null }) {
             {/* Words scrolling under Continue fade out rather than cut off. */}
             {scrolls ? <View style={styles.actionsFade} /> : null}
             {blessing ? (
-              <Rise delay={360} duration={enter} reduced={reduced}>
+              // The welcome's "Get started" size on wide screens, lined up
+              // with the words rather than stretched across the wider column.
+              <Rise delay={360} duration={enter} reduced={reduced} style={styles.continue}>
                 <FlowButton
                   shape="rounded"
                   label="Continue"
@@ -464,8 +466,9 @@ const styles = StyleSheet.create({
     pointerEvents: "none",
     ...gradient(`linear-gradient(180deg, ${c.bg} 70%, ${c.bg}00 100%)`),
   },
-  // The welcome's "Get started": flat, rounded, the column's full width.
+  // The welcome's "Get started": flat, rounded, and no wider than the welcome's.
   actions: { paddingTop: space.md },
+  continue: { width: "100%", maxWidth: COLUMN - 2 * space.gutter },
   actionsFade: {
     position: "absolute",
     left: 0,

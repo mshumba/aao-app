@@ -204,7 +204,7 @@ const StartHere = memo(function StartHere({
   const [busy, setBusy] = useState(false);
   const first = days[0];
   const sermon = first ? find(first.youtubeId) : undefined;
-  // Day 1's sermon, whole: "1 hr 47 min".
+  // Day 1's sermon, whole: "1 hr 47 min". Blank until the library has it.
   const timing = first ? dayTiming({ ...first, sermon }, null) : null;
   const total = days.length || path.dayCount;
   const onPlay = useCallback(async () => {
@@ -231,8 +231,11 @@ const StartHere = memo(function StartHere({
       trust={path.status}
       todayLead="Day 1"
       playLabel="Start the path with day 1"
-      todayTitle={sermon ? headline(sermon) : first.theme}
-      todayMeta={timing.meta || messagesLabel(total)}
+      // The day's theme, not the sermon's headline: it's known at once, so the
+      // card doesn't change and move Home when an older sermon arrives late
+      // on a first visit, and it never reads as an event name.
+      todayTitle={first.theme}
+      todayMeta={timing.meta}
       onOpen={() => onOpenPath(path.id)}
       onPlay={onPlay}
       style={styles.card}

@@ -80,7 +80,7 @@ test("the Paths tab lists every path, and a draft carries no label", async ({ pa
   await expect(page).toHaveURL(new RegExp(`/path/${WAIT}$`));
 });
 
-test("a day's theme and title wrap between words, never cut off", async ({ page }) => {
+test("a day's theme and title wrap between words, never mid-word", async ({ page }) => {
   // The narrowest phone the app supports, where the longest themes wrap.
   await page.setViewportSize({ width: 320, height: 800 });
   await page.goto(`/path/${WAIT}`);

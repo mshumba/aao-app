@@ -222,12 +222,14 @@ export default function Home() {
             </ChipRow>
           ) : null}
 
-          {/* Offline at first launch: the bundled sample stands in. */}
-          {catalogueMode === "remote" && !library && catalogue.settled ? (
+          {/* Offline at first launch: the bundled sample stands in, or only the
+              newest sermons came before the connection dropped. */}
+          {catalogueMode === "remote" && (!library || catalogue.source === "newest") && catalogue.settled ? (
             <View style={styles.offline}>
               <Notice icon="cloud-offline-outline">
-                You’re offline, so only a few sermons are here. The full library loads when
-                you’re back online.
+                {library
+                  ? "You’re offline, so only the newest sermons are here. The rest load when you’re back online."
+                  : "You’re offline, so only a few sermons are here. The full library loads when you’re back online."}
               </Notice>
               <TextButton label="Try again" align="start" onPress={catalogue.retry} />
             </View>
@@ -256,7 +258,10 @@ export default function Home() {
           {sermons.length > 0 ? (
             <View style={styles.footer}>
               <T style={s.meta}>
-                {library
+                {/* No count while only the newest sermons are in: it would say 200. */}
+                {catalogue.source === "newest"
+                  ? "From the Apostle Arome Osayi channel, newest first."
+                  : library
                   ? `${sermonCount(sermons.length)} from the Apostle Arome Osayi channel, newest first.`
                   : `This preview has ${sermonCount(sermons.length).toLowerCase()}, not the full archive.`}
               </T>

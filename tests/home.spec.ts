@@ -172,9 +172,10 @@ test("not on a path: Home offers paths to start", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByTestId("your-path")).toHaveCount(0);
   const rail = page.getByTestId("start-a-path");
-  // The first path as the navy card, honest about who set its order.
+  // The first path as the navy card, honest about who set its order. Day 1
+  // reads as its theme, which is known before the sermon is.
   const first = rail.getByTestId("start-here");
-  await expect(first.getByRole("button", { name: /^Start the path with day 1\. Apostolic Shift: Day One\. / })).toBeVisible();
+  await expect(first.getByRole("button", { name: /^Start the path with day 1\. Lay aside every weight\. 1 hour 47 minutes$/ })).toBeVisible();
   await expect(rail.getByRole("heading", { name: "More paths" })).toBeVisible();
   // A draft path carries no label, and never claims the ministry set its order.
   const draft = rail.getByRole("button", { name: /^Learning to wait on God\./ });

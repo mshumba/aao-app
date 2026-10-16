@@ -166,7 +166,9 @@ function HomePathCard(props: HomeCard & { testID?: string; style?: StyleProp<Vie
       </Tap>
       <Tap
         accessibilityRole="button"
-        accessibilityLabel={`${playLabel ?? `Play today, day ${day}`}. ${todayTitle}. ${spokenText(spokenKicker(todayMeta))}`}
+        accessibilityLabel={[playLabel ?? `Play today, day ${day}`, todayTitle, todayMeta && spokenText(spokenKicker(todayMeta))]
+          .filter(Boolean)
+          .join(". ")}
         onPress={onPlay}
         feedback="scaleLarge"
         style={styles.next}
@@ -181,8 +183,9 @@ function HomePathCard(props: HomeCard & { testID?: string; style?: StyleProp<Vie
           <T style={styles.nextTitle} numberOfLines={big ? 3 : 2}>
             {todayLead} · {todayTitle}
           </T>
+          {/* Holds its line while the length loads, so nothing moves. */}
           <T style={styles.nextMeta} numberOfLines={big ? 2 : 1}>
-            {todayMeta}
+            {todayMeta || "\u00a0"}
           </T>
         </View>
       </Tap>

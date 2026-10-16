@@ -552,7 +552,13 @@ const HeroPage = memo(function HeroPage({
             styles.noTouch,
             artBox,
             { width: artW, height: artH, opacity: sharp ? 0 : 1 },
-            { transitionProperty: "opacity", transitionDuration: reduced ? 0 : artFade },
+            // The sharp copy fades in under it first, so the art never dims
+            // to the navy behind both halfway through.
+            {
+              transitionProperty: "opacity",
+              transitionDuration: reduced ? 0 : artFade,
+              transitionDelay: reduced ? 0 : artFade,
+            },
           ]}
         >
           <Artwork
