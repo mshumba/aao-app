@@ -18,36 +18,7 @@
  * parse.
  */
 import { readFileSync } from "node:fs";
-import { editorialHeadlines } from "../src/catalogue/editorial.ts";
-import { parseTitle } from "../src/catalogue/parseTitle.ts";
-
-type ManifestVideo = {
-  title?: string;
-  published_at?: string;
-  duration_seconds?: number | null;
-  description?: string | null;
-  thumbnail_url?: string | null;
-  tags?: string[] | null;
-};
-
-type SermonRow = {
-  youtube_id: string;
-  title: string;
-  headline: string;
-  event: string | null;
-  series_key: string | null;
-  series: string | null;
-  part: number | null;
-  session: string | null;
-  speaker: string | null;
-  venue: string | null;
-  preached_on: string | null;
-  published_at: string;
-  duration_seconds: number | null;
-  description: string | null;
-  thumbnail_url: string | null;
-  tags: string[];
-};
+import { buildCatalogueRow, catalogueSeries, type CatalogueImportRow, type CatalogueVideo } from "./catalogue-rows.ts";
 
 const args = process.argv.slice(2);
 const dryRun = args.includes("--dry-run");
@@ -58,62 +29,22 @@ if (!manifestPath) {
 }
 
 const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
-  videos?: Record<string, ManifestVideo>;
+  videos?: Record<string, CatalogueVideo>;
 };
 const videos = Object.entries(manifest.videos ?? {});
 
-const rows: SermonRow[] = [];
+const rows: CatalogueImportRow[] = [];
 let skipped = 0;
 for (const [id, video] of videos) {
-  const title = video.title?.trim();
-  if (!/^[A-Za-z0-9_-]{11}$/.test(id) || !title || !video.published_at) {
-    skipped++;
-    continue;
-  }
-  const parsed = parseTitle(title, video.published_at);
-  rows.push({
-    youtube_id: id,
-    title,
-    headline: editorialHeadlines[id] ?? parsed.headline,
-    event: parsed.event,
-    series_key: parsed.seriesKey,
-    series: parsed.series,
-    part: parsed.part,
-    session: parsed.session,
-    speaker: parsed.speaker,
-    venue: parsed.venue,
-    preached_on: parsed.preachedOn,
-    published_at: video.published_at,
-    duration_seconds:
-      typeof video.duration_seconds === "number" ? Math.round(video.duration_seconds) : null,
-    description: video.description?.trim() || null,
-    thumbnail_url: video.thumbnail_url || null,
-    tags: Array.isArray(video.tags) ? video.tags.filter((tag) => typeof tag === "string") : [],
-  });
+  const row = buildCatalogueRow(id, video);
+  if (row) rows.push(row);
+  else skipped++;
 }
-
-// A series is named the way most of its sermons name it; ties go to the
-// most recent wording.
-const seriesNames = new Map<string, Map<string, { count: number; latest: string }>>();
-for (const row of rows) {
-  if (!row.series_key || !row.series) continue;
-  const names = seriesNames.get(row.series_key) ?? new Map();
-  const seen = names.get(row.series) ?? { count: 0, latest: "" };
-  seen.count++;
-  if (row.published_at > seen.latest) seen.latest = row.published_at;
-  names.set(row.series, seen);
-  seriesNames.set(row.series_key, names);
-}
-const series = [...seriesNames].map(([key, names]) => {
-  const [name] = [...names].sort(
-    ([, a], [, b]) => b.count - a.count || b.latest.localeCompare(a.latest),
-  )[0];
-  return { key, name };
-});
+const series = catalogueSeries(rows);
 
 // Coverage of the title parser, for the record.
 const pct = (n: number) => `${n} (${((100 * n) / rows.length).toFixed(1)}%)`;
-const count = (test: (row: SermonRow) => boolean) => pct(rows.filter(test).length);
+const count = (test: (row: CatalogueImportRow) => boolean) => pct(rows.filter(test).length);
 console.log(`Videos in manifest: ${videos.length} (${skipped} skipped without an ID, title or upload date)`);
 console.log(`Preaching date read from title: ${count((r) => !!r.preached_on)}`);
 console.log(`Event: ${count((r) => !!r.event)}`);
