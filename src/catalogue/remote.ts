@@ -78,25 +78,43 @@ export function createRemote(config: { url: string; key: string }): Remote {
     ...new Map(rows.map((row) => [row.youtube_id, strip<SermonRecord>(row)])).values(),
   ];
   const seriesOf = (rows: Row[]) => rows.map((row) => strip<SeriesRecord>(row));
-  const newestStamp = (rows: Row[], since: string | null) =>
-    rows
-      .map((row) => row.updated_at)
-      .filter((t): t is string => typeof t === "string")
-      .sort()
-      .pop() ?? since;
+
+  /**
+   * The catalogue's newest updated_at, asked for before any rows: the next
+   * sync's cursor. A row that changes while the rows are read is newer than
+   * it, so the next sync brings it again (replacing this copy's by id). The
+   * newest updated_at among the rows read is no cursor: a sermon on a page
+   * already read, corrected at 10:01, was skipped until the weekly whole
+   * fetch once a row read after it had changed at 10:02. Supabase's clock,
+   * never the device's.
+   */
+  async function newestChange() {
+    const tables = await Promise.all(
+      ["sermons", "series"].map((table) =>
+        get(`${table}?select=updated_at&order=updated_at.desc&limit=1`),
+      ),
+    );
+    return (
+      tables
+        .flatMap(({ rows }) => rows.map((row) => row.updated_at))
+        .filter((t): t is string => typeof t === "string")
+        .sort()
+        .pop() ?? null
+    );
+  }
 
   /** Sermons and series changed after `since` ("changed since" compares updated_at). */
   async function fetchChanges(since: string): Promise<Changes> {
+    const stamp = await newestChange();
+    // Nothing newer than the copy: no rows to ask for. (Supabase writes every
+    // timestamp alike, in UTC, so they compare as text.)
+    if (!stamp || stamp <= since) return { sermons: [], series: [], syncedAt: since };
     const filter = `&updated_at=gt.${encodeURIComponent(since)}`;
     const [sermonRows, seriesRows] = await Promise.all([
       all(`sermons?select=${SERMONS}${filter}&order=youtube_id`),
       all(`series?select=key,name,updated_at${filter}&order=key`),
     ]);
-    return {
-      sermons: sermonsOf(sermonRows),
-      series: seriesOf(seriesRows),
-      syncedAt: newestStamp([...sermonRows, ...seriesRows], since),
-    };
+    return { sermons: sermonsOf(sermonRows), series: seriesOf(seriesRows), syncedAt: stamp };
   }
 
   /**
@@ -104,6 +122,7 @@ export function createRemote(config: { url: string; key: string }): Remote {
    * NEWEST sermons (and every series) while the rest are still coming.
    */
   async function fetchAll(onNewest?: (newest: Changes) => void): Promise<Changes> {
+    const stamp = await newestChange();
     const series = all("series?select=key,name,updated_at&order=key");
     // Tell the caller only once the series' names are in too; a failure is
     // the whole fetch's.
@@ -121,11 +140,7 @@ export function createRemote(config: { url: string; key: string }): Remote {
         }),
     );
     const seriesRows = await series;
-    return {
-      sermons: sermonsOf(sermonRows),
-      series: seriesOf(seriesRows),
-      syncedAt: newestStamp([...sermonRows, ...seriesRows], null),
-    };
+    return { sermons: sermonsOf(sermonRows), series: seriesOf(seriesRows), syncedAt: stamp };
   }
 
   return { fetchAll, fetchChanges };

@@ -24,6 +24,11 @@ import {
  */
 export type CatalogueSource = "sample" | "cache" | "remote" | "newest";
 
+/**
+ * Both fetches' syncedAt is the newest updated_at in Supabase before their
+ * rows were read, so a row changed while they were read comes again in the
+ * next fetchChanges.
+ */
 export type Remote = {
   /**
    * Every sermon and series. `onNewest`, when given, gets the newest sermons
