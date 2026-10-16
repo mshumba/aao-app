@@ -121,35 +121,94 @@ test.describe("fonts arriving after the first page", () => {
   test.use({ viewer: "new" });
   test.setTimeout(180_000);
 
-  test("swap in without moving the words", async ({ page }) => {
-    const t = await coldLoad(page);
-    // The first page was drawn with the stand-ins, not the real files.
-    expect(t.standIns).toBeGreaterThan(0);
-    // Once every font is in, the heading keeps its lines and nearly its
-    // width: the stand-in faces are sized to match.
-    await page.waitForFunction(
-      () => {
-        const faces = (window as unknown as { appFaces: typeof appFaces }).appFaces();
-        return faces.real >= 9 && faces.standIns === 0;
-      },
-      undefined,
-      { timeout: 120_000 },
-    );
-    // Let the swapped faces lay out.
-    await page.waitForTimeout(100);
-    const after = await page.evaluate(() => {
-      const heading = document.querySelector<HTMLElement>("h1[data-first-content]")!;
-      const range = document.createRange();
-      range.selectNodeContents(heading);
-      const r = range.getBoundingClientRect();
-      return { width: r.width, height: r.height };
+  for (const missingPreferred of [false, true]) {
+    test(missingPreferred
+      ? "use size-matched secondary serif faces when preferred local fonts are absent"
+      : "swap in without moving the words", async ({ page }) => {
+      if (missingPreferred) {
+        await page.addInitScript(() => {
+          const NativeFontFace = FontFace;
+          window.FontFace = class extends NativeFontFace {
+            constructor(...args: ConstructorParameters<typeof FontFace>) {
+              // Simulate a device without Georgia/Noto, while leaving the
+              // actual Times/Liberation fallback and real files untouched.
+              if (args[0].startsWith("Newsreader_") && typeof args[1] === "string" && args[1].includes('local("Georgia'))
+                args[1] = 'local("__aao_missing_preferred_serif__")';
+              super(...args);
+            }
+          };
+        });
+      }
+      // Throttling alone cannot guarantee that fonts arrive after content.
+      // Hold their responses until the actual first frame has been measured.
+      let release!: () => void;
+      const pending = new Promise<void>((resolve) => { release = resolve; });
+      await page.route(/\.(ttf|otf|woff2?)(\?|$)/, async (route) => {
+        await pending;
+        await route.continue();
+      });
+      try {
+        const t = await coldLoad(page);
+        expect(t.fonts, "font responses are still held").toBe(0);
+        expect(t.standIns, "all nine faces have a loaded stand-in").toBe(9);
+        release();
+        await page.waitForFunction(
+          () => {
+            const faces = (window as unknown as { appFaces: typeof appFaces }).appFaces();
+            return faces.real === 9 && faces.standIns === 0;
+          },
+          undefined,
+          { timeout: 120_000 },
+        );
+        // Let the swapped faces lay out.
+        await page.waitForTimeout(100);
+        const after = await page.evaluate(() => {
+          const heading = document.querySelector<HTMLElement>("h1[data-first-content]")!;
+          const range = document.createRange();
+          range.selectNodeContents(heading);
+          const r = range.getBoundingClientRect();
+          return { width: r.width, height: r.height };
+        });
+        console.log(
+          `heading text box: ${Math.round(t.box.width)}×${Math.round(t.box.height)} with stand-in faces, ` +
+            `${Math.round(after.width)}×${Math.round(after.height)} with the real ones`,
+        );
+        expect(after.height).toBe(t.box.height);
+        expect(Math.abs(after.width - t.box.width) / after.width).toBeLessThan(0.06);
+      } finally {
+        release();
+      }
     });
-    console.log(
-      `heading text box: ${Math.round(t.box.width)}×${Math.round(t.box.height)} with stand-in faces, ` +
-        `${Math.round(after.width)}×${Math.round(after.height)} with the real ones`,
-    );
-    expect(after.height).toBe(t.box.height);
-    expect(Math.abs(after.width - t.box.width) / after.width).toBeLessThan(0.06);
+  }
+
+  test("real files can arrive before local lookups, and late stand-ins never replace them", async ({ page }) => {
+    await page.addInitScript(`window.appFaces = ${appFaces}`);
+    await page.addInitScript(() => {
+      const NativeFontFace = FontFace;
+      const locals = new WeakSet<FontFace>();
+      const held: (() => Promise<void>)[] = [];
+      window.FontFace = class extends NativeFontFace {
+        constructor(...args: ConstructorParameters<typeof FontFace>) {
+          super(...args);
+          if (/^(Manrope|Newsreader)_/.test(args[0]) && typeof args[1] === "string" && args[1].startsWith("local("))
+            locals.add(this);
+        }
+        load(): Promise<FontFace> {
+          if (!locals.has(this)) return super.load();
+          return new Promise((resolve, reject) => {
+            held.push(() => super.load().then(resolve, reject));
+          });
+        }
+      };
+      (window as unknown as { releaseLocalFonts: () => Promise<void[]> }).releaseLocalFonts =
+        () => Promise.all(held.map((release) => release()));
+    });
+    await page.goto("/");
+    await expect(page.getByRole("heading", { name: "Teaching that builds you up", exact: true })).toBeVisible();
+    const faces = () => page.evaluate(() => (window as unknown as { appFaces: typeof appFaces }).appFaces());
+    expect(await faces()).toEqual({ real: 9, standIns: 0 });
+    await page.evaluate(() => (window as unknown as { releaseLocalFonts: () => Promise<void[]> }).releaseLocalFonts());
+    expect(await faces()).toEqual({ real: 9, standIns: 0 });
   });
 });
 

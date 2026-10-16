@@ -16,17 +16,17 @@ import { FONT_FILES, type FontFamily } from "./files";
  */
 const WAIT_MS = 600;
 
-const SANS = ["Arial", "ArialMT", "Roboto", "Helvetica"];
-const SANS_BOLD = ["Arial Bold", "Arial-BoldMT", "Roboto Bold", "Roboto-Bold", "Helvetica Bold", "Helvetica-Bold"];
-const SERIF = ["Georgia", "Noto Serif", "NotoSerif", "Times New Roman", "TimesNewRomanPSMT"];
+const SANS = ["Arial", "ArialMT", "Roboto", "Helvetica", "Liberation Sans", "LiberationSans"];
+const SANS_BOLD = ["Arial Bold", "Arial-BoldMT", "Roboto Bold", "Roboto-Bold", "Helvetica Bold", "Helvetica-Bold", "Liberation Sans Bold", "LiberationSans-Bold"];
+const SERIF = ["Georgia", "Noto Serif", "NotoSerif"];
 const SERIF_ITALIC = [
   "Georgia Italic",
   "Georgia-Italic",
   "Noto Serif Italic",
   "NotoSerif-Italic",
-  "Times New Roman Italic",
-  "TimesNewRomanPS-ItalicMT",
 ];
+const TIMES = ["Times New Roman", "TimesNewRomanPSMT", "Liberation Serif", "LiberationSerif"];
+const TIMES_ITALIC = ["Times New Roman Italic", "TimesNewRomanPS-ItalicMT", "Liberation Serif Italic", "LiberationSerif-Italic"];
 
 /**
  * Each stand-in: local faces, then size-adjust, ascent-override and
@@ -35,7 +35,8 @@ const SERIF_ITALIC = [
  * advance width of running English text, the overrides match hhea ascent and
  * descent divided by it.
  */
-const STAND_INS: Record<FontFamily, [string[], number, number, number]> = {
+type StandIn = [string[], number, number, number];
+const STAND_INS: Record<FontFamily, StandIn> = {
   Manrope_400Regular: [SANS, 102.48, 104.02, 29.27],
   Manrope_500Medium: [SANS, 104.28, 102.22, 28.77],
   Manrope_600SemiBold: [SANS_BOLD, 98.89, 107.8, 30.34],
@@ -45,6 +46,16 @@ const STAND_INS: Record<FontFamily, [string[], number, number, number]> = {
   Newsreader_400Regular_Italic: [SERIF_ITALIC, 88.86, 82.71, 29.82],
   Newsreader_500Medium: [SERIF, 98.95, 74.28, 26.78],
   Newsreader_500Medium_Italic: [SERIF_ITALIC, 92.3, 79.64, 28.71],
+};
+
+// Linux commonly supplies Liberation, whose Sans is Arial-compatible but
+// whose Serif matches Times, not Georgia. Its narrower serif needs its own
+// width adjustment; vertical overrides retain Newsreader's 73.5% / 26.5%.
+const TIMES_STAND_INS: Partial<Record<FontFamily, StandIn>> = {
+  Newsreader_400Regular: [TIMES, 104.81, 70.13, 25.28],
+  Newsreader_400Regular_Italic: [TIMES_ITALIC, 97.86, 75.11, 27.08],
+  Newsreader_500Medium: [TIMES, 107.25, 68.53, 24.71],
+  Newsreader_500Medium_Italic: [TIMES_ITALIC, 101.83, 72.18, 26.02],
 };
 
 const listeners = new Set<() => void>();
@@ -60,33 +71,50 @@ function settle() {
 function start() {
   const set = document.fonts;
   const families = Object.keys(FONT_FILES) as FontFamily[];
-  const standIns = families.map((family) => {
-    const [names, size, ascent, descent] = STAND_INS[family];
-    // size-adjust isn't in TypeScript's DOM types yet.
-    const descriptors: FontFaceDescriptors & { sizeAdjust: string } = {
-      sizeAdjust: `${size}%`,
-      ascentOverride: `${ascent}%`,
-      descentOverride: `${descent}%`,
-      lineGapOverride: "0%",
-    };
-    const face = new FontFace(family, names.map((n) => `local("${n}")`).join(", "), descriptors);
-    set.add(face);
-    return face;
-  });
-  const standInsLoaded = Promise.allSettled(standIns.map((face) => face.load()));
+  const standIns: (FontFace | undefined)[] = [];
+  const replaced = new Set<FontFamily>();
+  const standInsLoaded = Promise.allSettled(families.map(async (family, i) => {
+    // Try each metric-compatible group in order. A missing local face must
+    // not keep the first page covered; the next group may be installed.
+    for (const candidate of [STAND_INS[family], TIMES_STAND_INS[family]]) {
+      if (replaced.has(family)) return;
+      if (!candidate) continue;
+      const [names, size, ascent, descent] = candidate;
+      // size-adjust isn't in TypeScript's DOM types yet.
+      const descriptors: FontFaceDescriptors & { sizeAdjust: string } = {
+        sizeAdjust: `${size}%`,
+        ascentOverride: `${ascent}%`,
+        descentOverride: `${descent}%`,
+        lineGapOverride: "0%",
+      };
+      const face = new FontFace(family, names.map((n) => `local("${n}")`).join(", "), descriptors);
+      try {
+        await face.load();
+        // A cached real font may have arrived during this local lookup.
+        if (replaced.has(family)) return;
+        standIns[i] = face;
+        set.add(face);
+        return;
+      } catch {
+        // None of this group's local fonts is installed; try the next.
+      }
+    }
+  }));
   const real = families.map(
     (family) => new FontFace(family, `url("${Asset.fromModule(FONT_FILES[family]).uri}")`),
   );
   // Added only once loaded: a face in the set that is still downloading would
   // hide its stand-in (the browser would fall back to its default font).
-  const swapped = Promise.allSettled(real.map((face) => face.load())).then((results) =>
+  const swapped = Promise.allSettled(real.map((face) => face.load())).then((results) => {
     results.forEach((result, i) => {
       // A file that failed keeps its stand-in.
       if (result.status !== "fulfilled") return;
+      replaced.add(families[i]);
       set.add(real[i]);
-      set.delete(standIns[i]);
-    }),
-  );
+      const standIn = standIns[i];
+      if (standIn) set.delete(standIn);
+    });
+  });
   const waited = new Promise((resolve) => setTimeout(resolve, WAIT_MS));
   Promise.race([swapped, Promise.all([standInsLoaded, waited])]).then(settle, settle);
 }
