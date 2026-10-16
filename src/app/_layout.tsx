@@ -2,21 +2,6 @@
 import { Sentry } from "../lib/monitoring";
 import { Stack, router, usePathname } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import {
-  useFonts,
-  Manrope_400Regular,
-  Manrope_500Medium,
-  Manrope_600SemiBold,
-  Manrope_700Bold,
-  Manrope_800ExtraBold,
-} from "@expo-google-fonts/manrope";
-import {
-  Newsreader_400Regular,
-  Newsreader_400Regular_Italic,
-  Newsreader_500Medium,
-  Newsreader_500Medium_Italic,
-  Newsreader_600SemiBold,
-} from "@expo-google-fonts/newsreader";
 import * as SplashScreen from "expo-splash-screen";
 import { useEffect, useRef, useState } from "react";
 import { Platform, StyleSheet, View } from "react-native";
@@ -24,6 +9,7 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { AccountProvider, useAccount } from "../auth/AccountProvider";
 import { IntentRunner } from "../auth/gate";
 import { CatalogueProvider, useCatalogue } from "../catalogue/CatalogueProvider";
+import { useAppFonts } from "../fonts";
 import { LearningProvider } from "../learning";
 import { MotionProvider, useReducedMotion } from "../motion";
 import { TAB_PATHS } from "../player/layout";
@@ -42,20 +28,12 @@ SplashScreen.preventAutoHideAsync().catch(() => {});
 export const unstable_settings = { anchor: "(tabs)" };
 
 function RootLayout() {
-  const [loaded, error] = useFonts({
-    Manrope_400Regular,
-    Manrope_500Medium,
-    Manrope_600SemiBold,
-    Manrope_700Bold,
-    Manrope_800ExtraBold,
-    Newsreader_400Regular,
-    Newsreader_400Regular_Italic,
-    Newsreader_500Medium,
-    Newsreader_500Medium_Italic,
-    Newsreader_600SemiBold,
-  });
-  // Web has no native splash, so it shows a plain ivory frame meanwhile.
-  if (!loaded && !error) return <View style={{ flex: 1, backgroundColor: c.bg }} />;
+  // Native: the fonts ship in the app and the splash stays until they're in.
+  // Web: at most 600 ms, then size-matched stand-ins until the files arrive
+  // (src/fonts). Web has no native splash, so it shows a plain ivory frame
+  // meanwhile.
+  const fontsReady = useAppFonts();
+  if (!fontsReady) return <View style={{ flex: 1, backgroundColor: c.bg }} />;
   return (
     <MotionProvider>
       <CatalogueProvider>

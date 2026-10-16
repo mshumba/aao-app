@@ -1,6 +1,8 @@
 import { Tabs } from "expo-router";
 import type { ComponentProps } from "react";
 import { Platform, StyleSheet, View } from "react-native";
+import { Glyph, hasGlyphs } from "./kit/icons/Glyph";
+import { TAB_GLYPHS } from "./kit/icons/glyphs";
 import { RouteIcon } from "./kit/RouteIcon";
 import { setChrome } from "./player/layout";
 import { font, gradients, radius, shadows, textCap, type } from "./theme";
@@ -13,9 +15,11 @@ type BottomTabBarProps = Parameters<
 // How far the bar's fade reaches up over the page.
 const FADE = 28;
 
-// Selected (filled) and unselected (outline) Ionicons per tab. Paths uses
-// the concept's own route glyph (RouteIcon), which Ionicons lacks.
-const icons: Record<string, [IconName, IconName]> = {
+// The concept's own glyphs (kit/icons): outline, and filled navy when
+// selected. A native build made before react-native-svg was added keeps
+// the earlier icons: Ionicons, selected (filled) and unselected (outline),
+// and the drawn route glyph for Paths.
+const fallbackIcons: Record<string, [IconName, IconName]> = {
   index: ["home", "home-outline"],
   search: ["search", "search-outline"],
   account: ["person", "person-outline"],
@@ -53,7 +57,8 @@ export function TabBar({ state, descriptors, navigation, insets }: BottomTabBarP
           const focused = route.key === current;
           const label = descriptors[route.key].options.title ?? route.name;
           const color = focused ? c.accent : c.muted;
-          const [on, off] = icons[route.name] ?? ["ellipse", "ellipse-outline"];
+          const glyph = TAB_GLYPHS[route.name];
+          const [on, off] = fallbackIcons[route.name] ?? ["ellipse", "ellipse-outline"];
           return (
             <Tap
               key={route.key}
@@ -78,9 +83,11 @@ export function TabBar({ state, descriptors, navigation, insets }: BottomTabBarP
               highlightColor={focused ? c.feature : pressedTint}
               style={[styles.tab, focused && styles.tabOn]}
             >
-              {/* A fixed box, so the glyph font and the drawn route icon line up. */}
+              {/* A fixed box, so every glyph sits on the same line. */}
               <View style={styles.icon}>
-                {route.name === "paths" ? (
+                {hasGlyphs && glyph ? (
+                  <Glyph name={glyph} active={focused} size={22} color={color} />
+                ) : route.name === "paths" ? (
                   <RouteIcon size={22} color={color} bold={focused} />
                 ) : (
                   <Icon name={focused ? on : off} size={22} color={color} />

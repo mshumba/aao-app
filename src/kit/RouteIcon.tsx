@@ -1,12 +1,12 @@
 import { memo } from "react";
 import { View, type ViewStyle } from "react-native";
 import { web } from "../ui";
+import { Glyph, hasGlyphs } from "./icons/Glyph";
 
 /**
  * The concept's Paths glyph (a route between two points), which Ionicons
- * doesn't have, drawn with views so it needs no SVG dependency. Geometry is
- * the 24-unit icon: circles at (6,19) and (18,5) joined by an S-shaped run.
- * `bold` draws the heavier stroke used for the selected tab.
+ * doesn't have: the tab bar's SVG glyph (kit/icons). `bold` is the selected
+ * form, with its two stops filled and a heavier line.
  */
 export const RouteIcon = memo(function RouteIcon({
   size = 22,
@@ -17,6 +17,16 @@ export const RouteIcon = memo(function RouteIcon({
   color: string;
   bold?: boolean;
 }) {
+  if (hasGlyphs) return <Glyph name="paths" active={bold} color={color} size={size} />;
+  return <DrawnRoute size={size} color={color} bold={bold} />;
+});
+
+/**
+ * The same glyph drawn with views, for a native build made before
+ * react-native-svg was added. Geometry is the 24-unit icon: circles at
+ * (6,19) and (18,5) joined by an S-shaped run.
+ */
+function DrawnRoute({ size, color, bold }: { size: number; color: string; bold: boolean }) {
   const k = size / 24;
   const w = (bold ? 2.5 : 1.75) * k;
   const u = (n: number) => n * k;
@@ -75,4 +85,4 @@ export const RouteIcon = memo(function RouteIcon({
       <View style={line(8, 15.5, 5)} />
     </View>
   );
-});
+}

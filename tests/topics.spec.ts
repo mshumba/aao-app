@@ -44,6 +44,44 @@ test("tabs switch between peer destinations and keep each one's state", async ({
   }
 });
 
+test("tabs draw the concept's glyphs: outline, filled when selected", async ({ page }) => {
+  const glyphs = { Home: "home", Paths: "paths", Search: "search", Account: "account" } as const;
+  const glyph = (name: TabName) => tab(page, name).locator(`svg[data-glyph="${glyphs[name]}"]`);
+  // Every shape filled navy, or none: Paths fills its two stops, and Search
+  // (with nothing to fill) draws a heavier line instead.
+  const fills = (name: TabName) =>
+    glyph(name).evaluate((svg) => ({
+      filled: [...svg.querySelectorAll("path, circle")].map((s) => s.getAttribute("fill") !== "none"),
+      stroke: Number(svg.getAttribute("stroke-width")),
+    }));
+  await page.goto("/");
+  for (const name of Object.keys(glyphs) as TabName[]) {
+    await expect(glyph(name)).toHaveCount(1);
+    // Decorative: the tab's own label names it.
+    await expect(glyph(name)).toHaveAttribute("aria-hidden", "true");
+    await expect(tab(page, name)).toHaveAccessibleName(name);
+  }
+  await expect(glyph("Home")).toHaveAttribute("data-active", "true");
+  expect(await fills("Home")).toEqual({ filled: [true], stroke: 2 });
+  expect(await fills("Paths")).toEqual({ filled: [false, false, false], stroke: 2 });
+  expect(await fills("Search")).toEqual({ filled: [false, false], stroke: 2 });
+  expect(await fills("Account")).toEqual({ filled: [false, false], stroke: 2 });
+
+  await tab(page, "Paths").click();
+  await expect(glyph("Paths")).toHaveAttribute("data-active", "true");
+  expect(await fills("Paths")).toEqual({ filled: [true, true, false], stroke: 2.6 });
+  expect(await fills("Home")).toEqual({ filled: [false], stroke: 2 });
+  await tab(page, "Search").click();
+  await expect(glyph("Search")).toHaveAttribute("data-active", "true");
+  expect(await fills("Search")).toEqual({ filled: [false, false], stroke: 2.6 });
+  await tab(page, "Account").click();
+  await expect(glyph("Account")).toHaveAttribute("data-active", "true");
+  expect(await fills("Account")).toEqual({ filled: [true, true], stroke: 2 });
+  // Navy when selected, the muted grey otherwise.
+  await expect(glyph("Account")).toHaveAttribute("stroke", "#1f3a5f");
+  await expect(glyph("Home")).toHaveAttribute("stroke", "#5b616a");
+});
+
 test("topic cards, topic page and sermon keep the return path", async ({ page }) => {
   await openTopic(page, "Prayer, 2 sermons");
   await expect(page).toHaveURL(/\/topics\/prayer$/);
