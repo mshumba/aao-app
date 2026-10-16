@@ -60,6 +60,18 @@ export const enabledMethods =
         email: methods.includes("email"),
       };
 
+/**
+ * Google OAuth client IDs (Google Cloud → APIs & Services → Credentials),
+ * public by design. iPhone builds with Google's own sign-in sheet use the
+ * iOS one; the web one is the client Supabase's Google provider runs on.
+ * Supabase only accepts a token if its client is in that provider's Client
+ * IDs.
+ */
+export const googleClientIds = {
+  ios: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID?.trim() ?? "",
+  web: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID?.trim() ?? "",
+};
+
 /** Public web address used in share links and email redirects. */
 export const webUrl = (
   process.env.EXPO_PUBLIC_WEB_URL?.trim() || "https://aao-app.expo.app"

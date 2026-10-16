@@ -9,9 +9,9 @@ import * as AppleAuthentication from "expo-apple-authentication";
 import * as Crypto from "expo-crypto";
 import * as Linking from "expo-linking";
 import * as WebBrowser from "expo-web-browser";
-import { AppState, Platform } from "react-native";
+import { AppState, Platform, TurboModuleRegistry } from "react-native";
 import { CategoryId } from "../data/categories";
-import { isNativeApple, supabaseConfig } from "./config";
+import { googleClientIds, isNativeApple, supabaseConfig } from "./config";
 import { SESSION_KEY, secureSessionStorage } from "./sessionStorage";
 import {
   AuthBackend,
@@ -25,6 +25,21 @@ import {
   Provider,
   WatchProgress,
 } from "./types";
+
+/**
+ * Google's own sign-in sheet on iPhone, so signing in with Google never
+ * passes through the account service's web page. A build made before it was
+ * added (TestFlight build 2, Expo Go) lacks its native module, and loading
+ * the library there would throw at once, so it's only loaded when the module
+ * is found (the same lookup the library makes). Those builds, Android and the
+ * web keep the web flow.
+ */
+type GoogleSignInModule = typeof import("@react-native-google-signin/google-signin");
+const nativeGoogle: GoogleSignInModule | null =
+  Platform.OS === "ios" && googleClientIds.ios && TurboModuleRegistry.get("RNGoogleSignin")
+    ? // eslint-disable-next-line @typescript-eslint/no-require-imports
+      (require("@react-native-google-signin/google-signin") as GoogleSignInModule)
+    : null;
 
 /** Where OAuth providers and email links return to. */
 export function authRedirect() {
@@ -188,6 +203,51 @@ export function createSupabaseBackend(): AuthBackend {
     return { status: "signedIn" };
   }
 
+  /** Signs in with the ID token a provider's native sheet returned. */
+  async function signInWithToken(provider: "apple" | "google", token: string, nonce?: string) {
+    try {
+      await run(() => client.auth.signInWithIdToken({ provider, token, nonce }));
+    } catch (error) {
+      // A token Supabase won't accept (an app ID missing from the provider's
+      // Client IDs, a nonce mismatch) is the option being unavailable, not
+      // something the viewer typed.
+      const code = (error as AuthError).code;
+      if (code === "unknown" || code === "invalid_email")
+        throw new AuthError("provider_unavailable", (error as Error).message);
+      throw error;
+    }
+  }
+
+  let googleConfigured = false;
+  async function signInWithNativeGoogle(google: GoogleSignInModule): Promise<AuthResult> {
+    const { GoogleSignin, statusCodes } = google;
+    if (!googleConfigured) {
+      GoogleSignin.configure({
+        iosClientId: googleClientIds.ios,
+        webClientId: googleClientIds.web || undefined,
+      });
+      googleConfigured = true;
+    }
+    let token: string | null;
+    try {
+      const response = await GoogleSignin.signIn();
+      if (response.type === "cancelled") return { status: "cancelled" };
+      token = response.data.idToken;
+    } catch (error) {
+      if ((error as { code?: string }).code === statusCodes.SIGN_IN_CANCELLED)
+        return { status: "cancelled" };
+      throw new AuthError("provider_unavailable", String(error));
+    }
+    // AAO needs Google only for this one token, so it keeps no Google
+    // session of its own on the device.
+    GoogleSignin.signOut().catch(() => {});
+    if (!token) throw new AuthError("provider_unavailable");
+    // The free library can't pass Supabase a nonce on iOS (Google's SDK
+    // makes its own), so the Google provider skips that check.
+    await signInWithToken("google", token);
+    return { status: "signedIn" };
+  }
+
   return {
     kind: "supabase",
     async restore() {
@@ -285,23 +345,7 @@ export function createSupabaseBackend(): AuthBackend {
         throw new AuthError("provider_unavailable", String(error));
       }
       if (!credential.identityToken) throw new AuthError("provider_unavailable");
-      try {
-        await run(() =>
-          client.auth.signInWithIdToken({
-            provider: "apple",
-            token: credential.identityToken!,
-            nonce: rawNonce,
-          }),
-        );
-      } catch (error) {
-        // A token Supabase won't accept (an app ID missing from the Apple
-        // provider's Client IDs, a nonce mismatch) is the option being
-        // unavailable, not something the viewer typed.
-        const code = (error as AuthError).code;
-        if (code === "unknown" || code === "invalid_email")
-          throw new AuthError("provider_unavailable", (error as Error).message);
-        throw error;
-      }
+      await signInWithToken("apple", credential.identityToken, rawNonce);
       // Apple shares the name only on the very first sign-in. The account
       // saves it to the profile once that has loaded, and keeps trying
       // until it's saved, so a failed write doesn't lose it for good.
@@ -311,7 +355,8 @@ export function createSupabaseBackend(): AuthBackend {
         .trim();
       return name ? { status: "signedIn", name } : { status: "signedIn" };
     },
-    signInWithGoogle: () => oauth("google"),
+    signInWithGoogle: () =>
+      nativeGoogle ? signInWithNativeGoogle(nativeGoogle) : oauth("google"),
     async exchangeCode(code) {
       // On web, supabase-js may already have exchanged it on load.
       const { data } = await client.auth.getSession();
