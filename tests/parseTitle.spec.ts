@@ -5,6 +5,8 @@ import {
   titleCase,
   type ParsedTitle,
 } from "../src/catalogue/parseTitle";
+import { eventLine } from "../src/data/display";
+import { toSermon } from "../src/data/sermons";
 
 // Real titles from the Apostle Arome Osayi channel, one per house style,
 // with their upload time (which settles ambiguous dates).
@@ -261,6 +263,77 @@ const cases: [string, string, Partial<ParsedTitle>][] = [
     // Weekly meetings aren't a series.
     { headline: "Weekly Prayer Meeting", seriesKey: null, preachedOn: "2021-10-19" },
   ],
+  [
+    // A city is the venue, never the headline, and DC stays in capitals.
+    "PROCLAIM FREEDOM CRUSADE || BETHEL CAMPUS FELLOWSHIP || WASHINGTON DC || DR. AROME OSAYI || 11-10-25",
+    "2025-10-11T20:58:32Z",
+    {
+      headline: "Proclaim Freedom Crusade",
+      event: "Proclaim Freedom Crusade",
+      venue: "Bethel Campus Fellowship, Washington DC",
+      preachedOn: "2025-10-11",
+    },
+  ],
+  [
+    // Where he preached isn't the message when the title has one.
+    "APOSTLE AROME OSAYI IN CAMEROON || LIMBE INVASION CRUSADE || JESUS TAKE OVER || GRAND FINALE",
+    "2024-02-19T10:40:26Z",
+    {
+      headline: "Jesus Take Over",
+      event: "Limbe Invasion Crusade",
+      venue: "Cameroon",
+      session: "Grand Finale",
+      speaker: null,
+    },
+  ],
+  [
+    // The occasion in the channel's own words, spelling and all.
+    "APOSTLE AROME OSAYI || RCN MAGODO INUAGURATION || 20 AUG 2023",
+    "2023-08-20T11:54:50Z",
+    { headline: "RCN Magodo Inuaguration", event: "RCN Magodo Inuaguration", venue: null, seriesKey: null },
+  ],
+  [
+    // A French message keeps French small words in lower case.
+    "GATHERING OF NATIONS 2026 | CONQUÊTE ET EXPANSION | Apostle Arome Osayi LIVE | Day 1 | 5-10-2026",
+    "2026-10-05T20:15:39Z",
+    {
+      headline: "Conquête et Expansion",
+      event: "Gathering of Nations 2026",
+      seriesKey: "gathering-of-nations-2026",
+      session: "Day 1",
+      preachedOn: "2026-10-05",
+    },
+  ],
+  [
+    "IU CAMPUS APOSTOLIC CONFERENCE || INDIANA, USA || APST AROME OSAYI || DAY 2 || 21ST FEB. 2025",
+    "2025-02-23T02:25:13Z",
+    {
+      headline: "IU Campus Apostolic Conference: Day 2",
+      event: "IU Campus Apostolic Conference",
+      venue: "Indiana, USA",
+      preachedOn: "2025-02-21",
+    },
+  ],
+  [
+    "OPERATION OF THE SONS OF GOD || APOSTLE AROME OSAYI || APOSTOLIC CONFERENCE SA || 6TH SEPTEMBER 2024",
+    "2024-09-06T21:23:48Z",
+    {
+      headline: "Operation of the Sons of God",
+      event: "Apostolic Conference SA",
+      seriesKey: "apostolic-conference-sa-2024",
+    },
+  ],
+  [
+    // "PA" is an elder's title, not initials; "RN" (sic) is kept as written.
+    "REV. TOR UJA & PA MASHIKA | GBOKO CRUSADE (RCN MISSIONS) DAY 3 (MORNING SESSION) | 24TH OCTOBER,2020",
+    "2020-10-24T09:49:04Z",
+    { headline: "Gboko Crusade: Day 3 Morning", speaker: "Rev. Tor Uja & Pa Mashika", venue: "RCN Missions" },
+  ],
+  [
+    "APOSTOLIC VISITATION | DR. AROME OSAYI I DAY 1 | RN CANADA | JUNE 22ND 2025",
+    "2025-06-23T02:12:05Z",
+    { headline: "Apostolic Visitation: Day 1", venue: "RN Canada", preachedOn: "2025-06-22" },
+  ],
 ];
 
 test("parses each house style of title", () => {
@@ -292,6 +365,36 @@ test("title case keeps acronyms and lowercases small words", () => {
   expect(titleCase("MID-WEEK SERVICE ON THE 2ND DAY")).toBe("Mid-Week Service on the 2nd Day");
   // Mixed-case titles keep their own capitals.
   expect(titleCase("The Economy of the mingled Spirit")).toBe("The Economy of the mingled Spirit");
+  // Initials stay in capitals: known ones, ones with no vowel, and two
+  // letters that aren't an English word.
+  expect(titleCase("WASHINGTON DC")).toBe("Washington DC");
+  expect(titleCase("RCN DMV (MARYLAND)")).toBe("RCN DMV (Maryland)");
+  expect(titleCase("SPECIAL SUNDAY SERVICE JCM RCCG MANCHESTER")).toBe(
+    "Special Sunday Service JCM RCCG Manchester",
+  );
+  expect(titleCase("TG CONFERENCE")).toBe("TG Conference");
+  expect(titleCase("IPPC JOS 2024")).toBe("IPPC Jos 2024");
+  // Short words and abbreviations still read as words.
+  expect(titleCase("UNDERSTANDING EL SHADDAI")).toBe("Understanding El Shaddai");
+  expect(titleCase("SANCTIFICATION PT. 2")).toBe("Sanctification Pt. 2");
+  expect(titleCase("BE SOBER, BE VIGILANT")).toBe("Be Sober, Be Vigilant");
+  expect(titleCase("DO YOU KNOW GOD?")).toBe("Do You Know God?");
+  expect(titleCase("THE CHURCH OF JESUS VS THE SYNAGOGUE OF SATAN")).toBe(
+    "The Church of Jesus vs the Synagogue of Satan",
+  );
+  // The words as written: a misspelling isn't corrected.
+  expect(titleCase("RCN MAGODO INUAGURATION")).toBe("RCN Magodo Inuaguration");
+});
+
+test("French titles lower-case French small words", () => {
+  expect(titleCase("CONQUÊTE ET EXPANSION")).toBe("Conquête et Expansion");
+  expect(titleCase("Conquête Et Expansion")).toBe("Conquête et Expansion");
+  expect(titleCase("LA PUISSANCE DE LA PRIÈRE POUR LES NATIONS")).toBe(
+    "La Puissance de la Prière pour les Nations",
+  );
+  expect(titleCase("L'ÉGLISE ET L'ESPRIT DU SEIGNEUR")).toBe("L'Église et l'Esprit du Seigneur");
+  // English titles are untouched by French rules.
+  expect(titleCase("PRAYER FOR THE NATIONS")).toBe("Prayer for the Nations");
 });
 
 test("series keys treat prayer-and-fasting wordings as one programme", () => {
@@ -306,4 +409,42 @@ test("never throws and always returns a headline", () => {
     const parsed = parseTitle(title, "2024-01-01T00:00:00Z");
     expect(typeof parsed.headline).toBe("string");
   }
+});
+
+test("the label over a headline never just repeats the preacher's name", () => {
+  // What the import writes for a title, as the app shows it.
+  const shown = (title: string, publishedAt: string) => {
+    const p = parseTitle(title, publishedAt);
+    return toSermon({
+      youtube_id: "abcdefghijk",
+      title,
+      headline: p.headline,
+      event: p.event,
+      series_key: p.seriesKey,
+      part: p.part,
+      session: p.session,
+      speaker: p.speaker,
+      venue: p.venue,
+      preached_on: p.preachedOn,
+      published_at: publishedAt,
+      duration_seconds: 3600,
+      thumbnail_url: null,
+    });
+  };
+  // Nothing but the message and his name: no label at all.
+  expect(eventLine(shown("REMNANT HOUR || APOSTLE AROME OSAYI || 23/12/2021", "2021-12-23T20:00:00Z"))).toBe("");
+  expect(eventLine(shown("THE MARRIAGE COVENANT - DR. AROME OSAYI", "2026-08-12T16:00:00Z"))).toBe("");
+  // The occasion is the headline already: the venue says where instead.
+  expect(
+    eventLine(
+      shown(
+        "PROCLAIM FREEDOM CRUSADE || BETHEL CAMPUS FELLOWSHIP || WASHINGTON DC || DR. AROME OSAYI || 11-10-25",
+        "2025-10-11T20:58:32Z",
+      ),
+    ),
+  ).toBe("Bethel Campus Fellowship, Washington DC");
+  // A guest minister is still named.
+  expect(
+    eventLine(shown("REV. ANTHONY AUDU || CHARACTERS AROUND THE ALTAR 2 || 6TH FEB. 2024", "2024-02-06T21:00:00Z")),
+  ).toBe("Rev. Anthony Audu");
 });

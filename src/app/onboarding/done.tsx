@@ -146,7 +146,7 @@ export default function OnboardingDone() {
             {kicker ? <T style={styles.kicker}>{kicker}</T> : null}
             <SermonTitle list title={headline(sermon)} numberOfLines={0} />
             <T style={styles.meta}>
-              {eventLine(sermon)} · {nowrap(sermon.date)}
+              {[eventLine(sermon), nowrap(sermon.date)].filter(Boolean).join(" · ")}
             </T>
           </View>
         </Tap>

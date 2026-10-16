@@ -80,7 +80,7 @@ const NOT_NAMES = new Set(
 
 // Words that mark the occasion rather than the message.
 const EVENT_WORDS =
-  /\b(conference|conf|contact|invasion|vigils?|fasting|prayers? meeting|meeting|services?|summit|crusade|camp|festival|school of|retreat|convention|seminar|visit|visitation|bible study|night watch|prayerstorm|prayer storm|concert|operation(?!\s+of\b)|celebration|outreach|consolidation|college|streaming|interview|congress|symposium|workshop|training|all night|ordination|inaugural|programme|gathering|campaign|series|iec|ioc|aec|empowerment)\b/i;
+  /\b(conference|conf|contact|invasion|vigils?|fasting|prayers? meeting|meeting|services?|summit|crusade|camp|festival|school of|retreat|convention|seminar|visit|visitation|bible study|night watch|prayerstorm|prayer storm|concert|operation(?!\s+of\b)|celebration|outreach|consolidation|college|streaming|interview|congress|symposium|workshop|training|all night|ordination|in(?:au|ua)gura(?:l|tion)|programme|gathering|campaign|series|iec|ioc|aec|empowerment)\b/i;
 // Of those, the ones that name a one-off gathering that runs over several
 // days. Weekly services and meetings aren't series.
 const GATHERING_WORDS =
@@ -96,7 +96,7 @@ const PLACES = new Set(
     "illinois indiana iowa kansas kentucky louisiana massachusetts michigan mississippi missouri nebraska nevada oklahoma oregon " +
     "pennsylvania tennessee utah washington wisconsin alabama alaska arkansas colorado connecticut delaware idaho dakota " +
     "london manchester glasgow dundee cardiff birmingham leeds aberdeen edinburgh dublin toronto calgary edmonton alberta winnipeg ontario " +
-    "houston dallas chicago atlanta minnesota minneapolis maryland texas tx md nc sc ga arizona carolina virginia georgia florida california york jersey ohio " +
+    "houston dallas chicago atlanta minnesota minneapolis maryland texas tx md nc sc ga dc arizona carolina virginia georgia florida california york jersey ohio " +
     "abuja lagos jos warri aba enugu kaduna makurdi lokoja calabar owerri harcourt ibadan ilorin kano gboko otukpo asaba uyo yola bauchi minna lafia " +
     "limbe douala yaounde buea accra kumasi tema tamale nairobi kampala arusha salaam dodoma state"
   ).split(" "),
@@ -110,9 +110,36 @@ const SMALL_WORDS = new Set(
   "a an and as at but by for from in into nor of on or per the to unto upon via vs with".split(" "),
 );
 const ACRONYMS = new Set(
-  "rcn rccg iec ioc aec usa uk uae tv tx md nc sc ga ny cwc kft rcnsa gotr fct nt ot kjv q&a mfm ii iii iv vi vii viii ix xi xii xiii".split(
+  "rcn rccg iec ioc aec usa uk uae tv tx md nc sc ga ny dc dmv sa cwc kft rcnsa gotr fct nt ot kjv q&a mfm ippc jccf jcm tph tg iu rn ii iii iv vi vii viii ix xi xii xiii".split(
     " ",
   ),
+);
+// Short words that are words, not initials: "OF", "BE", "EL SHADDAI", "PA" (an
+// elder's title).
+const TWO_LETTER_WORDS = new Set(
+  "ah am an as at be by do el go ha he hi if in is it lo me my no of oh ok on or ox pa so to up us we ye".split(" "),
+);
+// Abbreviations without a vowel that are still written as words.
+const ABBREVIATIONS = new Set("dr mr mrs ms pst pt st mt jr sr jnr snr vs nd rd th hrs".split(" "));
+
+/**
+ * In an all-caps title, initials stay in capitals: the known ones ("RCN",
+ * "IEC"), a word with no vowel ("DMV", "TPH") and a two-letter word that
+ * isn't an English one ("SA", "IU").
+ */
+function isInitials(word: string) {
+  const lower = word.toLowerCase();
+  if (ACRONYMS.has(lower) || /^rcn[a-z]{0,3}$/.test(lower)) return true;
+  if (!/^[a-z]{2,5}$/.test(lower) || ABBREVIATIONS.has(lower)) return false;
+  if (!/[aeiouy]/.test(lower)) return true;
+  return lower.length === 2 && !TWO_LETTER_WORDS.has(lower);
+}
+
+// French titles ("CONQUÊTE ET EXPANSION") have their own small words. A
+// French letter or an unmistakably French word ("et", "pour") says which.
+const FRENCH = /[àâæçéèêëîïôœùûü]|\b(?:et|pour)\b/i;
+const FRENCH_SMALL_WORDS = new Set(
+  "à au aux avec dans de des du en et la le les par pour sur un une".split(" "),
 );
 
 // Helpers --------------------------------------------------------------------
@@ -149,6 +176,10 @@ function capitalise(word: string) {
  */
 export function titleCase(text: string) {
   const caps = isMostlyCaps(text);
+  const french = FRENCH.test(text);
+  const small = french ? FRENCH_SMALL_WORDS : SMALL_WORDS;
+  // "ET" and "LA" are French words in a French title, not initials.
+  const initials = (word: string) => isInitials(word) && !(french && small.has(word.toLowerCase()));
   let start = true;
   return clean(text)
     .split(" ")
@@ -158,11 +189,17 @@ export function titleCase(text: string) {
       start = /[:–—-]$/.test(word);
       const bare = word.replace(/^[("'‘“]+|[)"'’”.,:;!?]+$/g, "");
       const lower = bare.toLowerCase();
+      // French elision: "L'ÉGLISE" → "l'Église" inside a title.
+      const elided = french ? /^([dlnsjmtc]|qu)(['’])(.+)$/i.exec(bare) : null;
       let out: string;
-      if ((ACRONYMS.has(lower) || /^rcn[a-z]{0,3}$/.test(lower)) && (caps || bare === bare.toUpperCase()))
+      if (
+        caps ? initials(bare) : bare === bare.toUpperCase() && ACRONYMS.has(lower)
+      )
         out = bare.toUpperCase();
-      else if (!first && !word.startsWith("(") && SMALL_WORDS.has(lower)) out = lower;
+      else if (!first && !word.startsWith("(") && small.has(lower)) out = lower;
       else if (!caps) out = first ? capitalise(bare) : bare;
+      else if (elided)
+        out = `${first ? capitalise(elided[1].toLowerCase()) : elided[1].toLowerCase()}${elided[2]}${capitalise(elided[3].toLowerCase())}`;
       else
         out = bare
           .split("-")
@@ -172,7 +209,7 @@ export function titleCase(text: string) {
               ? /^\d+(st|nd|rd|th)$/i.test(part)
                 ? part.toLowerCase()
                 : part
-              : ACRONYMS.has(part.toLowerCase())
+              : initials(part)
                 ? part
                 : capitalise(part.toLowerCase()),
           )
@@ -655,6 +692,15 @@ export function parseTitle(title: string, publishedAt?: string | null): ParsedTi
 
   const topics = merged.filter((p) => p.kind === "topic").map((p) => p.text);
   const events = merged.filter((p) => p.kind === "event").map((p) => p.text);
+  // "APOSTLE AROME OSAYI IN CAMEROON || … || JESUS TAKE OVER": where it was
+  // preached is the venue, not the message, when the title has a message.
+  for (let i = topics.length - 1; i >= 0 && topics.length > 1; i--) {
+    const place = /^(?:live\s+)?(?:in|from|at)\s+(.+)$/i.exec(topics[i]);
+    if (place && isVenue(clean(place[1]))) {
+      venues.push(clean(place[1]));
+      topics.splice(i, 1);
+    }
+  }
   // A numbered message wins over a series name beside it
   // ("DOCTRINE AND BALANCE || SANCTIFICATION PART 3").
   const numberedAt = topics.findIndex((t) => numbered(t));

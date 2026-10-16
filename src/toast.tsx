@@ -30,7 +30,7 @@ const enter = FadeInUp.duration(200).easing(ease).withInitialValues({
 const exit = FadeOut.duration(160).easing(ease);
 
 /**
- * Brief confirmations ("Saved to your library", "Signed out") above the tab
+ * Brief confirmations ("Saved", "Link copied", "Signed out") above the tab
  * bar and docked player. One at a time; each is also announced.
  */
 export function ToastProvider({ children }: { children: ReactNode }) {

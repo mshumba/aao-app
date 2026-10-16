@@ -80,6 +80,26 @@ test("the Paths tab lists every path, and a draft carries no label", async ({ pa
   await expect(page).toHaveURL(new RegExp(`/path/${WAIT}$`));
 });
 
+test("a day's theme and title wrap between words, never cut off", async ({ page }) => {
+  // The narrowest phone the app supports, where the longest themes wrap.
+  await page.setViewportSize({ width: 320, height: 800 });
+  await page.goto(`/path/${WAIT}`);
+  const theme = day(page, 2).getByText(/He makes everything beautiful in its time/i);
+  const title = day(page, 4).getByText("Apostolic Shift: Day Two Morning", { exact: true });
+  for (const text of [theme, title]) {
+    await expect(text).toBeVisible();
+    // Nothing clipped: the whole text fits the box it's drawn in.
+    const fits = await text.evaluate((el) => el.scrollHeight <= el.clientHeight + 1 && el.scrollWidth <= el.clientWidth + 1);
+    expect(fits).toBe(true);
+    // On more than one line, broken between words.
+    expect(((await text.boundingBox())?.height ?? 0)).toBeGreaterThan(24);
+  }
+  // Today's card keeps "Day 1 ·" and "Start here" whole, so a narrow card
+  // breaks at the dot rather than inside "Start here".
+  const kicker = day(page, 1).getByText(/^Day.1.·.Start.here$/);
+  expect(await kicker.textContent()).toBe("Day\u00a01\u00a0· Start\u00a0here");
+});
+
 test("only a published path claims the ministry set its order", async ({ page }) => {
   await page.goto(`/path/${HABIT}`);
   await expect(

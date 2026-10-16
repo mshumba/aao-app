@@ -41,6 +41,26 @@ export type DayItem = {
 };
 
 const NODE = 36;
+const NBSP = "\u00a0";
+/** Web: no last word stranded on a line of its own. */
+const prettyWrap = web({ textWrap: "pretty" }) as object;
+
+/**
+ * The kicker with its line breaks where they read well. "Day 2" and the dot
+ * after it stay together, and so does a short phrase after the dot, so a
+ * narrow card wraps "TEACHING 1 ·" / "START HERE" rather than "START" /
+ * "HERE", and a long theme wraps between its words.
+ */
+function kickerText(kicker: string) {
+  const together = (text: string) => text.replace(/ /g, NBSP);
+  const numbers = (text: string) => text.replace(/\b(Day|Teaching|Part|Session) (\d+)/g, `$1${NBSP}$2`);
+  const at = kicker.indexOf(" · ");
+  if (at < 0) return numbers(kicker);
+  const lead = kicker.slice(0, at);
+  const rest = kicker.slice(at + 3);
+  return `${together(lead)}${NBSP}· ${rest.split(" ").length <= 2 ? together(rest) : numbers(rest)}`;
+}
+
 /** Rows sit 44pt apart (the concept's 36pt node and 8pt gap); today's card adds its own 8. */
 const TODAY_GAP = 8;
 
@@ -119,10 +139,10 @@ const DayRow = memo(function DayRow({
                 <Artwork art={art} width={big ? undefined : thumb} radius={10} priority="high" />
                 <View style={styles.cardText}>
                   <T
-                    style={[type.overline, styles.kickerTight, { color: c.gold }]}
+                    style={[type.overline, styles.kickerTight, prettyWrap, { color: c.gold }]}
                     maxFontSizeMultiplier={textCap.section}
                   >
-                    {kicker}
+                    {kickerText(kicker)}
                   </T>
                   {titleText ?? <T style={[type.cardTitle, styles.title]}>{title}</T>}
                   {meta ? <T style={[type.meta, styles.muted, tabular, styles.meta]}>{meta}</T> : null}
@@ -191,17 +211,20 @@ const DayRow = memo(function DayRow({
       {line}
       {node}
       <View style={styles.text}>
+        {/* The day's theme and the sermon's headline wrap between words
+            rather than stop mid-word: two lines each on a phone (a 44-letter
+            theme takes a third only on the narrowest), more at large text. */}
         <T
-          style={[type.overline, styles.kickerTight, styles.muted]}
-          numberOfLines={big ? 2 : 1}
+          style={[type.overline, styles.kickerTight, styles.muted, prettyWrap]}
+          numberOfLines={big ? 4 : 3}
           maxFontSizeMultiplier={textCap.section}
         >
-          {kicker}
+          {kickerText(kicker)}
         </T>
         {titleText ?? (
           <T
-            style={[type.cardTitle, styles.title, { color: state === "upcoming" ? c.muted : c.text }]}
-            numberOfLines={big ? 3 : 1}
+            style={[type.cardTitle, styles.title, prettyWrap, { color: state === "upcoming" ? c.muted : c.text }]}
+            numberOfLines={big ? 4 : 2}
           >
             {title}
           </T>
@@ -262,7 +285,9 @@ const styles = StyleSheet.create({
   },
   nodeNext: { backgroundColor: c.bg, boxShadow: `inset 0 0 0 1.5px ${c.nodeRing}` },
   nodeNumber: { ...type.labelSmall, fontFamily: font.extrabold, color: c.accent, ...tabular },
-  text: { flex: 1, minWidth: 0, minHeight: NODE },
+  // A one-line day fills the row's 44pt exactly; a wrapped one keeps 6pt
+  // before the next day.
+  text: { flex: 1, minWidth: 0, minHeight: NODE, paddingBottom: 6 },
   title: { marginTop: 2 },
   meta: { marginTop: 2 },
   kickerTight: { letterSpacing: 1.2 },

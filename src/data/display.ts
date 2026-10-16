@@ -29,10 +29,12 @@ function words(text: string) {
 const withoutYear = (name: string) => name.replace(/\s+(?:(?:19|20)\d\d|['’]\d\d)$/, "");
 
 /**
- * The line under a headline: who preached it when it wasn't Apostle Arome
- * Osayi alone, the event and which part of it, leaving out what the headline
- * already says ("Lioness Conference · Grand Finale"). With nothing else to
- * say, the venue, then the channel.
+ * The line over or under a headline: who preached it when it wasn't Apostle
+ * Arome Osayi alone, the event and which part of it, leaving out what the
+ * headline already says ("Lioness Conference · Grand Finale"). With nothing
+ * else to say, the venue. Empty when that leaves nothing: his name over
+ * every such sermon would repeat down a list, so callers show no label (the
+ * sermon page's byline names him instead).
  */
 export function eventLine(sermon: Sermon) {
   const said = words(sermon.headline);
@@ -42,5 +44,5 @@ export function eventLine(sermon: Sermon) {
   if (fresh(sermon.event)) parts.push(sermon.event!);
   if (fresh(sermon.session)) parts.push(sermon.session!);
   if (!parts.length && fresh(sermon.venue)) parts.push(sermon.venue!);
-  return parts.join(" · ") || sermon.channel;
+  return parts.join(" · ");
 }

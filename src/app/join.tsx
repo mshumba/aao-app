@@ -347,12 +347,12 @@ function Context({ sermon }: { sermon: Sermon }) {
       style={styles.context}
       // One stop for VoiceOver and TalkBack; on the web the text reads in order.
       accessible={Platform.OS !== "web"}
-      accessibilityLabel={`${title}. ${event}`}
+      accessibilityLabel={event ? `${title}. ${event}` : title}
     >
       <Artwork art={sermon} width={96} radius={10} fallback={sermon.collection} />
       <View style={styles.contextText}>
         <SermonTitle list title={title} />
-        <T style={s.meta}>{event}</T>
+        {event ? <T style={s.meta}>{event}</T> : null}
       </View>
     </View>
   );

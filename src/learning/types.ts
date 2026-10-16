@@ -59,8 +59,9 @@ export type Path = {
    */
   minutesPerDay: number;
   /**
-   * 'draft' must never claim "Order set by the ministry"; use TrustLine
-   * (src/kit) or `trustLine()` (format.ts), which say so honestly.
+   * 'draft' must never claim "Order set by the ministry". Use TrustLine
+   * (src/kit) or `trustLine()` (format.ts): only a published path gets the
+   * line, and a draft shows nothing (no "Draft" label, at the owner's request).
    */
   status: PathStatus;
   sort: number;
@@ -131,7 +132,8 @@ export type SearchResponse = {
   understood: { theme: string; related: string[] };
   /**
    * A path that answers this need, if one exists. `status` comes from search
-   * v14 on; a draft is labelled as one.
+   * v14 on; only a published one may say the ministry set its order, and a
+   * draft carries no label.
    */
   path: { id: string; name: string; italic: string; days: number; status?: PathStatus } | null;
   /**

@@ -932,7 +932,7 @@ export function sermonLabel(sermon: Sermon, lead?: CategoryId) {
   const topics = topicLabels(sermon, lead);
   return [
     `${headline(sermon)}.`,
-    `${eventLine(sermon)}, ${sermon.date}, ${spokenDuration(sermon.duration)}.`,
+    `${[eventLine(sermon), sermon.date, spokenDuration(sermon.duration)].filter(Boolean).join(", ")}.`,
     topics.length ? `Sample topics: ${topics.join(", ")}.` : "",
   ]
     .filter(Boolean)

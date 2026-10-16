@@ -113,8 +113,8 @@ export async function fetchMoments(youtubeId: string): Promise<Moment[]> {
 }
 
 /**
- * Every path and teaching series (drafts included; the app labels them)
- * and all their days.
+ * Every path and teaching series (drafts included, shown without a label;
+ * only a published path says the ministry set its order) and all their days.
  */
 export async function fetchPaths(): Promise<{ paths: Path[]; days: PathDay[] }> {
   const [pathRows, dayRows] = await Promise.all([

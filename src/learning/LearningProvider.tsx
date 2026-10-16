@@ -499,7 +499,10 @@ export function useNeeds() {
   return need(useContext(NeedsContext), "useNeeds");
 }
 
-/** Every path (drafts included; label them with TrustLine), in editorial order. */
+/**
+ * Every path (drafts included, in editorial order). Use TrustLine for who set
+ * the order: it shows only on a published path, never a "Draft" label.
+ */
 export function usePaths() {
   const value = need(useContext(PathsContext), "usePaths");
   return {

@@ -35,8 +35,9 @@ type HomeCard = {
   /** Read before the play row's title ("Play today, day 3"). */
   playLabel?: string;
   /**
-   * Who set the order, under the name (a path not started yet): a draft
-   * says it's awaiting the ministry's review.
+   * Who set the order, under the name (a path not started yet): "Order set
+   * by the ministry" when it's published; a draft shows nothing (TrustLine
+   * returns null, so there's no "Draft" label anywhere).
    */
   trust?: PathStatus;
   /** Opens the path. */
