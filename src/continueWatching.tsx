@@ -1,6 +1,6 @@
 import { router } from "expo-router";
 import { ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
-import { useAccount } from "./auth/AccountProvider";
+import { useAccount, useWatchProgress } from "./auth/AccountProvider";
 import type { WatchProgress } from "./auth/types";
 import { useCatalogue } from "./catalogue/CatalogueProvider";
 import { headline } from "./data/display";
@@ -29,10 +29,11 @@ const MAX = 6;
  */
 export function ContinueWatching() {
   const account = useAccount();
+  const watched = useWatchProgress();
   const catalogue = useCatalogue();
   const { width } = useWindowDimensions();
   if (!account.user) return null;
-  const items = [...account.progress]
+  const items = [...watched.progress]
     .filter((progress) => resumePoint(progress) > 0)
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
     .map((progress) => ({

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { memo, useEffect, useRef } from "react";
 import { Modal, Platform, Pressable, StyleSheet, View } from "react-native";
 import { CardFan, Kicker, type ArtSource } from "../kit";
 import { c, radius, shadows, space, type } from "../theme";
@@ -12,7 +12,7 @@ export type MenuItem = { key: string; label: string; icon: IconName | "route"; o
  * The stage's "…": a small menu under the button (Open in YouTube, the
  * path, About this sermon). A tap outside, Escape or Back closes it.
  */
-export function MoreMenu({
+export const MoreMenu = memo(function MoreMenu({
   visible,
   onClose,
   items,
@@ -84,14 +84,14 @@ export function MoreMenu({
       </View>
     </Modal>
   );
-}
+});
 
 /**
  * "Part of Apostolic Shift" on the panel when the sermon isn't a path day:
  * the series' artwork as a small fan, which part this is, and a way to the
  * whole series. The kit's PartOfPathRow, without path progress.
  */
-export function SeriesRow({
+export const SeriesRow = memo(function SeriesRow({
   name,
   part,
   total,
@@ -128,7 +128,7 @@ export function SeriesRow({
       <Icon name="chevron-forward" size={20} color={c.mutedOnFeature} />
     </Tap>
   );
-}
+});
 
 const styles = StyleSheet.create({
   menu: {

@@ -1,5 +1,5 @@
 import { useLocalSearchParams } from "expo-router";
-import { useCallback, useMemo, useState } from "react";
+import { memo, useCallback, useMemo, useState } from "react";
 import { FlatList, Platform, StyleSheet, View, type ListRenderItem } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useCatalogue } from "../catalogue/CatalogueProvider";
@@ -98,24 +98,23 @@ export default function AllSermons() {
     });
   }, [sermons, chosen, query]);
 
-  const filtering = !!(chosen.topic || chosen.series || chosen.year || query.trim());
+  const searched = !!query.trim();
+  const filtering = !!(chosen.topic || chosen.series || chosen.year || searched);
   const countText = filtering
     ? `${sermonCount(list.length, "No sermons")} of ${sermons.length.toLocaleString("en-GB")}`
     : `${sermonCount(list.length)}, newest first`;
 
+  // The list's own props stay the same from one keystroke to the next, so
+  // only what a keystroke changes (the field, the rows) draws again.
+  const clearQuery = useCallback(() => setQuery(""), []);
   const header = (
     <View>
-      <Header back />
-      <PageTitle
-        kicker="The library"
-        title="All sermons"
-        lead="Every sermon from the Apostle Arome Osayi channel. Find one by its title, or narrow by topic, series or year."
-      />
+      <Intro />
       <SearchField
         testID="sermons-search"
         value={query}
         onChangeText={setQuery}
-        onClear={() => setQuery("")}
+        onClear={clearQuery}
         leading="search-outline"
         placeholder="Search sermon titles"
         style={styles.field}
@@ -142,34 +141,43 @@ export default function AllSermons() {
     ({ item }) => <SermonRow sermon={item} />,
     [],
   );
+  const empty = useMemo(
+    () => (
+      <StatePanel
+        testID="sermons-empty"
+        icon="search-outline"
+        title="No sermons match"
+        body={
+          searched
+            ? "Try fewer words, or clear the filters to see every sermon."
+            : "Clear the filters to see every sermon."
+        }
+        label="Clear filters"
+        action={clearAll}
+      />
+    ),
+    [searched, clearAll],
+  );
+  const scrollPadding = useMemo(() => dockScrollPadding(dock), [dock]);
+  const content = useMemo(
+    () => [styles.content, { paddingBottom: 48 + insets.bottom + dock }],
+    [insets.bottom, dock],
+  );
 
   return (
     <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
       <FlatList
         testID="sermons-list"
         data={list}
-        keyExtractor={(item) => item.id}
+        keyExtractor={keyOf}
         renderItem={renderItem}
         ListHeaderComponent={header}
-        ListEmptyComponent={
-          <StatePanel
-            testID="sermons-empty"
-            icon="search-outline"
-            title="No sermons match"
-            body={
-              query.trim()
-                ? "Try fewer words, or clear the filters to see every sermon."
-                : "Clear the filters to see every sermon."
-            }
-            label="Clear filters"
-            action={clearAll}
-          />
-        }
+        ListEmptyComponent={empty}
         ItemSeparatorComponent={Gap}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode={Platform.OS === "web" ? "none" : "on-drag"}
-        style={dockScrollPadding(dock)}
-        contentContainerStyle={[styles.content, { paddingBottom: 48 + insets.bottom + dock }]}
+        style={scrollPadding}
+        contentContainerStyle={content}
         initialNumToRender={10}
         maxToRenderPerBatch={10}
         windowSize={9}
@@ -179,7 +187,23 @@ export default function AllSermons() {
   );
 }
 
+const keyOf = (item: Sermon) => item.id;
+
 const Gap = () => <View style={{ height: space.lg }} />;
+
+/** The page's title, the same at every keystroke. */
+const Intro = memo(function Intro() {
+  return (
+    <>
+      <Header back />
+      <PageTitle
+        kicker="The library"
+        title="All sermons"
+        lead="Every sermon from the Apostle Arome Osayi channel. Find one by its title, or narrow by topic, series or year."
+      />
+    </>
+  );
+});
 
 const LABELS: Record<Dimension, { name: string; any: string }> = {
   topic: { name: "Topic", any: "Any topic" },
@@ -191,7 +215,7 @@ const LABELS: Record<Dimension, { name: string; any: string }> = {
  * Three buttons (Topic, Series, Year) that say what's chosen; pressing one
  * shows its choices underneath as a row of radio chips.
  */
-function Filters({
+const Filters = memo(function Filters({
   options,
   chosen,
   open,
@@ -238,7 +262,7 @@ function Filters({
       ) : null}
     </View>
   );
-}
+});
 
 function Choices({
   dimension,

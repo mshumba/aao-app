@@ -1,6 +1,6 @@
 import * as Haptics from "expo-haptics";
-import { router, useFocusEffect, useLocalSearchParams, type Href } from "expo-router";
-import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { router, useLocalSearchParams, type Href } from "expo-router";
+import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import {
   AccessibilityInfo,
   FlatList,
@@ -13,7 +13,7 @@ import {
 } from "react-native";
 import Animated, { LinearTransition } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useAccount } from "../auth/AccountProvider";
+import { useSaved } from "../auth/AccountProvider";
 import { useGate } from "../auth/gate";
 import { useCatalogue } from "../catalogue/CatalogueProvider";
 import { getCategory } from "../data/categories";
@@ -34,7 +34,7 @@ import {
   type SearchSermon,
 } from "../learning";
 import { useReducedMotion } from "../motion";
-import { firstParam, requestWatch, takeSearchFocus, useGo, usePageTitle } from "../navigation";
+import { firstParam, requestWatch, takeSearchFocus, useFocusEffect, useGo, usePageTitle } from "../navigation";
 import { useDockInset } from "../player/useDockInset";
 import { c, textCap, type } from "../theme";
 import { useToast } from "../toast";
@@ -167,7 +167,7 @@ function SearchView({ initialQuery, unknownTopic }: { initialQuery: string; unkn
   const reduced = useReducedMotion();
   const go = useGo();
   const gate = useGate();
-  const account = useAccount();
+  const saved = useSaved();
   const toast = useToast();
   const { sermons } = useCatalogue();
   const { needs } = useNeeds();
@@ -175,12 +175,12 @@ function SearchView({ initialQuery, unknownTopic }: { initialQuery: string; unkn
   const { add: addRecent, clear: clearRecent, remove: removeRecent } = recent;
   const { progressFor } = useEnrollment();
 
-  // Navigation, the gate, the account and the toast change identity every
-  // render; callbacks read the latest through a ref so the rows they're
-  // passed to stay memoised.
-  const latest = useRef({ go, gate, account, toast });
+  // Navigation, the gate, the saved list and the toast change identity
+  // between renders; callbacks read the latest through a ref so the rows
+  // they're passed to stay memoised.
+  const latest = useRef({ go, gate, saved, toast });
   useEffect(() => {
-    latest.current = { go, gate, account, toast };
+    latest.current = { go, gate, saved, toast };
   });
 
   const [query, setQuery] = useState(initialQuery);
@@ -307,14 +307,14 @@ function SearchView({ initialQuery, unknownTopic }: { initialQuery: string; unkn
   const saving = useRef(false);
   const toggleSave = useCallback(
     async (m: SearchMoment) => {
-      const { gate, account, toast } = latest.current;
+      const { gate, saved, toast } = latest.current;
       if (saving.current) return;
       if (!gate.require({ kind: "save", sermonId: m.youtubeId })) return;
       saving.current = true;
-      const next = !account.isSaved(m.youtubeId);
+      const next = !saved.isSaved(m.youtubeId);
       if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
       try {
-        await account.setSaved(m.youtubeId, next);
+        await saved.setSaved(m.youtubeId, next);
         toast(next ? "Saved" : "Removed from saved", next ? "bookmark" : "bookmark-outline");
       } catch {
         toast(
@@ -473,7 +473,7 @@ function SearchView({ initialQuery, unknownTopic }: { initialQuery: string; unkn
     [paths, daysOf, progressFor],
   );
 
-  const isSaved = account.isSaved;
+  const isSaved = saved.isSaved;
   const loaderShown = loaderStep !== null;
   const items = useMemo<Item[]>(() => {
     const out: Item[] = [];
@@ -611,153 +611,39 @@ function SearchView({ initialQuery, unknownTopic }: { initialQuery: string; unkn
 
   // ---- Rows ------------------------------------------------------------------------------
 
+  const showAllNeeds = useCallback(() => setAllNeeds(true), []);
+  const showMore = useCallback((key: string, n: number) => setLimit({ key, n }), []);
   const fourNeeds = useMemo(() => needs.slice(0, 4), [needs]);
-  const renderRow = useCallback(
-    (item: Item) => {
-      switch (item.kind) {
-        case "cloud":
-          return (
-            <View style={styles.cloud}>
-              <NeedCloud needs={item.needs} onPick={pickNeed} />
-            </View>
-          );
-        case "heading":
-          return (
-            <ListHeading
-              title={item.title}
-              count={item.count}
-              spokenCount={item.spoken}
-              countTestID={item.countTestID}
-              action={item.clear ? { label: "Clear", onPress: clearRecent, hint: "Clears your recent searches" } : undefined}
-            />
-          );
-        case "allNeeds":
-          return <MoreButton label={item.label} onPress={() => setAllNeeds(true)} />;
-        case "recent":
-          return (
-            <SuggestRow
-              icon="time-outline"
-              strong={item.q}
-              label={`Search again: ${item.q}`}
-              onPress={() => run(item.q)}
-              onRemove={() => removeRecent(item.q)}
-              removeLabel={`Remove “${item.q}” from recent searches`}
-              first={item.first}
-            />
-          );
-        case "topics":
-          return <TopicCards />;
-        case "suggest":
-          return (
-            <View style={styles.suggestTop}>
-              <SuggestRow
-                icon="spark"
-                text="Search for"
-                strong={`“${item.q}”`}
-                label={`Search for ${item.q}`}
-                onPress={() => run(item.q)}
-                lines={1}
-                first
-              />
-            </View>
-          );
-        case "need":
-          return (
-            <SuggestRow
-              icon="spark"
-              strong={item.need.label}
-              sub={item.need.short}
-              label={`Search: ${item.need.label}`}
-              onPress={() => pickNeed(item.need)}
-              first={item.first}
-            />
-          );
-        case "sermon":
-          return <SermonResult sermon={item.sermon} onOpen={openSermon} first={item.first} />;
-        case "found":
-          return <FoundSermon sermon={item.sermon} onOpen={openSermon} first={item.first} />;
-        case "more":
-          return (
-            <MoreButton label={item.label} onPress={() => setLimit({ key: item.limitKey, n: item.next })} />
-          );
-        case "related":
-          return (
-            <ChipRow label="Related needs" style={styles.related}>
-              {item.labels.map((label) => (
-                <NeedChip key={label} label={label} variant="outline" onPress={() => pickRelated(label)} />
-              ))}
-            </ChipRow>
-          );
-        case "path":
-          return (
-            <PathCardNavy
-              variant="compact"
-              testID={item.card.kicker ? "guided-path" : "search-path"}
-              kicker={item.card.kicker}
-              name={item.card.name}
-              meta={item.card.meta}
-              fan={item.card.fan}
-              onPress={() => openPath(item.card.id)}
-              style={[styles.path, item.card.kicker ? styles.pathList : null]}
-            />
-          );
-        case "moment":
-          return (
-            <ResultCard
-              moment={item.moment}
-              quotePending={item.pending}
-              saved={item.saved}
-              continued={item.continued}
-              onPlay={play}
-              onOpen={openMoment}
-              onToggleSave={toggleSave}
-            />
-          );
-        case "placeholder":
-          return <ResultPlaceholder />;
-        case "note":
-          return <Note>{item.text}</Note>;
-        case "care":
-          return <CareCalm onRetry={item.retry ? retry : undefined} />;
-        case "state":
-          return (
-            <SearchProblem
-              state={item.state}
-              q={item.q}
-              error={result.error}
-              needs={fourNeeds}
-              onNeed={pickNeed}
-              onRetry={retry}
-            />
-          );
-      }
-    },
-    [pickNeed, clearRecent, removeRecent, run, openSermon, pickRelated, openPath, play, openMoment, toggleSave, result.error, retry, fourNeeds],
+  const actions = useMemo<RowActions>(
+    () => ({
+      pickNeed,
+      pickRelated,
+      run,
+      clearRecent,
+      removeRecent,
+      showAllNeeds,
+      showMore,
+      openSermon,
+      openPath,
+      openMoment,
+      play,
+      toggleSave,
+      retry,
+      error: result.error,
+      fourNeeds,
+    }),
+    [pickNeed, pickRelated, run, clearRecent, removeRecent, showAllNeeds, showMore, openSermon, openPath, openMoment, play, toggleSave, retry, result.error, fourNeeds],
   );
-  // A result set's rows rise in together (reveal.tsx), never one by one as
-  // the list draws them.
   const renderItem = useCallback<ListRenderItem<Item>>(
-    ({ item }) =>
-      item.reveal === undefined ? renderRow(item) : <Reveal order={item.reveal}>{renderRow(item)}</Reveal>,
-    [renderRow],
+    ({ item }) => <SearchRow item={item} actions={actions} />,
+    [actions],
   );
 
   // ---- The page's top: the question and the field ---------------------------------------
 
   const header = (
     <View style={{ paddingTop: insets.top + (insets.top ? 8 : 28) }}>
-      <View style={styles.head}>
-        <Kicker>Search by what you need</Kicker>
-        <ItalicTitle
-          text="What are you going through?"
-          italic="going through?"
-          breakBeforeItalic
-          accessibilityRole="header"
-          {...web({ "aria-level": 1 })}
-          style={[type.title, styles.title]}
-          maxFontSizeMultiplier={textCap.display}
-        />
-      </View>
+      <SearchTitle />
       {showTopicNotice ? (
         <Note icon="pricetags-outline">That topic link is out of date. Browse the topics below, or ask in your own words.</Note>
       ) : null}
@@ -810,6 +696,198 @@ function SearchView({ initialQuery, unknownTopic }: { initialQuery: string; unkn
 }
 
 const keyOf = (item: Item) => item.key;
+
+/** "What are you going through?", the same at every keystroke. */
+const SearchTitle = memo(function SearchTitle() {
+  return (
+    <View style={styles.head}>
+      <Kicker>Search by what you need</Kicker>
+      <ItalicTitle
+        text="What are you going through?"
+        italic="going through?"
+        breakBeforeItalic
+        accessibilityRole="header"
+        {...web({ "aria-level": 1 })}
+        style={[type.title, styles.title]}
+        maxFontSizeMultiplier={textCap.display}
+      />
+    </View>
+  );
+});
+
+/** What the rows can do: the screen's handlers, the same from one keystroke to the next. */
+type RowActions = {
+  pickNeed: (need: Need) => void;
+  pickRelated: (label: string) => void;
+  run: (text: string) => void;
+  clearRecent: () => void;
+  removeRecent: (q: string) => void;
+  showAllNeeds: () => void;
+  showMore: (limitKey: string, n: number) => void;
+  openSermon: (id: string) => void;
+  openPath: (id: string) => void;
+  openMoment: (m: SearchMoment) => void;
+  play: (m: SearchMoment) => void;
+  toggleSave: (m: SearchMoment) => void;
+  retry: () => void;
+  error: LearningError | null;
+  fourNeeds: Need[];
+};
+
+/**
+ * Two descriptions of a row that draw the same: every field identical, a
+ * list (the cloud's needs, related needs) item by item.
+ */
+function sameRow(a: Item, b: Item) {
+  if (a === b) return true;
+  const x = a as Record<string, unknown>;
+  const y = b as Record<string, unknown>;
+  const keys = Object.keys(x);
+  if (keys.length !== Object.keys(y).length) return false;
+  return keys.every((k) => {
+    const u = x[k];
+    const v = y[k];
+    if (Object.is(u, v)) return true;
+    return Array.isArray(u) && Array.isArray(v) && u.length === v.length && u.every((e, i) => Object.is(e, v[i]));
+  });
+}
+
+/**
+ * One row of the list. Each keystroke or answer describes every row anew,
+ * so a row draws again only when its own description changed, never just
+ * because the list did; scrolling never redraws the rows already there.
+ * A result set's rows rise in together (reveal.tsx), never one by one as
+ * the list draws them.
+ */
+const SearchRow = memo(
+  function SearchRow({ item, actions }: { item: Item; actions: RowActions }) {
+    const row = rowFor(item, actions);
+    return item.reveal === undefined ? row : <Reveal order={item.reveal}>{row}</Reveal>;
+  },
+  (a, b) => a.actions === b.actions && sameRow(a.item, b.item),
+);
+
+function rowFor(item: Item, actions: RowActions) {
+  switch (item.kind) {
+    case "cloud":
+      return (
+        <View style={styles.cloud}>
+          <NeedCloud needs={item.needs} onPick={actions.pickNeed} />
+        </View>
+      );
+    case "heading":
+      return (
+        <ListHeading
+          title={item.title}
+          count={item.count}
+          spokenCount={item.spoken}
+          countTestID={item.countTestID}
+          action={
+            item.clear
+              ? { label: "Clear", onPress: actions.clearRecent, hint: "Clears your recent searches" }
+              : undefined
+          }
+        />
+      );
+    case "allNeeds":
+      return <MoreButton label={item.label} onPress={actions.showAllNeeds} />;
+    case "recent":
+      return (
+        <SuggestRow
+          icon="time-outline"
+          strong={item.q}
+          label={`Search again: ${item.q}`}
+          onPress={() => actions.run(item.q)}
+          onRemove={() => actions.removeRecent(item.q)}
+          removeLabel={`Remove “${item.q}” from recent searches`}
+          first={item.first}
+        />
+      );
+    case "topics":
+      return <TopicCards />;
+    case "suggest":
+      return (
+        <View style={styles.suggestTop}>
+          <SuggestRow
+            icon="spark"
+            text="Search for"
+            strong={`“${item.q}”`}
+            label={`Search for ${item.q}`}
+            onPress={() => actions.run(item.q)}
+            lines={1}
+            first
+          />
+        </View>
+      );
+    case "need":
+      return (
+        <SuggestRow
+          icon="spark"
+          strong={item.need.label}
+          sub={item.need.short}
+          label={`Search: ${item.need.label}`}
+          onPress={() => actions.pickNeed(item.need)}
+          first={item.first}
+        />
+      );
+    case "sermon":
+      return <SermonResult sermon={item.sermon} onOpen={actions.openSermon} first={item.first} />;
+    case "found":
+      return <FoundSermon sermon={item.sermon} onOpen={actions.openSermon} first={item.first} />;
+    case "more":
+      return <MoreButton label={item.label} onPress={() => actions.showMore(item.limitKey, item.next)} />;
+    case "related":
+      return (
+        <ChipRow label="Related needs" style={styles.related}>
+          {item.labels.map((label) => (
+            <NeedChip key={label} label={label} variant="outline" onPress={() => actions.pickRelated(label)} />
+          ))}
+        </ChipRow>
+      );
+    case "path":
+      return (
+        <PathCardNavy
+          variant="compact"
+          testID={item.card.kicker ? "guided-path" : "search-path"}
+          kicker={item.card.kicker}
+          name={item.card.name}
+          meta={item.card.meta}
+          fan={item.card.fan}
+          onPress={() => actions.openPath(item.card.id)}
+          style={[styles.path, item.card.kicker ? styles.pathList : null]}
+        />
+      );
+    case "moment":
+      return (
+        <ResultCard
+          moment={item.moment}
+          quotePending={item.pending}
+          saved={item.saved}
+          continued={item.continued}
+          onPlay={actions.play}
+          onOpen={actions.openMoment}
+          onToggleSave={actions.toggleSave}
+        />
+      );
+    case "placeholder":
+      return <ResultPlaceholder />;
+    case "note":
+      return <Note>{item.text}</Note>;
+    case "care":
+      return <CareCalm onRetry={item.retry ? actions.retry : undefined} />;
+    case "state":
+      return (
+        <SearchProblem
+          state={item.state}
+          q={item.q}
+          error={actions.error}
+          needs={actions.fourNeeds}
+          onNeed={actions.pickNeed}
+          onRetry={actions.retry}
+        />
+      );
+  }
+}
 
 /**
  * The error as the person should hear it. On the web a request the browser

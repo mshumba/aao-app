@@ -36,6 +36,8 @@ function tileUri(sermon: Sermon) {
 
 // The next launch's wall is chosen once a launch.
 let nextChosen = false;
+/** The sermons (ids) on a wall this launch, and on the next launch's: a return brings others. */
+const used = new Set<string>();
 
 /**
  * Chooses the next launch's wall (none of this one's flyers) and fetches its
@@ -52,6 +54,7 @@ function chooseNextWall(all: Sermon[], now: readonly Sermon[], total: number) {
       .filter((s) => !showing.has(s.id))
       .slice(0, total);
     if (next.length < total) return;
+    for (const s of next) used.add(s.id);
     // Kept however the fetch went: a flyer that can't load shows its wash.
     image
       .prefetch(next.map(tileUri), "disk")
@@ -70,9 +73,10 @@ function chooseNextWall(all: Sermon[], now: readonly Sermon[], total: number) {
  * The flyers are different at every launch, so each launch chooses the
  * next one's and fetches them quietly, once this wall is showing (iOS and
  * Android): at the next launch they come from the device's cache in a
- * moment. `onReady` says when every tile has its artwork (or can't), so a
- * launch can show the screen whole; a flyer that arrives after `shown`
- * fades in on its own.
+ * moment. Coming back to the app brings flyers not on a wall yet this
+ * launch (nor kept for the next). `onReady` says when every tile has its
+ * artwork (or can't), so a launch can show the screen whole; a flyer that
+ * arrives after `shown` fades in on its own.
  */
 export const BlessingWall = memo(function BlessingWall({
   reach,
@@ -106,18 +110,28 @@ export const BlessingWall = memo(function BlessingWall({
   const planeW = cols * (tileW + GAP);
   const planeH = rows * (tileH + GAP);
   const total = rows * cols;
+  // Flyers already on a wall this launch (or the next launch's), as this one opened.
+  const [before] = useState(() => new Set(used));
   const sermons = useMemo(() => {
     if (!all.length) return sampleSermons;
-    // The wall the last launch chose and fetched, while the library still has it.
-    const kept = keptWall()
-      .map((id) => find(id))
-      .filter((s): s is Sermon => !!s?.thumbnail);
-    return kept.length >= total ? kept.slice(0, total) : wallOf(all, total);
-  }, [all, find, total]);
+    // A launch: the wall the last launch chose and fetched, while the
+    // library still has it.
+    if (!enter) {
+      const kept = keptWall()
+        .map((id) => find(id))
+        .filter((s): s is Sermon => !!s?.thumbnail);
+      if (kept.length >= total) return kept.slice(0, total);
+    }
+    // Otherwise flyers not shown yet this launch, while there are enough.
+    const fresh = wallOf(all, total + before.size).filter((s) => !before.has(s.id));
+    return fresh.length >= total ? fresh.slice(0, total) : wallOf(all, total);
+  }, [all, find, total, enter, before]);
 
   // ---- The next launch's wall: once this one shows -----------------------------------
   useEffect(() => {
-    if (shown) chooseNextWall(all, sermons, total);
+    if (!shown) return;
+    for (const s of sermons) used.add(s.id);
+    chooseNextWall(all, sermons, total);
   }, [shown, all, sermons, total]);
 
   // Every tile in (or failed): once, for the screen's first showing.

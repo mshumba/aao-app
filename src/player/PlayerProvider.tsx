@@ -9,7 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { AccessibilityInfo, AppState, Linking, Platform } from "react-native";
-import { useAccount } from "../auth/AccountProvider";
+import { useAccount, useWatchProgress } from "../auth/AccountProvider";
 import type { WatchProgress } from "../auth/types";
 import { Sermon } from "../data/sermons";
 import { useCompleteDay } from "../learning/completeDay";
@@ -94,6 +94,16 @@ type Playback = {
 const SessionContext = createContext<Session | null>(null);
 const PlaybackContext = createContext<Playback | null>(null);
 
+// Kept with the provider's own record of the loaded sermon, for callbacks
+// that only need its id when they run (Home's Watch), so the screens they
+// belong to needn't re-render with every change to the session.
+let loadedId: string | null = null;
+
+/** The id of the sermon loaded in the player (playing, paused or docked), if any. */
+export function loadedSermonId() {
+  return loadedId;
+}
+
 const LOADING = "Loading the sermon…";
 const READY = "Press play to start";
 // Some browsers (Safari, for one) won't start sound they didn't see the tap
@@ -142,12 +152,13 @@ const RESUME_NOTE_FOR = 120;
  */
 export function PlayerProvider({ children }: { children: ReactNode }) {
   const embed = useRef<EmbedHandle>(null);
-  const account = useAccount();
+  const { user } = useAccount();
+  const progress = useWatchProgress();
   // Read when saving, so saves never re-create the player's callbacks.
-  const accountRef = useRef(account);
+  const accountRef = useRef({ user, ...progress });
   useEffect(() => {
-    accountRef.current = account;
-  }, [account]);
+    accountRef.current = { user, ...progress };
+  }, [user, progress]);
   const [sermon, setSermon] = useState<Sermon | null>(null);
   const [phase, setPhaseState] = useState<Phase>("idle");
   // Kept in step with every change, not after the next render: progress
@@ -289,6 +300,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     // Another sermon isn't that path day.
     if (pathDayRef.current?.sermonId !== next.id) pathDayRef.current = null;
     current.current = next;
+    loadedId = next.id;
     length.current = 0;
     savedAt.current = Date.now();
     clearBlockedCheck();
@@ -372,6 +384,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     persist("moment");
     pathDayRef.current = null;
     current.current = null;
+    loadedId = null;
     resumeNote.current = 0;
     setResumedFrom(0);
     clearBlockedCheck();

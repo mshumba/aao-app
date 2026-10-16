@@ -1,6 +1,6 @@
 import { memo, useCallback, useMemo, useState } from "react";
 import { ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
-import { useAccount } from "../auth/AccountProvider";
+import { useProgressOf } from "../auth/AccountProvider";
 import { useCatalogue } from "../catalogue/CatalogueProvider";
 import { headline } from "../data/display";
 import type { Sermon } from "../data/sermons";
@@ -66,10 +66,10 @@ export const YourPath = memo(function YourPath({
   onPlay: (youtubeId: string) => void;
 }) {
   const { find } = useCatalogue();
-  const account = useAccount();
   const { path, day, done, total, days, today } = active;
+  const progressFor = useProgressOf(today ? [today.youtubeId] : []);
   const words = pathWords(path);
-  const saved = today && account.user ? account.progressFor(today.youtubeId) : null;
+  const saved = today ? progressFor(today.youtubeId) : null;
   const now = today ? todayProgress(today, saved) : { partial: 0, meta: "", from: 0 };
 
   const fan = useMemo(() => {

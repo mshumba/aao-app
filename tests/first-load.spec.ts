@@ -1,5 +1,5 @@
 import type { Page } from "@playwright/test";
-import { expect, test, type Viewer } from "./fixtures";
+import { expect, shown, test, type Viewer } from "./fixtures";
 
 // A first visit on a slow phone connection. Lighthouse's mobile throttling:
 // 1.6 Mbps down, 750 Kbps up, 150 ms round trip. Every test runs in a fresh
@@ -212,3 +212,59 @@ for (const viewer of ["guest", "member"] as Viewer[]) {
     });
   });
 }
+
+// Home's hero as the pager slides (16 October 2026, "the cards at the top
+// lag"): nothing on the pages is rebuilt while it moves, and Watch, the dots
+// and what screen readers reach follow the page once the pager rests on it.
+test.describe("a guest's hero pager", () => {
+  test.use({ viewer: "guest" });
+
+  test("slides without rebuilding its pages, and Watch follows the page it comes to rest on", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    const pager = page.getByTestId("hero-pager");
+    const watch = page.getByTestId("hero-watch");
+    await expect(watch).toHaveAccessibleName("Watch sermon: Pray Without Ceasing");
+    // Each page's words, and on every frame of the slide where the pager is
+    // and what Watch says.
+    await pager.evaluate((el) => {
+      type Frame = { x: number; watch: string | null };
+      const w = window as unknown as { __words: Element[]; __slide: Frame[] };
+      w.__words = Array.from(el.querySelectorAll('[role="button"]'));
+      w.__slide = [];
+      const tick = () => {
+        const label = document.querySelector('[data-testid="hero-watch"]')!.getAttribute("aria-label");
+        w.__slide.push({ x: el.scrollLeft, watch: label });
+        if (w.__slide.length < 90) requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+      el.scrollBy({ left: el.clientWidth, behavior: "smooth" });
+    });
+    await expect(watch).toHaveAccessibleName("Watch sermon: Apostolic Shift: Grand Finale");
+    await expect(page.getByRole("slider", { name: "Newest sermons" })).toHaveAttribute("aria-valuetext", "2 of 4");
+    await expect
+      .poll(() => page.evaluate(() => (window as unknown as { __slide: unknown[] }).__slide.length))
+      .toBe(90);
+    const { slide, kept, width } = await pager.evaluate((el) => {
+      const w = window as unknown as { __words: Element[]; __slide: { x: number; watch: string | null }[] };
+      const now = Array.from(el.querySelectorAll('[role="button"]'));
+      return {
+        slide: w.__slide,
+        kept: w.__words.length === now.length && w.__words.every((node, i) => node === now[i]),
+        width: el.clientWidth,
+      };
+    });
+    expect(slide.some((f) => f.x > 1 && f.x < width - 1), "frames mid-slide").toBe(true);
+    // Watch changed only once the pager was on the second page.
+    const changed = slide.findIndex((f) => f.watch !== slide[0].watch);
+    expect(changed).toBeGreaterThan(0);
+    expect(Math.abs(slide[changed].x - width)).toBeLessThanOrEqual(1);
+    expect(kept, "the pages' words are the same nodes").toBe(true);
+    // Only the page showing is reachable, by screen readers and the keyboard.
+    await expect(shown(pager.getByRole("button"))).toHaveAccessibleName(/\. Apostolic Shift: Grand Finale$/);
+    await expect(pager.locator('[role="button"][tabindex="0"]')).toHaveAccessibleName(
+      /\. Apostolic Shift: Grand Finale$/,
+    );
+  });
+});

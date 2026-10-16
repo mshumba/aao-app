@@ -1,6 +1,40 @@
-import { Href, router, useFocusEffect } from "expo-router";
-import { useCallback, useEffect, useRef } from "react";
+import { Href, router, useNavigation } from "expo-router";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { Platform } from "react-native";
+
+/**
+ * Runs `effect` each time the screen comes to the front, and its cleanup
+ * when the screen leaves it (React Navigation's own useFocusEffect).
+ * expo-router's version first waits for the navigation state with a state
+ * update, which drew every caller twice as it mounted: each screen, and
+ * each row and button that navigates (useGo).
+ */
+export function useFocusEffect(effect: () => void | (() => void)) {
+  const navigation = useNavigation();
+  useEffect(() => {
+    let focused = false;
+    let cleanup: void | (() => void);
+    const enter = () => {
+      if (focused) return;
+      cleanup?.();
+      cleanup = effect();
+      focused = true;
+    };
+    const leave = () => {
+      cleanup?.();
+      cleanup = undefined;
+      focused = false;
+    };
+    if (navigation.isFocused()) enter();
+    const offFocus = navigation.addListener("focus", enter);
+    const offBlur = navigation.addListener("blur", leave);
+    return () => {
+      cleanup?.();
+      offFocus();
+      offBlur();
+    };
+  }, [effect, navigation]);
+}
 
 // Web: the second tap of a double tap lands on whatever the next screen has
 // right there (a row, a card), since nothing blocks touches while it opens.
@@ -64,23 +98,27 @@ export function useNavigate() {
 let lastBack = 0;
 const BACK_WINDOW = 350;
 
+/** The same object for the control's life, so callbacks built on it can be kept. */
 export function useGo() {
   const once = useNavigate();
-  return {
-    push: (href: Href) => once(() => router.push(href)),
-    replace: (href: Href) => once(() => router.replace(href)),
-    // A tap swallowed by the window takes no lock, so a deliberate Back on
-    // the next screen works as soon as the window closes.
-    back: () => {
-      if (Date.now() - lastBack < BACK_WINDOW) return;
-      once(() => {
-        lastBack = Date.now();
-        if (router.canGoBack()) router.back();
-        else router.replace("/");
-      });
-    },
-    run: once,
-  };
+  return useMemo(
+    () => ({
+      push: (href: Href) => once(() => router.push(href)),
+      replace: (href: Href) => once(() => router.replace(href)),
+      // A tap swallowed by the window takes no lock, so a deliberate Back on
+      // the next screen works as soon as the window closes.
+      back: () => {
+        if (Date.now() - lastBack < BACK_WINDOW) return;
+        once(() => {
+          lastBack = Date.now();
+          if (router.canGoBack()) router.back();
+          else router.replace("/");
+        });
+      },
+      run: once,
+    }),
+    [once],
+  );
 }
 
 /**

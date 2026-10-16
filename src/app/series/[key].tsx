@@ -1,7 +1,7 @@
 import { useLocalSearchParams } from "expo-router";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { useCatalogue } from "../../catalogue/CatalogueProvider";
-import { seriesRowText } from "../../data/seriesRow";
+import { seriesRows } from "../../data/seriesRow";
 import { seriesSermons } from "../../data/sermons";
 import { seriesDays } from "../../home/copy";
 import { CoverPage } from "../../kit";
@@ -18,7 +18,7 @@ import { Header, Page, SermonRow, StatePanel, c } from "../../ui";
  * messages in order on ivory, by day and time of day. The cover names the
  * series, so the rows don't: a sermon titled only by its event reads as its
  * session ("Day 4 · Morning"), and a real message title keeps the session
- * as its label (see seriesRowText).
+ * as its label (see seriesRows).
  */
 export default function SeriesScreen() {
   const params = useLocalSearchParams<{ key: string | string[] }>();
@@ -62,10 +62,9 @@ export default function SeriesScreen() {
       fan={list}
     >
       <View style={styles.rows}>
-        {list.map((sermon) => {
-          const row = seriesRowText(sermon, title);
-          return <SermonRow key={sermon.id} sermon={sermon} title={row.title} kicker={row.label} />;
-        })}
+        {seriesRows(list, title).map((row) => (
+          <SermonRow key={row.sermon.id} sermon={row.sermon} title={row.title} kicker={row.label} />
+        ))}
       </View>
     </CoverPage>
   );

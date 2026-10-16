@@ -244,6 +244,45 @@ test("docking, closing and leaving the app each save the place", async ({ page }
   expect((await savedFor(page, "WYiA7rjenVI"))!.positionSeconds).toBe(left);
 });
 
+test("docked on Home, the hero and Continue watching show the place just saved", async ({
+  page,
+}) => {
+  await fakeYouTube(page);
+  await page.goto("/");
+  const watch = shown(page.getByTestId("hero-watch"));
+  await expect(watch).toHaveAccessibleName(/^Watch sermon: /);
+  await expect(page.getByTestId("continue-watching")).toHaveCount(0);
+  await watch.click();
+  const id = page.url().split("/sermon/")[1];
+  await playUntil(page, 20);
+  // Home follows only its own sermons' progress; docking saves one of them.
+  await page.getByRole("button", { name: "Back", exact: true }).click();
+  const dock = page.getByTestId("player-dock");
+  await expect(dock).toBeVisible();
+  await expect.poll(async () => (await savedFor(page, id))?.positionSeconds ?? 0)
+    .toBeGreaterThanOrEqual(20);
+  const docked = (await savedFor(page, id))!.positionSeconds;
+  await expect(watch).toHaveAccessibleName(new RegExp(`^Resume sermon: .+, from ${spoken(docked)}$`));
+  await expect(shown(page.getByTestId("continue-card"))).toHaveCount(1);
+  // Pausing in the dock saves a later place, which the hero picks up
+  // without Home being opened again.
+  await page.waitForTimeout(1500);
+  await dock.getByRole("button", { name: "Pause", exact: true }).click();
+  await expect(page.getByTestId("dock-status")).toHaveText("Paused");
+  await expect.poll(async () => (await savedFor(page, id))!.positionSeconds).toBeGreaterThan(docked);
+  const paused = (await savedFor(page, id))!.positionSeconds;
+  await expect(watch).toHaveAccessibleName(new RegExp(`, from ${spoken(paused)}$`));
+});
+
+/** How the hero says a place: "1 minute 5 seconds". */
+function spoken(seconds: number) {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return [m && `${m} minute${m === 1 ? "" : "s"}`, s && `${s} second${s === 1 ? "" : "s"}`]
+    .filter(Boolean)
+    .join(" ");
+}
+
 test("the place is saved every 15 seconds while a sermon plays", async ({ page }) => {
   test.setTimeout(60_000);
   await fakeYouTube(page);

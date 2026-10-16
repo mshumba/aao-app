@@ -79,9 +79,11 @@ export function artUri(art: ArtSource) {
  * Copies drawn this session (expo-image keeps them in memory) or found in
  * its disk cache: drawn at once, without the fade, which is only for art
  * that has to be fetched. The web can't tell what the browser has cached,
- * so there only this session's copies count.
+ * so there only this session's copies count. Each copy's cache is asked
+ * once: the answer stands until the copy is drawn.
  */
 const onDevice = new Set<string>();
+const notOnDevice = new Set<string>();
 const checking = new Map<string, Promise<boolean>>();
 const canCheck = Platform.OS !== "web" && !!ExpoImage;
 
@@ -93,6 +95,7 @@ function inCache(uri: string): Promise<boolean> {
       .then(
         (path) => {
           if (path) onDevice.add(uri);
+          else notOnDevice.add(uri);
           return !!path;
         },
         () => false,
@@ -103,19 +106,36 @@ function inCache(uri: string): Promise<boolean> {
   return check;
 }
 
+/**
+ * Asking the cache holds the art back a moment and draws it twice, so it's
+ * only for what's on screen at once: everything until the app's first
+ * screen is up (the splash lifts onto it whole: src/app/_layout.tsx), then
+ * a screen's main art (priority "high": the hero, a sermon's stage, a
+ * path's cover). A list's tiles draw at once, fading in unless they were
+ * drawn earlier this session.
+ */
+let firstScreen = true;
+
+/** The app's first screen is up: from now on only main art asks the cache. */
+export function firstScreenShown() {
+  firstScreen = false;
+}
+
 /** What's known at once: true, false, or null until the cache has been asked. */
-function knownNow(uri: string | null) {
+function knownNow(uri: string | null, ask: boolean) {
   if (!uri) return false;
-  return onDevice.has(uri) ? true : canCheck ? null : false;
+  if (onDevice.has(uri)) return true;
+  return ask && canCheck && !notOnDevice.has(uri) ? null : false;
 }
 
 /**
  * Whether the art at `uri` is already on this device: true or false, or
  * null for the moment asking expo-image's cache takes (a frame or so).
+ * `ask: false` doesn't wait for the cache: only this session's copies count.
  */
-export function useArtOnDevice(uri: string | null): boolean | null {
-  const [found, setFound] = useState(() => ({ uri, on: knownNow(uri) }));
-  const on = found.uri === uri ? found.on : knownNow(uri);
+export function useArtOnDevice(uri: string | null, ask = true): boolean | null {
+  const [found, setFound] = useState(() => ({ uri, on: knownNow(uri, ask) }));
+  const on = found.uri === uri ? found.on : knownNow(uri, ask);
   useEffect(() => {
     if (!uri || on !== null) return;
     let alive = true;
@@ -145,7 +165,8 @@ const FadeImage = memo(function FadeImage({
   const [loaded, setLoaded] = useState(false);
   // Set once per copy (FadeImage is keyed by it): a changed transition
   // would make expo-image load the image again.
-  const cached = useArtOnDevice(uri);
+  const [ask] = useState(() => firstScreen || priority === "high");
+  const cached = useArtOnDevice(uri, ask);
   const onLoaded = useCallback(() => {
     onDevice.add(uri);
     onLoad?.();

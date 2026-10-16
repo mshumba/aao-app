@@ -1,9 +1,7 @@
-import { useIsFocused } from "expo-router";
-import { StatusBar } from "expo-status-bar";
 import { memo, useCallback, useMemo, useState } from "react";
 import { FlatList, StyleSheet, View, useWindowDimensions, type ListRenderItem } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useAccount } from "../../auth/AccountProvider";
+import { useProgressOf } from "../../auth/AccountProvider";
 import { useCatalogue } from "../../catalogue/CatalogueProvider";
 import {
   CardFan,
@@ -18,6 +16,7 @@ import {
   spokenText,
   type ArtSource,
 } from "../../kit";
+import { FocusedStatusBar } from "../../kit/FocusedStatusBar";
 import {
   doneLabel,
   nextDay,
@@ -80,11 +79,12 @@ export default function PathsTab() {
   const go = useGo();
   const play = usePlayDay();
   const openTeaching = useOpenTeaching();
-  const account = useAccount();
-  const focused = useIsFocused();
   const insets = useSafeAreaInsets();
   const { find } = useCatalogue();
   const { paths, loading, error, refresh, daysOf } = usePaths();
+  // Watch progress shows for the paths' own sermons, so a save while another
+  // sermon plays leaves the tab alone.
+  const watchOf = useProgressOf(paths.flatMap((p) => daysOf(p.id).map((d) => d.youtubeId)));
   const enrollment = useEnrollment();
   const { width } = useWindowDimensions();
   const dock = useDockInset();
@@ -97,14 +97,7 @@ export default function PathsTab() {
     const map = new Map<string, PathDayWithSermon[]>();
     paths.forEach((p) => map.set(p.id, daysOf(p.id).map((d) => ({ ...d, sermon: find(d.youtubeId) }))));
     return map;
-    // daysOf reads the provider's map, which changes with `paths`.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [paths, find]);
-
-  const watchOf = useCallback(
-    (youtubeId: string) => (account.user ? account.progressFor(youtubeId) : null),
-    [account],
-  );
+  }, [paths, daysOf, find]);
 
   // The masthead's path: the one you're on, else the first guided path
   // not finished (a teaching series is chosen from its own section).
@@ -282,7 +275,7 @@ export default function PathsTab() {
 
   return (
     <View style={styles.screen}>
-      {focused ? <StatusBar style="light" animated /> : null}
+      <FocusedStatusBar style="light" />
       <FlatList
         testID="paths-list"
         data={list}

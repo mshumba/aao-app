@@ -35,11 +35,21 @@ export const LatestSermons = memo(function LatestSermons({
       />
       <View style={styles.rows}>
         {sermons.map((sermon) => (
-          <SermonRow key={sermon.id} sermon={sermon} onPress={() => onOpen(sermon.id)} />
+          <LatestRow key={sermon.id} sermon={sermon} onOpen={onOpen} />
         ))}
       </View>
     </View>
   );
+});
+
+const LatestRow = memo(function LatestRow({
+  sermon,
+  onOpen,
+}: {
+  sermon: Sermon;
+  onOpen: (id: string) => void;
+}) {
+  return <SermonRow sermon={sermon} onPress={() => onOpen(sermon.id)} />;
 });
 
 // ---- Conferences and series --------------------------------------------------------

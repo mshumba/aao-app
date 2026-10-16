@@ -143,6 +143,49 @@ test("Watch in the hero plays the sermon showing", async ({ page }) => {
   expect((await ytLog(page)).created).toBe(1);
 });
 
+test("Home makes room for the docked player in the frame it docks, and gives it back as it closes", async ({
+  page,
+}) => {
+  await fakeYouTube(page, { duration: LENGTH[SERMON.finale] });
+  await page.goto("/");
+  await heroWatch(page).click();
+  await expect(page.getByTestId("playback-status")).toHaveText("Playing");
+  // From here, every frame: whether the dock is drawn, and the room kept at
+  // the foot of Home's page (40 with no dock).
+  const record = () =>
+    page.evaluate(() => {
+      const frames: { dock: boolean; room: number }[] = [];
+      (window as { __frames?: typeof frames }).__frames = frames;
+      const room = () => {
+        let el = document.querySelector<HTMLElement>('[data-testid="hero-pager"]');
+        while (el && parseFloat(getComputedStyle(el).paddingBottom) < 40) el = el.parentElement;
+        return el ? parseFloat(getComputedStyle(el).paddingBottom) : 0;
+      };
+      const tick = () => {
+        frames.push({ dock: !!document.querySelector('[data-testid="player-dock"]'), room: room() });
+        if (frames.length < 120) requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
+  const frames = () =>
+    page.evaluate(() => (window as { __frames?: { dock: boolean; room: number }[] }).__frames!);
+
+  await record();
+  await page.getByRole("button", { name: "Back", exact: true }).click();
+  await expect(page.getByTestId("player-dock")).toBeVisible();
+  await page.waitForTimeout(300);
+  const docking = await frames();
+  expect(docking.some((frame) => frame.dock)).toBe(true);
+  expect(docking.filter((frame) => frame.dock && frame.room <= 40)).toEqual([]);
+
+  await record();
+  await page.getByRole("button", { name: "Close player", exact: true }).click();
+  await expect(page.getByTestId("player-dock")).toHaveCount(0);
+  await page.waitForTimeout(300);
+  const closing = await frames();
+  expect(closing.filter((frame) => !frame.dock && frame.room !== 40)).toEqual([]);
+});
+
 test("Save in the hero saves the sermon showing", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "Save Pray Without Ceasing", exact: true }).click();

@@ -1,7 +1,7 @@
 import * as Haptics from "expo-haptics";
 import { memo, useRef, useState } from "react";
 import { Platform, StyleSheet, View, useWindowDimensions, type LayoutChangeEvent } from "react-native";
-import { useAccount } from "../auth/AccountProvider";
+import { useAccount, useSaved } from "../auth/AccountProvider";
 import { useGate } from "../auth/gate";
 import type { Sermon } from "../data/sermons";
 import { shareSermon } from "../share";
@@ -57,11 +57,12 @@ function StageRound({
  */
 export const SaveButton = memo(function SaveButton({ sermon }: { sermon: Sermon }) {
   const account = useAccount();
+  const { isSaved, setSaved } = useSaved();
   const gate = useGate();
   const toast = useToast();
   // One save request at a time, so a double tap can't undo itself.
   const saving = useRef(false);
-  const saved = account.isSaved(sermon.id);
+  const saved = isSaved(sermon.id);
   if (account.mode === "unavailable") return null;
   const toggleSave = async () => {
     if (saving.current) return;
@@ -72,7 +73,7 @@ export const SaveButton = memo(function SaveButton({ sermon }: { sermon: Sermon 
     if (Platform.OS !== "web")
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     try {
-      await account.setSaved(sermon.id, next);
+      await setSaved(sermon.id, next);
       toast(
         next ? "Saved" : "Removed from saved",
         next ? "bookmark" : "bookmark-outline",

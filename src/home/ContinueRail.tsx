@@ -1,6 +1,6 @@
 import { memo, useMemo, useState } from "react";
 import { ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
-import { useAccount } from "../auth/AccountProvider";
+import { useWatchProgress } from "../auth/AccountProvider";
 import type { WatchProgress } from "../auth/types";
 import { useCatalogue } from "../catalogue/CatalogueProvider";
 import { headline } from "../data/display";
@@ -33,18 +33,35 @@ export const ContinueRail = memo(function ContinueRail({
   exclude?: string | null;
   onWatch: (id: string) => void;
 }) {
-  const account = useAccount();
+  // Empty for guests.
+  const { progress: watched } = useWatchProgress();
   const { find } = useCatalogue();
   const { fontScale } = useWindowDimensions();
   const [all, setAll] = useState(false);
-  const items = useMemo<Item[]>(() => {
-    if (!account.user) return [];
-    return [...account.progress]
-      .filter((p) => resumePoint(p) > 0 && p.sermonId !== exclude)
-      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-      .map((progress) => ({ progress, sermon: find(progress.sermonId) }))
-      .filter((item): item is Item => !!item.sermon);
-  }, [account.user, account.progress, exclude, find]);
+  const items = useMemo<Item[]>(
+    () =>
+      [...watched]
+        .filter((p) => resumePoint(p) > 0 && p.sermonId !== exclude)
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+        .map((progress) => ({ progress, sermon: find(progress.sermonId) }))
+        .filter((item): item is Item => !!item.sermon),
+    [watched, exclude, find],
+  );
+  // The same while a save only moves a tile's bar, so the header stays put.
+  const count = items.length;
+  const action = useMemo(
+    () =>
+      count > 1
+        ? {
+            label: all ? "Show less" : "See all",
+            onPress: () => setAll((was) => !was),
+            hint: all
+              ? "Shows them in a row again"
+              : `Lists all ${count} sermons you’re part way through`,
+          }
+        : undefined,
+    [all, count],
+  );
   if (!items.length) return null;
 
   const tile = Math.round(TILE * Math.min(1.3, Math.max(1, fontScale)));
@@ -52,33 +69,14 @@ export const ContinueRail = memo(function ContinueRail({
     <View testID="continue-watching" style={styles.section}>
       <SectionHeader
         title="Continue watching"
-        action={
-          items.length > 1
-            ? {
-                label: all ? "Show less" : "See all",
-                onPress: () => setAll((was) => !was),
-                hint: all
-                  ? "Shows them in a row again"
-                  : `Lists all ${items.length} sermons you’re part way through`,
-              }
-            : undefined
-        }
+        action={action}
         inset={24}
         style={styles.header}
       />
       {all ? (
         <View style={styles.list} testID="continue-all">
-          {items.map(({ sermon, progress }) => (
-            <SermonRow
-              key={sermon.id}
-              testID="continue-card"
-              sermon={sermon}
-              kicker={null}
-              progress={fraction(progress)}
-              detail={timeLeft(progress)}
-              hint="Resumes the sermon where you left off"
-              onPress={() => onWatch(sermon.id)}
-            />
+          {items.map((item) => (
+            <ContinueRow key={item.sermon.id} {...item} onWatch={onWatch} />
           ))}
         </View>
       ) : (
@@ -96,6 +94,26 @@ export const ContinueRail = memo(function ContinueRail({
         </ScrollView>
       )}
     </View>
+  );
+});
+
+// A save (every 15 seconds while a sermon plays) re-renders only that
+// sermon's tile or row.
+const ContinueRow = memo(function ContinueRow({
+  sermon,
+  progress,
+  onWatch,
+}: Item & { onWatch: (id: string) => void }) {
+  return (
+    <SermonRow
+      testID="continue-card"
+      sermon={sermon}
+      kicker={null}
+      progress={fraction(progress)}
+      detail={timeLeft(progress)}
+      hint="Resumes the sermon where you left off"
+      onPress={() => onWatch(sermon.id)}
+    />
   );
 });
 

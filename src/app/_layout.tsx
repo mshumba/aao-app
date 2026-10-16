@@ -13,6 +13,7 @@ import { blessingIsOnScreen, coverState, subscribeCover } from "../blessing/sche
 import { CatalogueProvider, useCatalogue } from "../catalogue/CatalogueProvider";
 import { useAppFonts } from "../fonts";
 import { heroDrawn, onHeroDrawn } from "../home/Hero";
+import { firstScreenShown } from "../kit/Artwork";
 import { LearningProvider } from "../learning";
 import { MotionProvider, useReducedMotion } from "../motion";
 import { TAB_PATHS } from "../player/layout";
@@ -68,9 +69,9 @@ function RootLayout() {
   // Native: the fonts ship in the app and the splash stays until they're in.
   // Web: at most 600 ms, then size-matched stand-ins until the files arrive
   // (src/fonts). Web has no native splash, so it shows a plain ivory frame
-  // meanwhile.
+  // meanwhile. Only the screens wait: the session, the library and the
+  // paths load from the device alongside the fonts.
   const fontsReady = useAppFonts();
-  if (!fontsReady) return <View style={{ flex: 1, backgroundColor: c.bg }} />;
   return (
     <MotionProvider>
       <CatalogueProvider>
@@ -80,17 +81,23 @@ function RootLayout() {
           <LearningProvider>
             <PlayerProvider>
               <ToastProvider>
-                {/* Dark clock and icons on the ivory page. A screen drawn under
-                    the status bar over dark artwork sets its own. */}
-                <StatusBar style="dark" />
-                {/* The scrubber's drag and the page's scroll share touches. */}
-                <GestureHandlerRootView style={{ flex: 1, backgroundColor: c.bg }}>
-                  <Screens />
-                  {/* One player for the whole app, above every screen. */}
-                  <PlayerHost />
-                  <IntentRunner />
-                  <FirstRun />
-                </GestureHandlerRootView>
+                {fontsReady ? (
+                  <>
+                    {/* Dark clock and icons on the ivory page. A screen drawn under
+                        the status bar over dark artwork sets its own. */}
+                    <StatusBar style="dark" />
+                    {/* The scrubber's drag and the page's scroll share touches. */}
+                    <GestureHandlerRootView style={{ flex: 1, backgroundColor: c.bg }}>
+                      <Screens />
+                      {/* One player for the whole app, above every screen. */}
+                      <PlayerHost />
+                      <IntentRunner />
+                      <FirstRun />
+                    </GestureHandlerRootView>
+                  </>
+                ) : (
+                  <View style={{ flex: 1, backgroundColor: c.bg }} />
+                )}
               </ToastProvider>
             </PlayerProvider>
           </LearningProvider>
@@ -156,6 +163,7 @@ function FirstRun() {
         setCovered(false);
         SplashScreen.hideAsync().catch(() => {});
         lifted.set();
+        firstScreenShown();
       });
     };
     if (!waiting) return lift();

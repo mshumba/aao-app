@@ -93,13 +93,19 @@ export function CatalogueProvider({ children }: PropsWithChildren) {
       current: current.current,
       report: (snapshot, source) => {
         if (source !== "sample") current.current = snapshot;
-        setState((was) => ({ ...was, snapshot, source }));
+        // A sync that found nothing new hands back the copy already
+        // showing, which stays as it is (its source too): nothing re-renders.
+        setState((was) => (was.snapshot === snapshot ? was : { ...was, snapshot, source }));
       },
       onRead: () => setState((was) => (was.hydrated ? was : { ...was, hydrated: true })),
     });
     syncing.current = false;
     if (online) lastSync.current = Date.now();
-    setState((was) => ({ ...was, hydrated: true, settled: true, offline: !online }));
+    setState((was) =>
+      was.hydrated && was.settled && was.offline === !online
+        ? was
+        : { ...was, hydrated: true, settled: true, offline: !online },
+    );
   }, []);
 
   useEffect(() => {
@@ -118,20 +124,29 @@ export function CatalogueProvider({ children }: PropsWithChildren) {
     [state.snapshot],
   );
 
+  // Change only with the library, so what's built from them (a path's days
+  // with their sermons, say) isn't rebuilt when the sync settles.
+  const find = useCallback((id?: string | null) => (id ? byId.get(id) : undefined), [byId]);
+  const seriesName = useCallback(
+    (key?: string | null) => (key ? names.get(key) : undefined),
+    [names],
+  );
+  const retry = useCallback(() => {
+    sync();
+  }, [sync]);
+
   const value = useMemo<Catalogue>(
     () => ({
       sermons,
-      find: (id) => (id ? byId.get(id) : undefined),
-      seriesName: (key) => (key ? names.get(key) : undefined),
+      find,
+      seriesName,
       source: state.source,
       hydrated: state.hydrated,
       settled: state.settled,
       offline: state.offline,
-      retry: () => {
-        sync();
-      },
+      retry,
     }),
-    [sermons, byId, names, state.source, state.hydrated, state.settled, state.offline, sync],
+    [sermons, find, seriesName, state.source, state.hydrated, state.settled, state.offline, retry],
   );
 
   return <CatalogueContext.Provider value={value}>{children}</CatalogueContext.Provider>;

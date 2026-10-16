@@ -3,24 +3,32 @@ import {
   ActivityIndicator,
   PixelRatio,
   Platform,
-  ScrollView,
   StyleSheet,
   Text,
   View,
   useWindowDimensions,
   type LayoutChangeEvent,
-  type NativeScrollEvent,
   type NativeSyntheticEvent,
   type TextLayoutEventData,
 } from "react-native";
-import Animated from "react-native-reanimated";
+import Animated, {
+  Extrapolation,
+  interpolate,
+  interpolateColor,
+  useAnimatedRef,
+  useAnimatedScrollHandler,
+  useAnimatedStyle,
+  useSharedValue,
+  type SharedValue,
+} from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { scheduleOnRN } from "react-native-worklets";
 import { headline } from "../data/display";
 import type { Sermon } from "../data/sermons";
 import { Artwork, Avatar, ItalicTitle, Kicker, PlayPill, RoundButton, Wash, artCandidates, artUri, sizedArt, spokenKicker, spokenText, spokenTime } from "../kit";
 import { useArtOnDevice } from "../kit/Artwork";
 import { useReducedMotion } from "../motion";
-import { artFade, c, easeOut, fontSize, radius, shadows, textCap, type } from "../theme";
+import { artFade, c, fontSize, radius, shadows, textCap, type } from "../theme";
 import { T, Tap, gradient, web, type WebKey } from "../ui";
 import { greeting, heroKicker } from "./copy";
 
@@ -96,6 +104,10 @@ const REST_MS = 2500;
 const PREVIEW_PX = 320;
 /** "Loading the latest sermons" only if the library takes longer than this. */
 const LOADING_AFTER_MS = 400;
+/** The dots: 6pt, and 18pt long in white for the page showing. */
+const DOT = 6;
+const DOT_ON = 18;
+const DOT_COLOR = "rgba(255,255,255,0.45)";
 
 /** Where Home's column sits in a window `width` wide: its left edge and width. */
 export function heroColumn(width: number) {
@@ -259,57 +271,68 @@ export const HomeHero = memo(function HomeHero({
   }, [count]);
 
   // ---- The pager ----------------------------------------------------------------
-  const scroller = useRef<ScrollView>(null);
+  // A swipe renders nothing until it ends: the dots follow the pager's
+  // offset on the UI thread, and the page showing (`index`, which Watch,
+  // Save and screen readers follow) is chosen once the pager rests on it.
+  const scroller = useAnimatedRef<Animated.ScrollView>();
+  const offset = useSharedValue(0);
   const [index, setIndex] = useState(0);
-  const indexRef = useRef(0);
-  // While a slide asked for by the dots is moving, the scroll position says
-  // nothing about which page is chosen; the dots and Watch keep the target.
-  const target = useRef<number | null>(null);
+  const chosen = useSharedValue(0);
+  // While a slide asked for by the dots is moving, the pages it passes
+  // aren't chosen; the dots and Watch keep the target (-1: none).
+  const target = useSharedValue(-1);
   const current = sermons[Math.min(index, Math.max(0, count - 1))];
 
-  const onScroll = useCallback(
-    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
-      const x = e.nativeEvent.contentOffset.x;
-      if (target.current != null) {
-        if (Math.abs(x - target.current * width) > 2) return;
-        target.current = null;
-      }
-      const i = Math.max(0, Math.min(count - 1, Math.round(x / width)));
-      if (i !== indexRef.current) {
-        indexRef.current = i;
-        setIndex(i);
-      }
+  const onDrag = useCallback(() => setRest(true), []);
+  // Native says when a swipe has ended; the web only stops scrolling, so
+  // resting on a page (to the point) is the sign on both.
+  const settle = (x: number) => {
+    "worklet";
+    const i = Math.max(0, Math.min(count - 1, Math.round(x / width)));
+    if (Math.abs(x - i * width) > 1) return;
+    if (target.get() >= 0) {
+      if (i !== target.get()) return;
+      target.set(-1);
+    }
+    if (i === chosen.get()) return;
+    chosen.set(i);
+    scheduleOnRN(setIndex, i);
+  };
+  const onScroll = useAnimatedScrollHandler({
+    onScroll: (e) => {
+      offset.set(e.contentOffset.x);
+      settle(e.contentOffset.x);
     },
-    [count, width],
-  );
-  const onDrag = useCallback(() => {
-    target.current = null;
-    setRest(true);
-  }, []);
+    onBeginDrag: () => {
+      target.set(-1);
+      scheduleOnRN(onDrag);
+    },
+    onEndDrag: (e) => settle(e.contentOffset.x),
+    onMomentumEnd: (e) => settle(e.contentOffset.x),
+  });
   const select = useCallback(
     (i: number) => {
-      indexRef.current = i;
-      target.current = reduced ? null : i;
+      chosen.set(i);
+      target.set(reduced ? -1 : i);
       setIndex(i);
       setRest(true);
       scroller.current?.scrollTo({ x: i * width, animated: !reduced });
     },
-    [width, reduced],
+    [chosen, target, scroller, width, reduced],
   );
   // A new width (rotation, a resized browser) keeps the same page showing.
   useEffect(() => {
-    target.current = null;
-    scroller.current?.scrollTo({ x: indexRef.current * width, animated: false });
-  }, [width]);
-  // The list changed under the pager (the library arrived): back to the newest.
+    target.set(-1);
+    scroller.current?.scrollTo({ x: chosen.get() * width, animated: false });
+  }, [chosen, target, scroller, width]);
+  // The list changed under the pager (the library arrived): back to the
+  // newest, which is then chosen as any page the pager rests on.
   const firstId = sermons[0]?.id;
   useEffect(() => {
-    if (indexRef.current === 0) return;
-    indexRef.current = 0;
-    target.current = null;
-    setIndex(0);
+    if (chosen.get() === 0) return;
+    target.set(-1);
     scroller.current?.scrollTo({ x: 0, animated: false });
-  }, [firstId]);
+  }, [chosen, target, scroller, firstId]);
 
   const saved = current ? isSaved(current.id) : false;
   const resume = current ? resumeAt(current.id) : 0;
@@ -349,13 +372,12 @@ export const HomeHero = memo(function HomeHero({
       </View>
 
       {count ? (
-        <ScrollView
+        <Animated.ScrollView
           ref={scroller}
           horizontal
           pagingEnabled
           showsHorizontalScrollIndicator={false}
           onScroll={onScroll}
-          onScrollBeginDrag={onDrag}
           scrollEventThrottle={16}
           // The dots and Watch are the way through for assistive tech.
           accessible={false}
@@ -380,7 +402,7 @@ export const HomeHero = memo(function HomeHero({
               onSharp={i === 0 ? onFirstSharp : undefined}
             />
           ))}
-        </ScrollView>
+        </Animated.ScrollView>
       ) : (
         <>
           <Wash kind="heroScrim" />
@@ -419,7 +441,7 @@ export const HomeHero = memo(function HomeHero({
           />
           {count > 1 ? (
             <View style={styles.dotsWrap}>
-              <HeroDots count={count} index={index} onSelect={select} reduced={reduced} />
+              <HeroDots count={count} index={index} offset={offset} width={width} onSelect={select} />
             </View>
           ) : null}
         </View>
@@ -561,20 +583,6 @@ const HeroPage = memo(function HeroPage({
     onSharp?.();
   }, [onSharp]);
 
-  const words = (
-    <>
-      <Kicker tone="onMedia">{kicker}</Kicker>
-      <ItalicTitle
-        ref={titleRef}
-        text={title}
-        italicLast
-        onLayout={onTitleLayout}
-        onTextLayout={Platform.OS === "web" ? undefined : onTextLayout}
-        style={[type.masthead, TITLE_STEPS[step], styles.title, { maxWidth: column }]}
-        maxFontSizeMultiplier={textCap.display}
-      />
-    </>
-  );
   const bodyBox = [styles.body, { left: inset, right: inset, bottom: BODY_BOTTOM }];
   return (
     <View
@@ -630,20 +638,28 @@ const HeroPage = memo(function HeroPage({
       ) : null}
       <View style={[StyleSheet.absoluteFill, styles.noTouch, scrim]} aria-hidden />
       <View style={bodyBox} onLayout={onLayout}>
-        {current ? (
-          <Tap
-            accessibilityRole="button"
-            accessibilityLabel={`${spokenText(spokenKicker(kicker))}. ${title}`}
-            accessibilityHint="Opens the sermon"
-            onPress={() => onOpen(sermon.id)}
-            feedback="dim"
-            unstable_pressDelay={60}
-          >
-            {words}
-          </Tap>
-        ) : (
-          <View>{words}</View>
-        )}
+        {/* A Tap on every page, the one showing reachable by the keyboard:
+            the words never remount as the pager settles. */}
+        <Tap
+          accessibilityRole="button"
+          accessibilityLabel={`${spokenText(spokenKicker(kicker))}. ${title}`}
+          accessibilityHint="Opens the sermon"
+          tabIndex={current ? 0 : -1}
+          onPress={() => onOpen(sermon.id)}
+          feedback="dim"
+          unstable_pressDelay={60}
+        >
+          <Kicker tone="onMedia">{kicker}</Kicker>
+          <ItalicTitle
+            ref={titleRef}
+            text={title}
+            italicLast
+            onLayout={onTitleLayout}
+            onTextLayout={Platform.OS === "web" ? undefined : onTextLayout}
+            style={[type.masthead, TITLE_STEPS[step], styles.title, { maxWidth: column }]}
+            maxFontSizeMultiplier={textCap.display}
+          />
+        </Tap>
       </View>
     </View>
   );
@@ -654,18 +670,22 @@ const HeroPage = memo(function HeroPage({
 /**
  * Which of the newest sermons is showing. One control: a tap (or a click)
  * shows the next, arrow keys and the screen reader's adjust gestures move
- * either way. Never advances on its own.
+ * either way. Never advances on its own. The dots follow the pager as it
+ * moves (`offset`); what they announce is the page chosen (`index`).
  */
 const HeroDots = memo(function HeroDots({
   count,
   index,
+  offset,
+  width,
   onSelect,
-  reduced,
 }: {
   count: number;
   index: number;
+  offset: SharedValue<number>;
+  /** One page's width: the pager's offset per dot. */
+  width: number;
   onSelect: (index: number) => void;
-  reduced: boolean;
 }) {
   const step = (by: number) => onSelect((index + by + count) % count);
   return (
@@ -697,22 +717,23 @@ const HeroDots = memo(function HeroDots({
       style={styles.dots}
     >
       {Array.from({ length: count }, (_, i) => (
-        <Animated.View
-          key={i}
-          style={[
-            styles.dot,
-            i === index && styles.dotOn,
-            {
-              transitionProperty: ["width", "backgroundColor"],
-              transitionDuration: reduced ? 0 : 220,
-              transitionTimingFunction: easeOut,
-            },
-          ]}
-        />
+        <HeroDot key={i} page={i} offset={offset} width={width} />
       ))}
     </Tap>
   );
 });
+
+/** One dot: long and white for its page, as much so as the page is in view. */
+function HeroDot({ page, offset, width }: { page: number; offset: SharedValue<number>; width: number }) {
+  const look = useAnimatedStyle(() => {
+    const on = interpolate(Math.abs(offset.get() - page * width), [0, width], [1, 0], Extrapolation.CLAMP);
+    return {
+      width: DOT + (DOT_ON - DOT) * on,
+      backgroundColor: interpolateColor(on, [0, 1], [DOT_COLOR, c.white]),
+    };
+  });
+  return <Animated.View style={[styles.dot, look]} />;
+}
 
 const styles = StyleSheet.create({
   hero: { backgroundColor: c.media, overflow: "hidden" },
@@ -769,6 +790,5 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
     gap: 6,
   },
-  dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "rgba(255,255,255,0.45)" },
-  dotOn: { width: 18, backgroundColor: c.white },
+  dot: { height: DOT, borderRadius: DOT / 2 },
 });

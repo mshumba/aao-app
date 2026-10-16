@@ -6,6 +6,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type ReactNode,
 } from "react";
 import { AppState, Platform } from "react-native";
@@ -69,7 +70,7 @@ type Account = {
   displayName: string | null;
   /**
    * The signed-in account's profile and saved list have been asked for and
-   * have answered (or failed). Until then `saved` is empty, not known.
+   * have answered (or failed). Until then useSaved's list is empty, not known.
    */
   loaded: boolean;
 
@@ -78,33 +79,6 @@ type Account = {
   interests: CategoryId[];
   setInterests: (ids: CategoryId[]) => Promise<void>;
   finishWelcome: () => Promise<void>;
-
-  saved: string[];
-  /** The signed-in account's saved list failed to load (not just empty). */
-  savedError: boolean;
-  /** Fetches the saved list again. Never throws; a failure sets savedError. */
-  reloadSaved: () => Promise<void>;
-  isSaved: (sermonId: string) => boolean;
-  /** Requires a signed-in user. */
-  setSaved: (sermonId: string, saved: boolean) => Promise<void>;
-
-  /** The account's watch progress, most recently watched first. Empty for guests. */
-  progress: WatchProgress[];
-  progressFor: (sermonId: string) => WatchProgress | null;
-  /** The account's progress has loaded, so `progressFor` can be trusted. */
-  progressReady: boolean;
-  /**
-   * The account's progress once it has loaded (at once if it has), or null
-   * for a guest or when it can't be loaded. Tries again after a failure.
-   */
-  whenProgressReady: () => Promise<WatchProgress[] | null>;
-  /**
-   * Records where the viewer is in a sermon. Applies at once and is written
-   * in the background; never throws or waits. Does nothing for guests, or
-   * until the account's progress has loaded, so a new device can't overwrite
-   * a place saved on another one.
-   */
-  saveProgress: (update: ProgressUpdate) => void;
 
   /** What guests may watch without an account (a remote setting). */
   guestWatch: GuestWatch;
@@ -135,6 +109,44 @@ type Account = {
   deleteAccount: () => Promise<void>;
 };
 
+/**
+ * The account's saved sermons (useSaved). Apart from the account, so saving
+ * re-renders only what shows saved sermons.
+ */
+type Saved = {
+  saved: string[];
+  /** The signed-in account's saved list failed to load (not just empty). */
+  savedError: boolean;
+  /** Fetches the saved list again. Never throws; a failure sets savedError. */
+  reloadSaved: () => Promise<void>;
+  /** Changes only with the saved list. */
+  isSaved: (sermonId: string) => boolean;
+  /** Requires a signed-in user. */
+  setSaved: (sermonId: string, saved: boolean) => Promise<void>;
+};
+
+/** The account's watch progress (useWatchProgress). */
+type Progress = {
+  /** The account's watch progress, most recently watched first. Empty for guests. */
+  progress: WatchProgress[];
+  /** Changes only with the progress. */
+  progressFor: (sermonId: string) => WatchProgress | null;
+  /** The account's progress has loaded, so `progressFor` can be trusted. */
+  progressReady: boolean;
+  /**
+   * The account's progress once it has loaded (at once if it has), or null
+   * for a guest or when it can't be loaded. Tries again after a failure.
+   */
+  whenProgressReady: () => Promise<WatchProgress[] | null>;
+  /**
+   * Records where the viewer is in a sermon. Applies at once and is written
+   * in the background; never throws or waits. Does nothing for guests, or
+   * until the account's progress has loaded, so a new device can't overwrite
+   * a place saved on another one.
+   */
+  saveProgress: (update: ProgressUpdate) => void;
+};
+
 /** The signed-in account's profile and saved list. */
 type AccountData = {
   /** The account they belong to, so another account never shows them. */
@@ -156,7 +168,54 @@ type PendingName = { userId: string; name: string };
 /** Accounts Home has already welcomed on this device (see justJoined). */
 const WELCOMED_ACCOUNTS = "aao.welcomedAccounts.v1";
 
+/**
+ * Watch progress lives in this small store rather than in React state or the
+ * account's context: it changes while a sermon plays (a save every 15
+ * seconds), and only what shows that sermon's progress should re-render then
+ * (useWatchProgress for the whole list, useProgressOf for some sermons).
+ */
+type ProgressData = { userId: string; items: WatchProgress[] } | null;
+
+function createProgressStore() {
+  let data: ProgressData = null;
+  const listeners = new Set<() => void>();
+  return {
+    get: () => data,
+    set(next: ProgressData) {
+      data = next;
+      listeners.forEach((listener) => listener());
+    },
+    subscribe(listener: () => void) {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+  };
+}
+
+type ProgressSource = {
+  store: ReturnType<typeof createProgressStore>;
+  /** The signed-in account, whose progress the store's must be to show. */
+  userId: string | null;
+  whenProgressReady: Progress["whenProgressReady"];
+  saveProgress: Progress["saveProgress"];
+};
+
+const NO_PROGRESS: WatchProgress[] = [];
+const indexes = new WeakMap<WatchProgress[], Map<string, WatchProgress>>();
+
+/** The account's progress, by sermon; built once for each change. */
+function progressIndex(data: ProgressData, userId: string | null) {
+  const items = data && data.userId === userId ? data.items : NO_PROGRESS;
+  let index = indexes.get(items);
+  if (!index) indexes.set(items, (index = new Map(items.map((item) => [item.sermonId, item]))));
+  return { items, index };
+}
+
 const AccountContext = createContext<Account | null>(null);
+const SavedContext = createContext<Saved | null>(null);
+const ProgressContext = createContext<ProgressSource | null>(null);
 
 const validTopic = (id: string): id is CategoryId =>
   categories.some((category) => category.id === id);
@@ -166,11 +225,8 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [data, setData] = useState<AccountData | null>(null);
   // Watch progress, kept apart from the profile because it changes while
-  // a sermon plays.
-  const [progressData, setProgressData] = useState<{
-    userId: string;
-    items: WatchProgress[];
-  } | null>(null);
+  // a sermon plays (see createProgressStore).
+  const [progressStore] = useState(createProgressStore);
   // The latest load of an account's progress; `items` is set once it succeeds.
   const progressLoad = useRef<{
     userId: string;
@@ -372,10 +428,6 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   const saved = useMemo(() => mine?.saved ?? [], [mine]);
   const savedError = !!mine?.savedError;
 
-  const progress = useMemo(
-    () => (progressData && progressData.userId === userId ? progressData.items : []),
-    [progressData, userId],
-  );
   const loadProgress = useCallback((id: string) => {
     if (!backend) return Promise.resolve(null);
     const entry: NonNullable<typeof progressLoad.current> = {
@@ -383,7 +435,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
       promise: backend.listProgress(id).then(
         (items) => {
           entry.items = items;
-          setProgressData({ userId: id, items });
+          progressStore.set({ userId: id, items });
           return items;
         },
         // Kept unloaded: nothing is saved over what can't be seen.
@@ -392,13 +444,10 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     };
     progressLoad.current = entry;
     return entry.promise;
-  }, []);
+  }, [progressStore]);
   useEffect(() => {
     if (userId) loadProgress(userId);
   }, [userId, loadProgress]);
-  const progressReady =
-    !!userId && !!progressData && progressData.userId === userId;
-
   const whenProgressReady = useCallback(async () => {
     if (!userId) return null;
     const entry = progressLoad.current;
@@ -437,11 +486,11 @@ export function AccountProvider({ children }: { children: ReactNode }) {
       if (loaded?.userId !== userId || !loaded.items) return;
       const item: WatchProgress = { ...update, updatedAt: new Date().toISOString() };
       loaded.items = [item, ...loaded.items.filter((p) => p.sermonId !== update.sermonId)];
-      setProgressData({ userId, items: loaded.items });
+      progressStore.set({ userId, items: loaded.items });
       outbox.current.pending.set(`${userId}|${update.sermonId}`, { userId, update });
       flushProgress();
     },
-    [flushProgress, userId],
+    [flushProgress, progressStore, userId],
   );
 
   /** Reads the profile again; true once it has loaded and is saved. */
@@ -624,6 +673,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     return attempt;
   }, [holdName]);
 
+  const loaded = !!mine;
   const value = useMemo<Account>(() => {
     // Signed in, the account's topics once its profile has loaded; until
     // then, and for guests, this device's.
@@ -637,21 +687,11 @@ export function AccountProvider({ children }: { children: ReactNode }) {
       profileError,
       reloadProfile,
       displayName: profile?.displayName ?? null,
-      loaded: !!mine,
+      loaded,
       welcomed: !!onboarding?.welcomed || !!profile?.onboardedAt,
       interests,
       setInterests,
       finishWelcome,
-      saved,
-      savedError,
-      reloadSaved,
-      isSaved: (id) => saved.includes(id),
-      setSaved,
-      progress,
-      progressFor: (id) => progress.find((item) => item.sermonId === id) ?? null,
-      progressReady,
-      whenProgressReady,
-      saveProgress,
       guestWatch,
       hasPass: (id) => passes.includes(id),
       grantPass,
@@ -692,14 +732,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     profile,
     profileError,
     reloadProfile,
-    mine,
-    saved,
-    savedError,
-    reloadSaved,
-    progress,
-    progressReady,
-    whenProgressReady,
-    saveProgress,
+    loaded,
     passes,
     guestWatch,
     joined,
@@ -707,7 +740,6 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     signingInWith,
     setInterests,
     finishWelcome,
-    setSaved,
     grantPass,
     updateProfile,
     signInWithApple,
@@ -715,11 +747,86 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     persistOnboarding,
   ]);
 
-  return <AccountContext.Provider value={value}>{children}</AccountContext.Provider>;
+  const savedValue = useMemo<Saved>(() => {
+    const ids = new Set(saved);
+    return {
+      saved,
+      savedError,
+      reloadSaved,
+      isSaved: (id) => ids.has(id),
+      setSaved,
+    };
+  }, [saved, savedError, reloadSaved, setSaved]);
+
+  const progressValue = useMemo<ProgressSource>(
+    () => ({ store: progressStore, userId, whenProgressReady, saveProgress }),
+    [progressStore, userId, whenProgressReady, saveProgress],
+  );
+
+  return (
+    <AccountContext.Provider value={value}>
+      <SavedContext.Provider value={savedValue}>
+        <ProgressContext.Provider value={progressValue}>{children}</ProgressContext.Provider>
+      </SavedContext.Provider>
+    </AccountContext.Provider>
+  );
 }
 
 export function useAccount() {
   const value = useContext(AccountContext);
   if (!value) throw new Error("useAccount must be used inside AccountProvider.");
   return value;
+}
+
+/** The account's saved sermons; empty for guests. */
+export function useSaved() {
+  const value = useContext(SavedContext);
+  if (!value) throw new Error("useSaved must be used inside AccountProvider.");
+  return value;
+}
+
+function useProgressSource() {
+  const value = useContext(ProgressContext);
+  if (!value) throw new Error("Watch progress must be read inside AccountProvider.");
+  return value;
+}
+
+/**
+ * The account's watch progress; empty for guests. The caller re-renders with
+ * every save (every 15 seconds while a sermon plays), so a screen that shows
+ * only some sermons' progress uses useProgressOf.
+ */
+export function useWatchProgress(): Progress {
+  const { store, userId, whenProgressReady, saveProgress } = useProgressSource();
+  const data = useSyncExternalStore(store.subscribe, store.get, store.get);
+  return useMemo(() => {
+    const { items, index } = progressIndex(data, userId);
+    return {
+      progress: items,
+      progressFor: (id) => index.get(id) ?? null,
+      progressReady: !!userId && data?.userId === userId,
+      whenProgressReady,
+      saveProgress,
+    };
+  }, [data, userId, whenProgressReady, saveProgress]);
+}
+
+/**
+ * progressFor for these sermons only (a path's days, the hero's sermons): it
+ * changes, and the caller re-renders, only when one of theirs does, not with
+ * every save while another sermon plays. Ask it about these sermons only.
+ */
+export function useProgressOf(sermonIds: readonly string[]) {
+  const { store, userId } = useProgressSource();
+  const stamp = () => {
+    const { index } = progressIndex(store.get(), userId);
+    return sermonIds.map((id) => index.get(id)?.updatedAt ?? "").join(" ");
+  };
+  const key = useSyncExternalStore(store.subscribe, stamp, stamp);
+  return useCallback(
+    (sermonId: string) => progressIndex(store.get(), userId).index.get(sermonId) ?? null,
+    // The key stands for these sermons' progress: a new one, a new answer.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [store, userId, key],
+  );
 }

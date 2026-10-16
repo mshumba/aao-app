@@ -1,5 +1,3 @@
-import { useIsFocused } from "expo-router";
-import { StatusBar } from "expo-status-bar";
 import { memo, useCallback, useRef, useState, type ReactNode } from "react";
 import {
   ScrollView,
@@ -19,6 +17,7 @@ import type { ArtSource } from "./Artwork";
 import { T, web } from "./base";
 import { RoundButton } from "./buttons";
 import { CardFan } from "./CardFan";
+import { FocusedStatusBar } from "./FocusedStatusBar";
 import { ItalicTitle, Kicker } from "./text";
 import { Wash } from "./Wash";
 
@@ -58,7 +57,6 @@ export const CoverPage = memo(function CoverPage({
   const go = useGo();
   const insets = useSafeAreaInsets();
   const dock = useDockInset();
-  const focused = useIsFocused();
   const { width } = useWindowDimensions();
   const scale = Math.min(0.9, (Math.min(width, MAX_WIDTH) - 40) / 340);
   const top = Math.max(insets.top, 12);
@@ -80,7 +78,7 @@ export const CoverPage = memo(function CoverPage({
 
   return (
     <View style={styles.screen} testID={testID}>
-      {focused ? <StatusBar style={past ? "dark" : "light"} animated /> : null}
+      <FocusedStatusBar style={past ? "dark" : "light"} />
       <ScrollView
         onScroll={onScroll}
         scrollEventThrottle={32}

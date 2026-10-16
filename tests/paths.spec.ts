@@ -432,6 +432,47 @@ test.describe("part way through a path", () => {
     await expect(page.getByTestId("part-of-path-mark-done")).toHaveCount(0);
   });
 
+  test("on a wide window, arrows under the row move it a day at a time, clear of the artwork", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(`/path/${HABIT}`);
+    const earlier = page.getByRole("button", { name: "Earlier days", exact: true });
+    const later = page.getByRole("button", { name: "Later days", exact: true });
+    await expect(later).toBeVisible();
+    await expect.poll(() => inView(page, 3)).toBe("whole");
+    // Under the cards, on the line with "Mark Day 3 done", at the column's end.
+    const card = (await day(page, 3).boundingBox())!;
+    const mark = (await page.getByTestId("path-day-3-mark-done").boundingBox())!;
+    for (const arrow of [earlier, later]) {
+      const box = (await arrow.boundingBox())!;
+      expect(box.y).toBeGreaterThanOrEqual(card.y + card.height);
+      expect(Math.abs(box.y + box.height / 2 - (mark.y + mark.height / 2))).toBeLessThan(4);
+    }
+    const x = async () => (await day(page, 3).boundingBox())!.x;
+    await later.click();
+    await expect.poll(async () => card.x - (await x())).toBeGreaterThan(card.width);
+    await earlier.click();
+    await expect.poll(x).toBeCloseTo(card.x, 0);
+    // At the row's end "Later days" goes, and "Earlier days" keeps its place.
+    const place = (await earlier.boundingBox())!.x;
+    for (let i = 0; i < 7 && (await later.count()); i++) {
+      const from = await x();
+      await later.click();
+      await expect.poll(x).toBeLessThan(from);
+      // A day at a time: the row comes to rest before the next press.
+      await expect
+        .poll(async () => {
+          const at = await x();
+          await page.waitForTimeout(100);
+          return (await x()) - at;
+        })
+        .toBe(0);
+    }
+    await expect(later).toHaveCount(0);
+    expect((await earlier.boundingBox())!.x).toBe(place);
+  });
+
   test("Mark Day 3 done on the sermon page", async ({ page }) => {
     await page.goto(`/sermon/${SERMON.dayTwo}?path=${HABIT}&day=3`);
     const row = page.getByTestId("part-of-path");

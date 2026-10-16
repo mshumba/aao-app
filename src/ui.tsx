@@ -4,6 +4,7 @@ import React, {
   PropsWithChildren,
   ReactNode,
   Ref,
+  memo,
   useRef,
   useState,
 } from "react";
@@ -30,7 +31,14 @@ import {
   ViewStyle,
   useWindowDimensions,
 } from "react-native";
-import Animated from "react-native-reanimated";
+import Animated, {
+  Easing,
+  ReduceMotion,
+  useAnimatedStyle,
+  useSharedValue,
+  withSequence,
+  withTiming,
+} from "react-native-reanimated";
 import {
   SafeAreaView,
   useSafeAreaInsets,
@@ -41,7 +49,7 @@ import { Sermon, sermonCategoryIds } from "./data/sermons";
 import { useReducedMotion } from "./motion";
 import { useGo, usePageTitle } from "./navigation";
 import { useDockInset } from "./player/useDockInset";
-import { c, easeOut, font, press, radius, shadows, space, tabular, textCap, type } from "./theme";
+import { c, font, press, radius, shadows, space, tabular, textCap, type } from "./theme";
 export { c, T, web };
 
 type IconName = ComponentProps<typeof Ionicons>["name"];
@@ -276,6 +284,19 @@ if (Platform.OS === "web" && typeof document !== "undefined" && !document.getEle
 
 type Feedback = "scale" | "scaleLarge" | "highlight" | "dim";
 
+/** A quick tap keeps the pressed look this long, so every tap shows. */
+const MIN_PRESSED = 100;
+
+/**
+ * The theme's easeOut as a timing curve. Tap swaps scaling for a dim under
+ * Reduce Motion itself, so the timing never skips to its end.
+ */
+const pressTiming = {
+  duration: press.duration,
+  easing: Easing.bezier(0.23, 1, 0.32, 1),
+  reduceMotion: ReduceMotion.Never,
+};
+
 /**
  * Pressable with press-in feedback that commits on release.
  * - scale: small controls shrink 3% over 120ms (strong ease-out).
@@ -283,6 +304,11 @@ type Feedback = "scale" | "scaleLarge" | "highlight" | "dim";
  * - highlight: rows inside a shared surface and icon buttons tint instead.
  * - dim: borderless text actions fade, like iOS text buttons.
  * Under Reduce Motion, scaling becomes a dim.
+ *
+ * The look runs on the UI thread, so it lets go on time even while the
+ * press's work (often building the next screen) holds the JS thread, and a
+ * quick tap, whose press-in and press-out arrive together after a press
+ * delay, still shows for MIN_PRESSED.
  */
 export function Tap({
   style,
@@ -305,18 +331,45 @@ export function Tap({
   /** Web only: other keys this control handles (a radio group's arrows). */
   onWebKey?: (e: WebKey) => void;
 }) {
-  const [pressed, setPressed] = useState(false);
   const reduced = useReducedMotion();
-  const active = pressed && !disabled && !busy;
+  // 0 at rest, 1 pressed.
+  const pressed = useSharedValue(0);
+  const downAt = useRef<number | null>(null);
+  const live = !disabled && !busy;
   const scales = feedback === "scale" || feedback === "scaleLarge";
-  const scale =
-    active && scales && !reduced
-      ? feedback === "scale"
-        ? press.scale
-        : press.scaleLarge
-      : 1;
-  const dimmed =
-    active && (feedback === "dim" || (scales && reduced)) ? 0.6 : 1;
+  const shrink =
+    scales && !reduced
+      ? 1 - (feedback === "scale" ? press.scale : press.scaleLarge)
+      : 0;
+  const dims = feedback === "dim" || (scales && reduced);
+  const resting = disabled && !busy ? 0.45 : 1;
+  const highlight = feedback === "highlight";
+  const ground = highlight
+    ? (StyleSheet.flatten(style)?.backgroundColor ?? "transparent")
+    : "transparent";
+  const look = useAnimatedStyle(() => {
+    const p = live ? pressed.get() : 0;
+    const animated: ViewStyle = {
+      opacity: dims ? resting * (1 - 0.4 * p) : resting,
+      transform: [{ scale: 1 - shrink * p }],
+    };
+    if (highlight) animated.backgroundColor = p > 0.5 ? highlightColor : ground;
+    return animated;
+  });
+  // Lets go, after MIN_PRESSED from the press-in when the tap was quicker.
+  const release = () => {
+    if (downAt.current === null) return;
+    const held = Date.now() - downAt.current;
+    downAt.current = null;
+    pressed.set(
+      held < MIN_PRESSED
+        ? withSequence(
+            withTiming(1, { ...pressTiming, duration: MIN_PRESSED - held }),
+            withTiming(0, pressTiming),
+          )
+        : withTiming(0, pressTiming),
+    );
+  };
   const role = rest.accessibilityRole;
   const slop = webSlop(
     rest.hitSlop,
@@ -338,7 +391,20 @@ export function Tap({
       // Busy controls ignore presses but stay focusable, so keyboard focus
       // isn't thrown to the page while a demo request "runs".
       disabled={disabled}
-      onPress={busy ? undefined : onPress}
+      onPress={
+        busy || !onPress
+          ? undefined
+          : (e) => {
+              // React Native holds press-out until 130ms after press-in, so
+              // on a phone the release starts here, and the action waits a
+              // frame so its work (often the next screen) starts behind it.
+              // The web keeps the action inside the click, which sharing,
+              // copying and playback need.
+              release();
+              if (Platform.OS === "web") onPress(e);
+              else requestAnimationFrame(() => onPress(e));
+            }
+      }
       // VoiceOver otherwise activates by tapping the control's centre, which
       // can land on the docked player floating above it.
       {...(Platform.OS === "ios"
@@ -363,25 +429,15 @@ export function Tap({
           })
         : null)}
       onPressIn={(e) => {
-        setPressed(true);
+        downAt.current = Date.now();
+        pressed.set(withTiming(1, pressTiming));
         onPressIn?.(e);
       }}
       onPressOut={(e) => {
-        setPressed(false);
+        release();
         onPressOut?.(e);
       }}
-      style={[
-        style,
-        active &&
-          feedback === "highlight" && { backgroundColor: highlightColor },
-        {
-          opacity: disabled && !busy ? 0.45 : dimmed,
-          transform: [{ scale }],
-          transitionProperty: ["transform", "opacity"],
-          transitionDuration: press.duration,
-          transitionTimingFunction: easeOut,
-        },
-      ]}
+      style={[style, look]}
     >
       {children}
     </AnimatedPressable>
@@ -961,8 +1017,11 @@ export function sermonMeta(sermon: Pick<Sermon, "date" | "duration">) {
  * on the leading side, then the event as a gold kicker, the headline (two
  * lines, see SermonTitle) and the date and length. At large text the
  * artwork moves above the words. One accessible element.
+ *
+ * Memoised: a long list redraws its cells on every batch it renders, so
+ * pass a stable `onPress` (or none) for a row to skip those.
  */
-export function SermonRow({
+export const SermonRow = memo(function SermonRow({
   sermon,
   lead,
   title,
@@ -1005,6 +1064,8 @@ export function SermonRow({
         onPress ??
         (() => go.push({ pathname: "/sermon/[id]", params: { id: sermon.id } }))
       }
+      // Rows sit in scrolling lists: the delay keeps a scroll's first touch
+      // from pressing one, and Tap still shows a quick tap made inside it.
       unstable_pressDelay={60}
       feedback="scaleLarge"
       style={[s.row, stacked && s.rowStacked]}
@@ -1029,13 +1090,13 @@ export function SermonRow({
       </View>
     </Tap>
   );
-}
+});
 
 /**
  * A sermon as a card in a horizontal rail: artwork above, then the headline
  * and a line under it (the event line by default).
  */
-export function SermonCard({
+export const SermonCard = memo(function SermonCard({
   sermon,
   width,
   detail,
@@ -1057,6 +1118,7 @@ export function SermonCard({
       onPress={() =>
         go.push({ pathname: "/sermon/[id]", params: { id: sermon.id } })
       }
+      // In a sideways rail: as for rows, a swipe's first touch doesn't press.
       unstable_pressDelay={60}
       feedback="scaleLarge"
       style={[s.card, { width }]}
@@ -1077,7 +1139,7 @@ export function SermonCard({
       </View>
     </Tap>
   );
-}
+});
 
 export const s = StyleSheet.create({
   text: {

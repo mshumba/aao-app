@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
-import { useAccount } from "../auth/AccountProvider";
+import { useAccount, useSaved } from "../auth/AccountProvider";
 import { useCatalogue } from "../catalogue/CatalogueProvider";
 import type { Sermon } from "../data/sermons";
 import { useGo } from "../navigation";
@@ -10,6 +10,7 @@ import { Header, Page, PageTitle, SermonRow, StatePanel, c } from "../ui";
 
 export default function Saved() {
   const account = useAccount();
+  const saved = useSaved();
   const catalogue = useCatalogue();
   const go = useGo();
   const [retrying, setRetrying] = useState(false);
@@ -18,13 +19,13 @@ export default function Saved() {
     if (retrying) return;
     setRetrying(true);
     // A second failure shows this state again; nothing else to report.
-    await account.reloadSaved();
+    await saved.reloadSaved();
     setRetrying(false);
   }
 
   // Newest first, as the account keeps them; ids no longer in the library
   // are skipped rather than shown as broken rows.
-  const list = account.saved
+  const list = saved.saved
     .map((id) => catalogue.find(id))
     .filter((sermon): sermon is Sermon => !!sermon);
   // The saved list arrives a moment after the session; a sermon newer than
@@ -33,7 +34,7 @@ export default function Saved() {
     retrying ||
     !account.ready ||
     (!!account.user && !account.loaded) ||
-    (!catalogue.settled && list.length < account.saved.length);
+    (!catalogue.settled && list.length < saved.saved.length);
 
   return (
     <Page>
@@ -41,7 +42,7 @@ export default function Saved() {
       <PageTitle
         title="Saved"
         lead={
-          !loading && account.user && !account.savedError && list.length
+          !loading && account.user && !saved.savedError && list.length
             ? `${sermonCount(list.length)}, the most recently saved first.`
             : undefined
         }
@@ -72,7 +73,7 @@ export default function Saved() {
             }
           />
         )
-      ) : account.savedError ? (
+      ) : saved.savedError ? (
         <StatePanel
           icon="cloud-offline-outline"
           tone="error"

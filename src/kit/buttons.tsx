@@ -57,10 +57,14 @@ export const PlayPill = memo(function PlayPill({
   const { bg, fg } = pillTone[tone];
   const glyph: IconName | null = icon === "none" ? null : icon;
   const sizes = pillSizes[size];
-  const { fontScale } = useWindowDimensions();
-  // The big call to action keeps every word at large text: the detail
+  const { width, fontScale } = useWindowDimensions();
+  // The big call to action keeps every word: at large text, or when the
+  // line won't fit ("Start Teaching 1 · 3 hr 35 min" at 320pt), the detail
   // takes a second line instead of being cut off.
-  const stacked = size === "lg" && !!detail && fontScale >= LARGE_TEXT;
+  const stacked =
+    size === "lg" &&
+    !!detail &&
+    (fontScale >= LARGE_TEXT || !fitsCTA(`${text} · ${detail}`, !!glyph, width, fontScale));
   return (
     <Tap
       testID={testID}
@@ -188,6 +192,19 @@ export const RoundButton = memo(function RoundButton({
 const CTA_HEIGHT = 56;
 /** From this text size the big pill puts its detail on a second line. */
 const LARGE_TEXT = 1.3;
+const CTA_SIDE = 20;
+const CTA_MAX = 560;
+
+/**
+ * Whether one line of the big pill fits across the sticky CTA, at about
+ * half an em a character (Manrope's spaces and dots are narrow, its
+ * figures wide). It errs towards a second line.
+ */
+function fitsCTA(line: string, glyph: boolean, width: number, fontScale: number) {
+  // Less the pill's 24pt padding each side, and its 16pt icon and 8pt gap.
+  const room = Math.min(width - CTA_SIDE * 2, CTA_MAX) - 48 - (glyph ? 24 : 0);
+  return line.length * 0.48 * type.buttonLarge.fontSize * Math.min(fontScale, textCap.chip) <= room;
+}
 
 /** Space to leave at the end of a scroll view under the sticky CTA. */
 export function useStickyCTASpace() {
@@ -352,10 +369,10 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     paddingTop: 44,
-    paddingHorizontal: 20,
+    paddingHorizontal: CTA_SIDE,
     zIndex: 30,
   },
-  ctaPill: { width: "100%", maxWidth: 560, alignSelf: "center" },
+  ctaPill: { width: "100%", maxWidth: CTA_MAX, alignSelf: "center" },
   dots: { flexDirection: "row", alignItems: "center", gap: 6, minHeight: 24 },
   dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "rgba(255,255,255,0.45)" },
   dotOn: { width: 18, backgroundColor: c.white },

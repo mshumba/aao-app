@@ -149,6 +149,56 @@ test("one look at 320pt: no page runs off the side", async ({ page }) => {
   }
 });
 
+test("at 320pt the path's big button keeps every word, the length under the label", async ({ page }) => {
+  const cta = page.getByTestId("path-cta");
+  const cut = () =>
+    cta.evaluate((el) =>
+      [...el.querySelectorAll("*")].some(
+        (n) => getComputedStyle(n).textOverflow === "ellipsis" && n.scrollWidth > n.clientWidth + 1,
+      ),
+    );
+  await page.setViewportSize({ width: 320, height: 640 });
+  await page.goto("/path/knowing-the-holy-spirit");
+  await expect(cta).toHaveAccessibleName("Start Teaching 1, 3 hours 35 minutes");
+  expect(await cut()).toBe(false);
+  const label = await cta.getByText("Start Teaching 1", { exact: true }).boundingBox();
+  const length = await cta.getByText("3 hr 35 min", { exact: true }).boundingBox();
+  expect(length!.y).toBeGreaterThan(label!.y + label!.height - 2);
+  // Where it fits, it stays one line.
+  await page.setViewportSize({ width: 390, height: 640 });
+  await expect(cta).toContainText("Start Teaching 1 · 3 hr 35 min");
+  expect(await cut()).toBe(false);
+});
+
+test("a quick tap still shows as a press", async ({ page }) => {
+  // A tap shorter than the press delay delivers press-in and press-out
+  // together (on the web every press waits 50ms), which used to show nothing.
+  await page.goto("/sermons");
+  const chip = page.getByTestId("filter-year");
+  await expect(chip).toBeVisible();
+  const box = (await chip.boundingBox())!;
+  // Every frame's scale, from just before the press until well after.
+  await chip.evaluate((el) => {
+    const w = window as unknown as { scales: number[] };
+    w.scales = [];
+    const t0 = performance.now();
+    const step = () => {
+      const m = /matrix\(([^,]+)/.exec(getComputedStyle(el).transform);
+      w.scales.push(m ? Number(m[1]) : 1);
+      if (performance.now() - t0 < 600) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  });
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.up();
+  await expect(page.getByRole("radiogroup", { name: "Year" })).toBeVisible();
+  await page.waitForTimeout(700);
+  const scales = await page.evaluate(() => (window as unknown as { scales: number[] }).scales);
+  expect(Math.min(...scales)).toBeLessThan(0.99);
+  expect(scales.at(-1)).toBe(1);
+});
+
 test("Back and the filters answer a 44pt touch", async ({ page }) => {
   await page.goto("/sermons");
   for (const control of [

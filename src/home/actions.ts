@@ -2,10 +2,10 @@ import * as Haptics from "expo-haptics";
 import { router, type Href } from "expo-router";
 import { useCallback, useLayoutEffect, useMemo, useRef } from "react";
 import { Platform } from "react-native";
-import { useAccount } from "../auth/AccountProvider";
+import { useSaved } from "../auth/AccountProvider";
 import { useGate } from "../auth/gate";
 import { requestWatch, useGo } from "../navigation";
-import { usePlayerSession } from "../player/PlayerProvider";
+import { loadedSermonId } from "../player/PlayerProvider";
 import { useToast } from "../toast";
 
 /**
@@ -30,12 +30,11 @@ export function pathHref(id: string) {
 export function useSermonActions() {
   const go = useGo();
   const gate = useGate();
-  const account = useAccount();
+  const saved = useSaved();
   const toast = useToast();
-  const session = usePlayerSession();
-  const latest = useRef({ go, gate, account, toast, playing: session.sermon?.id });
+  const latest = useRef({ go, gate, saved, toast });
   useLayoutEffect(() => {
-    latest.current = { go, gate, account, toast, playing: session.sermon?.id };
+    latest.current = { go, gate, saved, toast };
   });
   const saving = useRef(false);
 
@@ -44,12 +43,12 @@ export function useSermonActions() {
   }, []);
 
   const watch = useCallback((id: string, at?: number) => {
-    const { gate, go, playing } = latest.current;
+    const { gate, go } = latest.current;
     if (!gate.require({ kind: "watch", sermonId: id })) return;
     go.run(() => {
       // Already loaded (docked): just open it where it is, unless a place
       // was asked for.
-      if (playing !== id || at != null) requestWatch(id);
+      if (loadedSermonId() !== id || at != null) requestWatch(id);
       router.push({
         pathname: "/sermon/[id]",
         params: at != null ? { id, t: String(Math.max(0, Math.floor(at))) } : { id },
@@ -58,15 +57,15 @@ export function useSermonActions() {
   }, []);
 
   const toggleSave = useCallback(async (id: string) => {
-    const { gate, account, toast } = latest.current;
+    const { gate, saved, toast } = latest.current;
     if (saving.current) return;
     if (!gate.require({ kind: "save", sermonId: id })) return;
     saving.current = true;
-    const next = !account.isSaved(id);
+    const next = !saved.isSaved(id);
     if (Platform.OS !== "web")
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     try {
-      await account.setSaved(id, next);
+      await saved.setSaved(id, next);
       toast(next ? "Saved" : "Removed from saved", next ? "bookmark" : "bookmark-outline");
     } catch {
       toast(

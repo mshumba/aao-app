@@ -83,6 +83,13 @@ type Stamped<T> = { at: number; data: T };
 const local = learningMode === "local";
 const EMPTY_MOMENTS: Moment[] = [];
 const EMPTY_RECENT: string[] = [];
+const EMPTY_DAYS: PathDay[] = [];
+
+/**
+ * The same data, compared as the device stores it, so an answer that
+ * changes nothing (most launches) doesn't re-render what shows it.
+ */
+const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
 // ---- Contexts ------------------------------------------------------------------
 
@@ -91,6 +98,8 @@ type PathsValue = {
   paths: Path[];
   days: PathDay[];
   daysByPath: Map<string, PathDay[]>;
+  /** A path's days in order (without sermons); changes only with the days. */
+  daysOf: (pathId: string) => PathDay[];
   loading: boolean;
   /** Nothing could be loaded (no copy on the device either). */
   error: boolean;
@@ -174,14 +183,25 @@ export function LearningProvider({ children }: PropsWithChildren) {
     if (local) return;
     lastFetch.current = Date.now();
     const [n, p] = await Promise.allSettled([fetchNeeds(), fetchPaths()]);
+    // What the device's copy already shows is kept as it is.
     if (n.status === "fulfilled") {
-      setNeeds({ needs: n.value, loading: false });
-      writeJSON(KEYS.needs, { at: Date.now(), data: n.value } satisfies Stamped<Need[]>);
-    } else setNeeds((was) => ({ ...was, loading: false }));
+      const fresh = n.value;
+      setNeeds((was) => (!was.loading && same(was.needs, fresh) ? was : { needs: fresh, loading: false }));
+      writeJSON(KEYS.needs, { at: Date.now(), data: fresh } satisfies Stamped<Need[]>);
+    } else setNeeds((was) => (was.loading ? { ...was, loading: false } : was));
     if (p.status === "fulfilled") {
-      setPathData({ ...p.value, loading: false, error: false });
-      writeJSON(KEYS.paths, { at: Date.now(), data: p.value });
-    } else setPathData((was) => ({ ...was, loading: false, error: was.paths.length === 0 }));
+      const fresh = p.value;
+      setPathData((was) =>
+        !was.loading && !was.error && same(was.paths, fresh.paths) && same(was.days, fresh.days)
+          ? was
+          : { ...fresh, loading: false, error: false },
+      );
+      writeJSON(KEYS.paths, { at: Date.now(), data: fresh });
+    } else
+      setPathData((was) => {
+        const error = was.paths.length === 0;
+        return !was.loading && was.error === error ? was : { ...was, loading: false, error };
+      });
   }, []);
 
   useEffect(() => {
@@ -207,9 +227,13 @@ export function LearningProvider({ children }: PropsWithChildren) {
   }, [revalidate]);
 
   const daysByPath = useMemo(() => byPath(pathData.days), [pathData.days]);
+  const daysOf = useCallback(
+    (pathId: string) => daysByPath.get(pathId) ?? EMPTY_DAYS,
+    [daysByPath],
+  );
   const pathsValue = useMemo<PathsValue>(
-    () => ({ ...pathData, daysByPath, refresh: () => void revalidate() }),
-    [pathData, daysByPath, revalidate],
+    () => ({ ...pathData, daysByPath, daysOf, refresh: () => void revalidate() }),
+    [pathData, daysByPath, daysOf, revalidate],
   );
 
   // ---- Moments ----------------------------------------------------------------------
@@ -218,6 +242,25 @@ export function LearningProvider({ children }: PropsWithChildren) {
   const momentCache = useRef<Record<string, Stamped<Moment[]>>>({});
   const momentsRead = useRef<Promise<void> | null>(null);
   const inflight = useRef(new Set<string>());
+
+  /**
+   * Shows a sermon's moments (`pick` gets what's showing for it now) with
+   * the device's copies not shown yet, so later pages open with theirs at
+   * once: one update, and none when nothing has changed.
+   */
+  const showMoments = useCallback(
+    (youtubeId: string, pick: (shown?: Moment[]) => Moment[]) =>
+      setMoments((was) => {
+        const add: Record<string, Moment[]> = {};
+        Object.entries(momentCache.current).forEach(([id, entry]) => {
+          if (!was[id]) add[id] = entry.data;
+        });
+        const next = pick(was[youtubeId]);
+        if (!same(was[youtubeId], next)) add[youtubeId] = next;
+        return Object.keys(add).length ? { ...was, ...add } : was;
+      }),
+    [],
+  );
 
   const loadMoments = useCallback((youtubeId: string) => {
     if (!youtubeId) return;
@@ -234,14 +277,13 @@ export function LearningProvider({ children }: PropsWithChildren) {
     momentsRead.current ??= readJSON<Record<string, Stamped<Moment[]>>>(KEYS.moments, {}).then(
       (cache) => {
         momentCache.current = { ...cache, ...momentCache.current };
-        const shown: Record<string, Moment[]> = {};
-        Object.entries(momentCache.current).forEach(([id, entry]) => (shown[id] = entry.data));
-        setMoments((was) => ({ ...shown, ...was }));
       },
     );
     (async () => {
       await momentsRead.current;
       const cached = momentCache.current[youtubeId];
+      // The device's copy shows at once; a fresh one isn't fetched again.
+      if (cached) showMoments(youtubeId, () => cached.data);
       if (cached && Date.now() - cached.at < MOMENTS_STALE_MS) return;
       try {
         const list = await fetchMoments(youtubeId);
@@ -252,13 +294,13 @@ export function LearningProvider({ children }: PropsWithChildren) {
           .slice(0, MOMENTS_KEEP);
         momentCache.current = Object.fromEntries(kept);
         writeJSON(KEYS.moments, momentCache.current);
-        setMoments((was) => ({ ...was, [youtubeId]: list }));
+        showMoments(youtubeId, () => list);
       } catch {
         // Offline or not deployed: keep any copy; otherwise no moments.
-        setMoments((was) => (was[youtubeId] ? was : { ...was, [youtubeId]: EMPTY_MOMENTS }));
+        showMoments(youtubeId, (shown) => shown ?? EMPTY_MOMENTS);
       }
     })().finally(() => inflight.current.delete(youtubeId));
-  }, []);
+  }, [showMoments]);
 
   const momentsValue = useMemo<MomentsValue>(
     () => ({ byId: moments, load: loadMoments }),
@@ -511,7 +553,7 @@ export function usePaths() {
     error: value.error,
     refresh: value.refresh,
     /** A path's days in order (without sermons). */
-    daysOf: (pathId: string) => value.daysByPath.get(pathId) ?? [],
+    daysOf: value.daysOf,
   };
 }
 

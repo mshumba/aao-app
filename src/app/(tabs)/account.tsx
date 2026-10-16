@@ -7,7 +7,7 @@ import {
   TextStyle,
   View,
 } from "react-native";
-import { useAccount } from "../../auth/AccountProvider";
+import { useAccount, useSaved } from "../../auth/AccountProvider";
 import type { Provider } from "../../auth/types";
 import { AccountBenefits, FormAlert, useAuthTask } from "../../auth/ui";
 import { useCatalogue } from "../../catalogue/CatalogueProvider";
@@ -72,7 +72,8 @@ export default function AccountTab() {
     .filter(Boolean)
     .join(", ");
   const catalogue = useCatalogue();
-  const saved = account.saved.filter((id) => catalogue.find(id)).length;
+  const { saved: savedIds, savedError } = useSaved();
+  const saved = savedIds.filter((id) => catalogue.find(id)).length;
 
   const yours: Row[] = [
     ...(user
@@ -83,7 +84,7 @@ export default function AccountTab() {
             route: "/saved",
             value: !loaded
               ? undefined
-              : account.savedError
+              : savedError
                 ? "Couldn’t load"
                 : sermonCount(saved, "None yet"),
           } satisfies Row,

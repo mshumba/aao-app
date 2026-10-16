@@ -5,7 +5,7 @@ import { useCatalogue } from "../catalogue/CatalogueProvider";
 import { requestWatch, useGo } from "../navigation";
 import { usePlayerSession } from "../player/PlayerProvider";
 import { useToast } from "../toast";
-import { useAccount } from "./AccountProvider";
+import { useAccount, useSaved } from "./AccountProvider";
 import {
   Intent,
   forgetEarlierIntent,
@@ -136,14 +136,15 @@ export function useFinishFlow() {
  */
 export function IntentRunner() {
   const account = useAccount();
+  const saved = useSaved();
   const catalogue = useCatalogue();
   const session = usePlayerSession();
   const pathname = usePathname();
   const toast = useToast();
-  const latest = useRef({ account, catalogue, session, pathname, toast });
+  const latest = useRef({ account, saved, catalogue, session, pathname, toast });
   useEffect(() => {
-    latest.current = { account, catalogue, session, pathname, toast };
-  }, [account, catalogue, session, pathname, toast]);
+    latest.current = { account, saved, catalogue, session, pathname, toast };
+  }, [account, saved, catalogue, session, pathname, toast]);
 
   useEffect(() => {
     registerIntentRunner(async (intent) => {
@@ -163,7 +164,7 @@ export function IntentRunner() {
       // undone on screen by a list read before it.
       if (intent.kind === "save")
         for (let i = 0; i < 80 && !latest.current.account.loaded; i++) await pause();
-      const { account: now, session: player, pathname: path, toast: show } = latest.current;
+      const { account: now, saved, session: player, pathname: path, toast: show } = latest.current;
       if (!allowed(now)) return;
       if (intent.kind === "watch") {
         // A path's first day: the path starts for the new account too.
@@ -184,12 +185,12 @@ export function IntentRunner() {
         player.load(sermon, at);
         return;
       }
-      if (now.isSaved(sermon.id)) {
+      if (saved.isSaved(sermon.id)) {
         show("Already saved", "bookmark");
         return;
       }
       try {
-        await now.setSaved(sermon.id, true);
+        await saved.setSaved(sermon.id, true);
         // Seen and announced, like a save made with the Save button.
         show("Saved", "bookmark");
       } catch {

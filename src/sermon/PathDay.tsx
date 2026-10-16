@@ -2,7 +2,7 @@ import { useNavigation, type Href } from "expo-router";
 import * as Haptics from "expo-haptics";
 import { memo, useCallback, useMemo, type ReactElement } from "react";
 import { Platform, StyleSheet, View } from "react-native";
-import { useAccount } from "../auth/AccountProvider";
+import { useProgressOf } from "../auth/AccountProvider";
 import { PartOfPathRow, type ArtSource } from "../kit";
 import { nextDay, useEnrollment, usePath, type Path, type PathDayWithSermon } from "../learning";
 import { useGo } from "../navigation";
@@ -111,7 +111,7 @@ export function useOpenPath() {
  */
 export const PathDayRow = memo(function PathDayRow({ ctx, current }: { ctx: PathDayContext; current: boolean }) {
   const openPath = useOpenPath();
-  const account = useAccount();
+  const progressFor = useProgressOf([ctx.day.youtubeId]);
   const { complete } = useEnrollment();
   const toast = useToast();
   const fan = useMemo(() => fanFor(ctx), [ctx]);
@@ -122,7 +122,7 @@ export const PathDayRow = memo(function PathDayRow({ ctx, current }: { ctx: Path
     : `From a ${words.noun} · ${words.unit} ${n} of ${ctx.total}`;
   const isDone = ctx.done.includes(n);
   const due = ctx.enrolled && ctx.today === n && !isDone;
-  const saved = account.user ? account.progressFor(ctx.day.youtubeId) : null;
+  const saved = progressFor(ctx.day.youtubeId);
   const row = (partial: number) => (
     <PartOfPathRow
       testID="part-of-path"

@@ -11,7 +11,7 @@ import Animated, {
   Extrapolation,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useAccount } from "../../auth/AccountProvider";
+import { useAccount, useProgressOf } from "../../auth/AccountProvider";
 import { useCatalogue } from "../../catalogue/CatalogueProvider";
 import { Kicker, RoundButton, StickyCTA, TrustLine, useStickyCTASpace } from "../../kit";
 import { nextDay, useEnrollment, usePath, type PathDayWithSermon } from "../../learning";
@@ -91,10 +91,7 @@ export default function PathScreen() {
   // Today: the first day not done (Day 1 before starting); null once all are.
   const today = enrolled ? nextDay(total, done) : total ? 1 : null;
   const todayDay = today != null ? days.find((d) => d.day === today) : undefined;
-  const watchOf = useCallback(
-    (youtubeId: string) => (account.user ? account.progressFor(youtubeId) : null),
-    [account],
-  );
+  const watchOf = useProgressOf(days.map((d) => d.youtubeId));
   const timing = todayDay ? dayTiming(todayDay, watchOf(todayDay.youtubeId)) : null;
   const fan = fanFor(days, today ?? 1);
   const length = useMemo(() => pathLength(days), [days]);

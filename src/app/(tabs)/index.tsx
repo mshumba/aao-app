@@ -1,7 +1,18 @@
 import * as Haptics from "expo-haptics";
 import { router, useIsFocused, useNavigation } from "expo-router";
-import { StatusBar } from "expo-status-bar";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type Ref,
+  type RefObject,
+} from "react";
 import {
   Platform,
   ScrollView,
@@ -13,11 +24,13 @@ import {
 } from "react-native";
 import Animated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useAccount } from "../../auth/AccountProvider";
+import { useAccount, useProgressOf, useSaved } from "../../auth/AccountProvider";
 import { useBlessingOnOpen } from "../../blessing";
+import { coverState, subscribeCover } from "../../blessing/schedule";
 import { catalogueMode, useCatalogue } from "../../catalogue/CatalogueProvider";
 import { seriesRails } from "../../data/sermons";
 import {
+  CommonNeeds,
   ContinueRail,
   HERO_OVERLAP,
   HomeHero,
@@ -31,8 +44,9 @@ import {
   pathHref,
   useSermonActions,
 } from "../../home";
-import { ChipRow, NeedChip, SearchField } from "../../kit";
+import { SearchField } from "../../kit";
 import { Confetti } from "../../kit/Confetti";
+import { FocusedStatusBar } from "../../kit/FocusedStatusBar";
 import { useEnrollment, useNeeds, usePaths } from "../../learning";
 import { useReducedMotion } from "../../motion";
 import { requestSearchFocus, useGo, usePageTitle } from "../../navigation";
@@ -81,7 +95,6 @@ export default function Home() {
   const tabs = useNavigation<TabsNavigation>();
   const insets = useSafeAreaInsets();
   const dock = useDockInset();
-  const focused = useIsFocused();
   const account = useAccount();
   const catalogue = useCatalogue();
   const { sermons, seriesName } = catalogue;
@@ -90,8 +103,6 @@ export default function Home() {
   const { paths, daysOf } = usePaths();
   const enrollment = useEnrollment();
   const active = enrollment.active;
-  // True while a cold start's blessing is being decided or opening.
-  const covered = useBlessingOnOpen();
 
   // The whole library, rather than the bundled sample of four.
   const library = catalogue.source !== "sample";
@@ -121,32 +132,36 @@ export default function Home() {
     [library, sermons, seriesName],
   );
 
-  const { progressFor } = account;
+  const { isSaved } = useSaved();
+  const progressFor = useProgressOf(newest.map((sermon) => sermon.id));
   const resumeAt = useCallback(
     (id: string) => (member ? resumePoint(progressFor(id)) : 0),
     [member, progressFor],
   );
 
   // ---- Where things go ---------------------------------------------------------------
-  const openSearch = () =>
-    go.run(() => {
-      requestSearchFocus();
-      tabs.navigate("search", undefined, { merge: true });
-    });
-  const allSermons = () => go.push("/sermons");
-  const searchNeed = (label: string) => {
-    if (Platform.OS !== "web") Haptics.selectionAsync().catch(() => {});
-    go.run(() => router.navigate({ pathname: "/search", params: { q: label } }));
-  };
-  const openAccount = useCallback(
-    () => tabs.navigate("account", undefined, { merge: true }),
-    [tabs],
-  );
   // useGo() is new each render; the memoised sections get stable callbacks.
   const goRef = useRef(go);
   useLayoutEffect(() => {
     goRef.current = go;
   });
+  const openSearch = useCallback(
+    () =>
+      goRef.current.run(() => {
+        requestSearchFocus();
+        tabs.navigate("search", undefined, { merge: true });
+      }),
+    [tabs],
+  );
+  const allSermons = useCallback(() => goRef.current.push("/sermons"), []);
+  const searchNeed = useCallback((label: string) => {
+    if (Platform.OS !== "web") Haptics.selectionAsync().catch(() => {});
+    goRef.current.run(() => router.navigate({ pathname: "/search", params: { q: label } }));
+  }, []);
+  const openAccount = useCallback(
+    () => tabs.navigate("account", undefined, { merge: true }),
+    [tabs],
+  );
   const signIn = useCallback(
     () => goRef.current.push({ pathname: "/join", params: { mode: "sign-in" } }),
     [],
@@ -166,62 +181,48 @@ export default function Home() {
     [],
   );
 
-  // ---- A new account's welcome -------------------------------------------------------
-  // Someone who has just created an account, on Home with its path card
-  // (Start here, or the path they started): once, a short burst of confetti
-  // from that card and a success tap; under Reduce Motion, the tap alone.
-  // It waits for Home to settle in front, so a sign-up that went straight
-  // on to a sermon is welcomed on coming back.
-  const reduced = useReducedMotion();
-  const { width, height } = useWindowDimensions();
+  // ---- A new account's welcome (see Welcome) -----------------------------------------
   const screen = useRef<View>(null);
   const pathCard = useRef<View>(null);
-  const [burst, setBurst] = useState<{ x: number; y: number } | null>(null);
-  const endBurst = useCallback(() => setBurst(null), []);
   const { justJoined, clearJustJoined } = account;
   const hasCard = !!active || (!enrollment.loading && paths.some((path) => path.kind !== "series"));
-  const welcome = justJoined && focused && !covered && hasCard;
-  useEffect(() => {
-    if (!welcome) return;
-    const timer = setTimeout(() => {
-      clearJustJoined();
-      if (Platform.OS !== "web")
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-      if (reduced) return;
-      // From just inside the card's top edge while it's on screen, else
-      // from a little above the middle.
-      const fallback = { x: width / 2, y: height * 0.4 };
-      const card = pathCard.current;
-      const page = screen.current;
-      if (!card || !page) return setBurst(fallback);
-      page.measureInWindow((left, top) =>
-        card.measureInWindow((x, y, w) => {
-          const from = { x: x - left + w / 2, y: y - top + 40 };
-          setBurst(from.y > insets.top + 60 && from.y < height - 200 ? from : fallback);
-        }),
-      );
-    }, WELCOME_AFTER);
-    return () => clearTimeout(timer);
-  }, [welcome, reduced, clearJustJoined, width, height, insets.top]);
 
   // ---- The status bar: light over the hero, dark once it has scrolled by ------------
-  const [heroHeight, setHeroHeight] = useState(340);
-  const [pastHero, setPastHero] = useState(false);
+  // Kept by HomeChrome; crossing the hero's edge re-renders that alone.
+  const chrome = useRef<Chrome>(null);
+  const heroHeight = useRef(340);
+  const onHeroHeight = useCallback((height: number) => {
+    heroHeight.current = height;
+  }, []);
   const past = useRef(false);
   const onScroll = useCallback(
     (e: NativeSyntheticEvent<NativeScrollEvent>) => {
-      const next = e.nativeEvent.contentOffset.y > heroHeight - insets.top - 12;
+      const next = e.nativeEvent.contentOffset.y > heroHeight.current - insets.top - 12;
       if (next !== past.current) {
         past.current = next;
-        setPastHero(next);
+        chrome.current?.setPastHero(next);
       }
     },
-    [heroHeight, insets.top],
+    [insets.top],
   );
+
+  // ---- The first screen first --------------------------------------------------------
+  // The sections below the first screen mount just after Home's first frame,
+  // so that frame (a cold start's above all) has less to build.
+  const [settled, setSettled] = useState(false);
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const frame = requestAnimationFrame(() => {
+      timer = setTimeout(() => setSettled(true), 0);
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+      clearTimeout(timer);
+    };
+  }, []);
 
   return (
     <View ref={screen} style={styles.screen}>
-      {focused ? <StatusBar style={pastHero ? "dark" : "light"} animated /> : null}
       <ScrollView
         style={dockScrollPadding(dock)}
         contentContainerStyle={{ paddingBottom: 40 + dock }}
@@ -233,14 +234,14 @@ export default function Home() {
           sermons={newest}
           name={name}
           member={member}
-          isSaved={account.isSaved}
+          isSaved={isSaved}
           resumeAt={resumeAt}
           onAccount={openAccount}
           onSignIn={signIn}
           onOpen={actions.open}
           onWatch={actions.watch}
           onToggleSave={actions.toggleSave}
-          onHeight={setHeroHeight}
+          onHeight={onHeroHeight}
         />
 
         <View style={styles.column}>
@@ -251,18 +252,7 @@ export default function Home() {
             hint="Opens Search, ready to type"
             style={styles.field}
           />
-          {homeNeeds.length ? (
-            <ChipRow label="Common needs" style={styles.chips}>
-              {homeNeeds.map((need) => (
-                <NeedChip
-                  key={need.id}
-                  label={need.short}
-                  hint={`Searches for “${need.label}”`}
-                  onPress={() => searchNeed(need.label)}
-                />
-              ))}
-            </ChipRow>
-          ) : null}
+          <CommonNeeds needs={homeNeeds} onSearch={searchNeed} />
 
           {/* Offline at first launch: the bundled sample stands in, or only the
               newest sermons came before the connection dropped. */}
@@ -287,20 +277,60 @@ export default function Home() {
             )}
           </View>
 
-          <ContinueRail exclude={active?.today?.youtubeId} onWatch={actions.watch} />
+          {settled ? (
+            <>
+              <ContinueRail exclude={active?.today?.youtubeId} onWatch={actions.watch} />
 
-          <TopicsRail sermons={sermons} topics={account.interests} onSeeAll={openTopic} />
+              <TopicsRail sermons={sermons} topics={account.interests} onSeeAll={openTopic} />
 
-          <LatestSermons
-            sermons={latest}
-            onOpen={actions.open}
-            onSeeAll={sermons.length > latest.length ? allSermons : undefined}
-          />
+              <LatestSermons
+                sermons={latest}
+                onOpen={actions.open}
+                onSeeAll={sermons.length > latest.length ? allSermons : undefined}
+              />
 
-          <SeriesRow rails={rails} onOpen={openSeries} />
+              <SeriesRow rails={rails} onOpen={openSeries} />
+            </>
+          ) : null}
         </View>
       </ScrollView>
 
+      <HomeChrome ref={chrome} />
+
+      <Welcome
+        due={justJoined && hasCard}
+        onWelcomed={clearJustJoined}
+        screen={screen}
+        pathCard={pathCard}
+      />
+
+      <BlessingCover />
+    </View>
+  );
+}
+
+/** Whether a cold start's cover is still over Home (see BlessingCover). */
+function useCovered() {
+  return useSyncExternalStore(subscribeCover, coverState, coverState) !== "done";
+}
+
+type Chrome = { setPastHero: (past: boolean) => void };
+
+/**
+ * Home's status bar, light over the hero and dark once it has scrolled by,
+ * and the ivory shade under it then. Its own component, so neither a
+ * navigation nor crossing the hero's edge re-renders the rest of Home.
+ * Under a cold start's cover the bar changes at once: it animates only
+ * once Home can be seen.
+ */
+const HomeChrome = memo(function HomeChrome({ ref }: { ref: Ref<Chrome> }) {
+  const insets = useSafeAreaInsets();
+  const covered = useCovered();
+  const [pastHero, setPastHero] = useState(false);
+  useImperativeHandle(ref, () => ({ setPastHero }), []);
+  return (
+    <>
+      <FocusedStatusBar style={pastHero ? "dark" : "light"} animated={!covered} />
       {/* Under the status bar once the hero has gone, so the time stays
           legible: ivory fading out below it, never a band with a hard edge
           over the dark path card. */}
@@ -318,14 +348,69 @@ export default function Home() {
           ]}
         />
       ) : null}
-
-      {burst ? <Confetti origin={burst} onDone={endBurst} testID="welcome-confetti" /> : null}
-
-      {/* A cold start's blessing opens over Home; until it's up, Home stays
-          under the ivory the splash lifts onto, so it never flashes first. */}
-      {covered ? <View testID="home-cover" style={styles.cover} /> : null}
-    </View>
+    </>
   );
+});
+
+/**
+ * A new account's welcome. Someone who has just created an account, on Home
+ * with its path card (Start here, or the path they started): once, a short
+ * burst of confetti from that card and a success tap; under Reduce Motion,
+ * the tap alone. It waits for Home to settle in front, so a sign-up that
+ * went straight on to a sermon is welcomed on coming back.
+ */
+const Welcome = memo(function Welcome({
+  due,
+  onWelcomed,
+  screen,
+  pathCard,
+}: {
+  due: boolean;
+  onWelcomed: () => void;
+  screen: RefObject<View | null>;
+  pathCard: RefObject<View | null>;
+}) {
+  const focused = useIsFocused();
+  const covered = useCovered();
+  const reduced = useReducedMotion();
+  const insets = useSafeAreaInsets();
+  const { width, height } = useWindowDimensions();
+  const [burst, setBurst] = useState<{ x: number; y: number } | null>(null);
+  const endBurst = useCallback(() => setBurst(null), []);
+  const welcome = due && focused && !covered;
+  useEffect(() => {
+    if (!welcome) return;
+    const timer = setTimeout(() => {
+      onWelcomed();
+      if (Platform.OS !== "web")
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      if (reduced) return;
+      // From just inside the card's top edge while it's on screen, else
+      // from a little above the middle.
+      const fallback = { x: width / 2, y: height * 0.4 };
+      const card = pathCard.current;
+      const page = screen.current;
+      if (!card || !page) return setBurst(fallback);
+      page.measureInWindow((left, top) =>
+        card.measureInWindow((x, y, w) => {
+          const from = { x: x - left + w / 2, y: y - top + 40 };
+          setBurst(from.y > insets.top + 60 && from.y < height - 200 ? from : fallback);
+        }),
+      );
+    }, WELCOME_AFTER);
+    return () => clearTimeout(timer);
+  }, [welcome, reduced, onWelcomed, width, height, insets.top, screen, pathCard]);
+  return burst ? <Confetti origin={burst} onDone={endBurst} testID="welcome-confetti" /> : null;
+});
+
+/**
+ * A cold start's blessing opens over Home; until it's up, Home stays under
+ * the ivory the splash lifts onto, so it never flashes first. Its own
+ * component, as deciding follows every navigation.
+ */
+function BlessingCover() {
+  const covered = useBlessingOnOpen();
+  return covered ? <View testID="home-cover" style={styles.cover} /> : null;
 }
 
 const styles = StyleSheet.create({
@@ -333,7 +418,6 @@ const styles = StyleSheet.create({
   // The page column (as wide as other pages at most); the hero runs edge to edge.
   column: { width: "100%", maxWidth: 760, alignSelf: "center" },
   field: { marginTop: -HERO_OVERLAP, marginHorizontal: 20 },
-  chips: { marginTop: 12 },
   offline: { gap: space.xs, marginTop: space.lg, paddingHorizontal: 24 },
   cover: { ...StyleSheet.absoluteFill, backgroundColor: c.bg },
   statusShade: {

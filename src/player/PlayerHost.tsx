@@ -26,6 +26,7 @@ import {
 } from "../ui";
 import Embed from "./Embed";
 import {
+  DOCK_MARGIN,
   DOCK_PAD,
   dockFrame,
   fullFrame,
@@ -36,7 +37,7 @@ import { usePlayback, usePlayerSession } from "./PlayerProvider";
 import { headline } from "../data/display";
 import { canRetry, playerError } from "./types";
 import { useDayDoneNotice } from "./dayDone";
-import { useDockAboveTabs } from "./useDockInset";
+import { useDockAboveTabs, usePublishDockInset } from "./useDockInset";
 
 /**
  * Renders the app's single YouTube player. On the sermon's own screen it sits
@@ -57,6 +58,8 @@ export function PlayerHost() {
   const full = !!sermon && session.stage === sermon.id;
   const d = dockFrame(window, insets, aboveTabs, chrome);
   const hidden = !!sermon && !full && d.compact;
+  // The room screens keep below their content so it scrolls clear of the dock.
+  usePublishDockInset(sermon && !full ? d.height + DOCK_MARGIN : 0);
   // Sign-in and onboarding screens cover the whole player, as the native
   // sheet and modals do. On the web this layer would otherwise draw over them.
   const covered = !!sermon && isFlowRoute(pathname.replace(/^\//, ""));
