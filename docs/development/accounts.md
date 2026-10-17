@@ -11,6 +11,7 @@ Screens talk to `useAccount()` and `useGate()`. They never import supabase-js.
 | `src/auth/types.ts` | `AuthBackend`, the interface every account service implements, plus `AuthResult` and `AuthError` codes |
 | `src/auth/config.ts` | Picks the service and the sign-in methods from `EXPO_PUBLIC_*` variables |
 | `src/auth/supabaseBackend.ts` | Supabase Auth and the `profiles`, `saved_sermons`, `watch_progress` and `app_settings` tables |
+| `src/auth/appleTokens.ts` | Sign in with Apple token revocation, the app's half: sends Apple's authorization code after signing in, revokes before deleting ([Apple token revocation](apple-token-revocation.md)) |
 | `src/auth/localBackend.ts` | An on-device stand-in for development and the automated tests |
 | `src/auth/AccountProvider.tsx` | `useAccount()`: session, profile, saved sermons, watch progress, onboarding state, shared-link passes, `guestWatch` |
 | `src/auth/gate.tsx` | `useGate()`, `useFinishFlow()`, `useCloseAuthRoutes()` and `IntentRunner` (mounted in the root layout) |
@@ -52,7 +53,7 @@ On the ivory app, Sign in with Apple uses Apple's black style: the native `Apple
 
 | Method | How it works | Needs |
 | --- | --- | --- |
-| Sign in with Apple (iOS) | Apple's native sheet (`expo-apple-authentication`), then `signInWithIdToken` with a SHA-256 nonce. Apple gives the name only on the first authorization: the sign-in returns it, and `AccountProvider` saves it to the profile once that has loaded, keeping it on the device (`aao.pendingName.v1`) until the write succeeds. Hidden in Expo Go, which signs in as `host.exp.Exponent`. | Paid Apple Developer Program. The Apple provider enabled in Supabase with the bundle ID `com.mshumba.aao` in **Client IDs** (no secret key is needed for native sign-in). The entitlement, which `app.config.ts` adds unless `AAO_PERSONAL_TEAM=1`. |
+| Sign in with Apple (iOS) | Apple's native sheet (`expo-apple-authentication`), then `signInWithIdToken` with a SHA-256 nonce. Apple gives the name only on the first authorization: the sign-in returns it, and `AccountProvider` saves it to the profile once that has loaded, keeping it on the device (`aao.pendingName.v1`) until the write succeeds. Hidden in Expo Go, which signs in as `host.exp.Exponent`. | Paid Apple Developer Program. The Apple provider enabled in Supabase with the bundle ID `com.mshumba.aao` in **Client IDs** (no secret key is needed for native sign-in). The entitlement, which `app.config.ts` adds unless `AAO_PERSONAL_TEAM=1`. To revoke Apple's tokens on deletion: the `apple-tokens` function and its four secrets, from a Sign in with Apple key ([Apple token revocation](apple-token-revocation.md)). |
 | Apple on the web and Android | Supabase's web OAuth flow. Off unless `apple-web` is in `EXPO_PUBLIC_AUTH_METHODS`. | A Services ID and a client secret that Apple makes you regenerate every 6 months |
 | Google | Supabase OAuth with PKCE: an in-app browser sheet (`expo-web-browser`) on iPhone and Android, a redirect on the web. The code comes back to `/auth/callback`. | A Google OAuth web client entered in Supabase, and the redirect URLs in [`supabase/README.md`](../../supabase/README.md) |
 | Email code | `signInWithOtp` (creates the account if needed), then a 6-digit code checked with `verifyOtp` | The Magic Link email template showing `{{ .Token }}` |
@@ -138,12 +139,12 @@ With the stand-in (`mode === "local"`), nothing leaves the device, and the sign-
 
 **Account → Delete account** (`/account/delete`) asks once, then calls `delete_account()`. That database function deletes the caller's own `auth.users` row, the `profiles`, `saved_sermons` and `watch_progress` rows go with it (foreign keys `on delete cascade`), and the app signs out. Only signed-in users can call it, and only for themselves.
 
-Known follow-up: Apple asks apps that offer Sign in with Apple to revoke the user's Apple tokens on deletion (Apple's REST revoke endpoint). That needs a server-side function holding a Sign in with Apple key, plus the authorization code captured at sign-in. Neither exists yet.
+For an account with an Apple ID linked, the app first asks the `apple-tokens` Edge Function to revoke the account's Apple refresh token (Apple's REST revoke endpoint), waiting at most 10 seconds. The function got that token from the authorization code the app sent it after a native Sign in with Apple. If Apple can't be reached, the account is deleted anyway and the function retries the token later. See [Apple token revocation](apple-token-revocation.md), which also has the owner's and coordinator's setup steps.
 
 ## App Store notes
 
 - **4.8 Login Services:** the app offers Google, so iOS must also offer Sign in with Apple. It does, with Apple's native button.
-- **5.1.1(v) deletion:** account deletion starts in the app and removes the account and its data. Token revocation is the gap above.
+- **5.1.1(v) deletion:** account deletion starts in the app and removes the account and its data, after revoking the account's Sign in with Apple tokens ([Apple token revocation](apple-token-revocation.md)). Accounts that last signed in with Apple before that change, or on the web, have no token kept; the delete screen tells Apple users how to stop using their Apple ID with AAO by hand.
 - **5.1.1(v) registration:** Apple rejects apps that require an account for features that aren't account-based. Saving is account-based. Watching free public sermons may not be, so asking guests to sign up to watch is a review risk. If review raises it, set `guest_watch` to `"all"`: no new build is needed and saving stays behind an account. Whether to submit with `"shared"` or `"all"` is the user's decision.
 - **2.1 review access:** give App Review a password account in App Review Information (reviewers can't read emailed codes), and make sure the Supabase project isn't paused during review. Free projects pause after about a week of low activity.
 - **Privacy:** App Store Connect needs a public privacy policy URL. The App Privacy answers will cover email address, name, user ID and product interaction (saved sermons and watch progress), all linked to the user for app functionality. There is no tracking.

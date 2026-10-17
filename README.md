@@ -52,6 +52,7 @@ The suite starts a local web server if needed and always uses the on-device acco
 - [Setup, environment, commands, troubleshooting and device checklist](docs/development/getting-started.md)
 - [Architecture, catalog and storage](docs/development/architecture.md)
 - [Accounts, onboarding and the guest gate](docs/development/accounts.md)
+- [Sign in with Apple token revocation on account deletion](docs/development/apple-token-revocation.md)
 - [Supabase project setup](supabase/README.md)
 - [Contributing and verification](docs/development/contributing.md)
 - [CI, EAS builds, TestFlight, updates and rollback](docs/development/releasing.md)
