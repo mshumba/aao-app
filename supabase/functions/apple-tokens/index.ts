@@ -3,7 +3,7 @@
 //   {"action": "revoke"}                                -> {"revoked": true, "stored": true}
 //                                                          {"revoked": false, "stored": false}
 //                                                          {"revoked": false, "stored": true, "retry": true}
-//   {"action": "sweep"}                                 -> {"tried": 2, "revoked": 2}
+//   {"action": "sweep"}                                 -> {"ok": true}
 //
 // Sign in with Apple token revocation (App Store guideline 5.1.1(v)). After a
 // native sign-in the app sends Apple's one-time authorization code ("store");
@@ -22,14 +22,17 @@
 // APPLE_CLIENT_ID (docs/development/apple-token-revocation.md). Codes,
 // tokens, secrets and user ids are never logged.
 
-import { userId } from "../_shared/auth.ts";
-import { admin, dbTimeout, rateLimit, withRetry } from "../_shared/db.ts";
+import { callerKey, userId } from "../_shared/auth.ts";
+import { admin, dbTimeout, rateLimit, type RateResult, withRetry } from "../_shared/db.ts";
 import { gate, json, later, readJson } from "../_shared/http.ts";
 import { appleClient, readConfig } from "./apple.ts";
 import { revokeForDeletion, type Store, storeCode, type StoreError, sweep } from "./tokens.ts";
 
 const RATE_MAX = 10;
 const RATE_WINDOW_S = 600;
+/** "sweep" calls an hour, per caller and in all. The hourly pg_cron job needs one. */
+const SWEEP_RATE_MAX = 6;
+const SWEEP_GLOBAL_MAX = 60;
 /** Tokens of deleted accounts retried alongside each call, and on "sweep". */
 const SWEEP_ALONG = 3;
 const SWEEP_MAX = 20;
@@ -69,11 +72,19 @@ const store: Store = {
     const { error } = await withRetry(() =>
       admin().from("apple_tokens").upsert(row, { onConflict: "user_id" }).abortSignal(dbTimeout(4000))
     );
+    // foreign_key_violation: the account was deleted meanwhile.
+    if (error?.code === "23503") return false;
     if (error) throw dbError("apple_tokens", error);
+    return true;
   },
-  async remove(id) {
+  async remove(id, refreshToken) {
     const { error } = await withRetry(() =>
-      admin().from("apple_tokens").delete().eq("id", id).abortSignal(dbTimeout(4000))
+      admin()
+        .from("apple_tokens")
+        .delete()
+        .eq("id", id)
+        .eq("refresh_token", refreshToken)
+        .abortSignal(dbTimeout(4000))
     );
     if (error) throw dbError("apple_tokens", error);
   },
@@ -92,8 +103,10 @@ const store: Store = {
   },
   async appleSubs(userId) {
     const { data, error } = await admin().auth.admin.getUserById(userId);
+    if (error?.status === 404 || error?.code === "user_not_found") return null;
     if (error) throw new Error(`auth user: ${error.code ?? error.status ?? error.message}`);
-    return (data.user?.identities ?? [])
+    if (!data.user) return null;
+    return (data.user.identities ?? [])
       .filter((identity) => identity.provider === "apple")
       .flatMap((identity) => [identity.id, identity.identity_data?.sub])
       .filter((sub): sub is string => typeof sub === "string" && sub !== "");
@@ -103,6 +116,7 @@ const store: Store = {
 const STORE_STATUS: Record<StoreError, number> = {
   invalid_code: 400,
   identity_mismatch: 403,
+  account_gone: 410,
   apple_unavailable: 502,
   not_configured: 503,
 };
@@ -121,12 +135,21 @@ Deno.serve(async (req) => {
     (status >= 500 || log.error ? console.error : console.log)(JSON.stringify(log));
     return json(req, status, out, extra);
   };
+  const limited = (rate: Extract<RateResult, { ok: false }>) =>
+    answer(429, { error: "rate_limited", retryAfter: rate.retryAfter }, { "Retry-After": String(rate.retryAfter) });
 
   try {
     if (action === "sweep") {
+      // Anyone with the publishable key may ask, so it's limited, and the
+      // answer says nothing about what was pending; the log does.
+      const rate = await rateLimit([
+        { key: await callerKey(req, "apple-tokens-sweep"), max: SWEEP_RATE_MAX, windowSeconds: 3600 },
+        { key: "apple-tokens-sweep:all", max: SWEEP_GLOBAL_MAX, windowSeconds: 3600 },
+      ]);
+      if (!rate.ok) return limited(rate);
       const { tried, revoked, reasons } = await sweep(apple, store, SWEEP_MAX);
       Object.assign(log, { tried, revoked, reasons });
-      return answer(200, { tried, revoked });
+      return answer(200, { ok: true });
     }
     if (action !== "store" && action !== "revoke") return answer(400, { error: "bad_request" });
     const code = body?.code;
@@ -137,11 +160,7 @@ Deno.serve(async (req) => {
     const uid = await userId(req);
     if (!uid) return answer(401, { error: "unauthorized" });
     const rate = await rateLimit([{ key: `apple-tokens:u:${uid}`, max: RATE_MAX, windowSeconds: RATE_WINDOW_S }]);
-    if (!rate.ok) {
-      return answer(429, { error: "rate_limited", retryAfter: rate.retryAfter }, {
-        "Retry-After": String(rate.retryAfter),
-      });
-    }
+    if (!rate.ok) return limited(rate);
 
     // Tokens of deleted accounts that are due another try go along with every call.
     later(
@@ -153,7 +172,7 @@ Deno.serve(async (req) => {
     if (action === "store") {
       const result = await storeCode(apple, store, uid, code as string);
       if (result.ok) return answer(200, { stored: true });
-      log.error = result.reason ?? result.error;
+      log.error = result.error === "account_gone" ? `account_gone: ${result.reason}` : result.reason ?? result.error;
       return answer(STORE_STATUS[result.error], { error: result.error });
     }
 

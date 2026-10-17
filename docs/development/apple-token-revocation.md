@@ -13,18 +13,18 @@ Supabase Auth doesn't do this. Deleting a Supabase user leaves the Apple authori
 3. checks that the ID token in Apple's answer belongs to an Apple ID linked to this account;
 4. keeps the refresh token in `public.apple_tokens`, one row per account, replacing any earlier token.
 
-Apple's codes work once and expire after five minutes, so the app sends each code once and never stores it. If the code doesn't arrive (no connection, or the function isn't set up yet), the account works as before, but deleting it can't revoke Apple's token.
+Apple's codes work once and expire after five minutes, so the app sends each code once and never stores it. If the code doesn't arrive (no connection, or the function isn't set up yet), the account works as before, but deleting it can't revoke Apple's token. If the account is deleted while its code is still on the way, the function revokes the new token straight away instead of keeping it.
 
 **Deleting an account.** **Account › Delete account** (`deleteAccount` in `src/auth/supabaseBackend.ts`, `deleteInOrder` in `src/auth/appleTokens.ts`) works in this order:
 
-1. For an account with an Apple ID linked, the app asks `apple-tokens` to revoke (`{"action":"revoke"}`) and waits up to 10 seconds. The function revokes the stored refresh token at `https://appleid.apple.com/auth/revoke` (`token_type_hint=refresh_token`), then deletes the row. Accounts with no Apple ID linked (Google, email) skip this step.
+1. For an account with an Apple ID linked, the app asks `apple-tokens` to revoke (`{"action":"revoke"}`) and waits up to 10 seconds. If it signed in with Apple moments before and the code is still on its way, the app first waits for that, up to another 10 seconds, so there is a token to revoke. The function revokes the stored refresh token at `https://appleid.apple.com/auth/revoke` (`token_type_hint=refresh_token`), then deletes the row. Accounts with no Apple ID linked (Google, email) skip this step.
 2. The app calls `delete_account()`, which deletes the account and its data as before.
 3. The app signs out on the device.
 
 Revoking can only delay a deletion, never stop it. If Apple can't be reached, refuses, or the function fails or isn't deployed, the account is still deleted:
 
 - The row stays. When the account goes, its `user_id` becomes null (`on delete set null`), which marks a token still to be revoked. No name, email or account ID stays with it.
-- The function retries such rows with a back-off: 2, 4, 8 … minutes after each failure, then at most once a day. Up to 3 retries go along with every `store` and `revoke` call (each Apple sign-in on an iPhone and each deletion), and a `sweep` call (hourly once the coordinator has scheduled it, step 4 below) retries up to 20. A row is deleted as soon as Apple confirms. Apple also confirms tokens that were already revoked, for example by the person in Settings.
+- The function retries such rows with a back-off: 2, 4, 8 … minutes after each failure, then at most once a day. Up to 3 retries go along with every `store` and `revoke` call (each Apple sign-in on an iPhone, and each deletion of an account with an Apple ID linked), and a `sweep` call (hourly once the coordinator has scheduled it, step 4 below) retries up to 20. A row is deleted as soon as Apple confirms. Apple also confirms tokens that were already revoked, for example by the person in Settings.
 - Each failure is logged, and the row keeps the count (`attempts`), Apple's error code (`last_error`) and the next try (`next_attempt_at`).
 
 An account deleted another way (the Supabase dashboard, or an app build from before this change) leaves its row the same way, and the sweep revokes it.
@@ -56,11 +56,11 @@ Every call to Apple carries a client secret: a JWT the function signs with ES256
 
 | Body | Answer |
 | --- | --- |
-| `{"action":"store","code":"…"}` | `200 {"stored":true}`; `400 {"error":"invalid_code"}` (Apple refused the code: used, expired, or for another app); `403 {"error":"identity_mismatch"}`; `502 {"error":"apple_unavailable"}`; `503 {"error":"not_configured"}` |
+| `{"action":"store","code":"…"}` | `200 {"stored":true}`; `400 {"error":"invalid_code"}` (Apple refused the code: used, expired, or for another app); `403 {"error":"identity_mismatch"}`; `410 {"error":"account_gone"}` (deleted meanwhile; the new token was revoked); `502 {"error":"apple_unavailable"}`; `503 {"error":"not_configured"}` |
 | `{"action":"revoke"}` | `200 {"revoked":true,"stored":true}`; `200 {"revoked":false,"stored":false}` (nothing stored); `200 {"revoked":false,"stored":true,"retry":true}` (kept for a retry) |
-| `{"action":"sweep"}` | `200 {"tried":N,"revoked":M}`. Only retries rows that are already due, so it needs nothing more than the publishable key |
+| `{"action":"sweep"}` | `200 {"ok":true}`. Only retries rows that are already due, so it needs nothing more than the publishable key. It's limited to 6 calls an hour per caller and 60 in all, and its answer says nothing about what was pending (the log has the counts) |
 
-Any of them can also answer `400 bad_request`, `401 unauthorized` (no valid session, for `store` and `revoke`), `429 rate_limited` (10 calls per account in 10 minutes) or `503 unavailable` (database). Each request logs one JSON line (action, status, Apple's error code, timings). Codes, tokens, secrets and user IDs are never logged.
+Any of them can also answer `400 bad_request`, `401 unauthorized` (no publishable key, or for `store` and `revoke` no valid session), `429 rate_limited` (`store` and `revoke`: 10 calls per account in 10 minutes) or `503 unavailable` (database). Each request logs one JSON line (action, status, Apple's error code, timings). Codes, tokens, secrets and user IDs are never logged.
 
 ### Files
 
@@ -68,7 +68,7 @@ Any of them can also answer `400 bad_request`, `401 unauthorized` (no valid sess
 | --- | --- |
 | `supabase/functions/apple-tokens/index.ts` | The Edge Function: requests, session check, rate limit, the database |
 | `supabase/functions/apple-tokens/apple.ts` | Apple's REST API: secrets, the client secret, `/auth/token`, `/auth/revoke` |
-| `supabase/functions/apple-tokens/tokens.ts` | Store, revoke and sweep, in order, with the database and Apple passed in |
+| `supabase/functions/apple-tokens/tokens.ts` | Store, revoke and sweep, in order, with the database and Apple passed in. A row is deleted only if it still holds the token Apple revoked |
 | `supabase/migrations/20261017001000_apple_tokens.sql` | The table and its two SQL functions |
 | `src/auth/appleTokens.ts` | The app's half: sending the code, asking for revocation, the deletion order |
 | `tests/apple-tokens.spec.ts` | The client secret and its signature, Apple's request bodies and errors, the order of every step, the app's half. Runs in Node with stand-ins; nothing reaches Apple or Supabase |
@@ -144,7 +144,7 @@ Needs the earlier migrations: `20261014000000_accounts.sql` (`delete_account()`,
      -d '{"action":"sweep"}'
    ```
 
-   It should answer `{"tried":0,"revoked":0}`. Until the owner has set the four secrets, the function's logs (**Edge Functions › apple-tokens › Logs**) show `not_configured` with the missing names when it starts, and `store` answers `503 not_configured`. Sign-in and deletion work either way.
+   It should answer `{"ok":true}`, and the log line shows `"tried":0,"revoked":0`. Until the owner has set the four secrets, the function's logs (**Edge Functions › apple-tokens › Logs**) show `not_configured` with the missing names when it starts, and `store` answers `503 not_configured`. Sign-in and deletion work either way.
 
 4. **Schedule the retry** (recommended), so tokens Apple couldn't revoke at the time are retried hourly even when nobody signs in. In the SQL editor, with the publishable key:
 
@@ -198,4 +198,4 @@ A few rows with `timeout`, `network` or `http_5xx` are Apple being briefly unrea
 
 ## App Review
 
-Guideline 5.1.1(v) and TN3194 ask for revocation when the account is deleted. AAO revokes before deleting the account, at most 10 seconds before the deletion goes ahead, and retries server-side when Apple can't be reached. If App Review asks, the answer is: "Deleting the account in the app (Account › Delete account) revokes the user's Sign in with Apple tokens through Apple's REST API (`/auth/revoke`) and deletes the account and its data."
+Guideline 5.1.1(v) and TN3194 ask for revocation when the account is deleted. AAO revokes before deleting the account, waiting at most 10 seconds for Apple before the deletion goes ahead, and retries server-side when Apple can't be reached. If App Review asks, the answer is: "Deleting the account in the app (Account › Delete account) revokes the user's Sign in with Apple tokens through Apple's REST API (`/auth/revoke`) and deletes the account and its data."

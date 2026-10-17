@@ -17,6 +17,8 @@ const FUNCTION = "apple-tokens";
 
 /** The longest deleting an account waits on Apple before going ahead. */
 export const REVOKE_DEADLINE_MS = 10_000;
+/** The longest it waits first for a code sent by a sign-in just before. */
+export const STORING_WAIT_MS = 10_000;
 const STORE_DEADLINE_MS = 15_000;
 
 /**
@@ -82,11 +84,28 @@ export async function revokeAppleTokens(
  * revoked first, while the account still exists to show who is asking, then
  * the account and its data go. Revoking can only delay the deletion, never
  * stop it. `revokeApple` is null for an account with no Apple ID linked.
+ * `storing` is the code a sign-in sent just before (sendAppleCode), if any:
+ * deleting straight after signing in waits for it, up to `waitMs`, so the
+ * token it brings is there to revoke.
  */
 export async function deleteInOrder(steps: {
+  storing?: Promise<unknown> | null;
   revokeApple: (() => Promise<unknown>) | null;
   deleteAccount: () => Promise<unknown>;
+  waitMs?: number;
 }): Promise<void> {
-  if (steps.revokeApple) await steps.revokeApple().catch(() => {});
+  if (steps.revokeApple) {
+    if (steps.storing) {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      await Promise.race([
+        steps.storing.catch(() => {}),
+        new Promise((resolve) => {
+          timer = setTimeout(resolve, steps.waitMs ?? STORING_WAIT_MS);
+        }),
+      ]);
+      clearTimeout(timer);
+    }
+    await steps.revokeApple().catch(() => {});
+  }
   await steps.deleteAccount();
 }

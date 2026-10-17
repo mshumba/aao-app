@@ -201,6 +201,9 @@ export function createSupabaseBackend(): AuthBackend {
     return { status: "signedIn" };
   }
 
+  // The Apple authorization code the last sign-in sent (signInWithApple).
+  let appleCodeSent: Promise<boolean> | null = null;
+
   return {
     kind: "supabase",
     async restore() {
@@ -301,8 +304,8 @@ export function createSupabaseBackend(): AuthBackend {
       await signInWithToken("apple", credential.identityToken, rawNonce);
       // The server swaps the one-time code for Apple's refresh token and
       // keeps it, so deleting the account can revoke it. Sign-in doesn't
-      // wait for it.
-      void sendAppleCode(client.functions, credential.authorizationCode);
+      // wait for it; a deletion straight after does.
+      appleCodeSent = sendAppleCode(client.functions, credential.authorizationCode);
       // Apple shares the name only on the very first sign-in. The account
       // saves it to the profile once that has loaded, and keeps trying
       // until it's saved, so a failed write doesn't lose it for good.
@@ -330,6 +333,7 @@ export function createSupabaseBackend(): AuthBackend {
       // Apple's token is revoked first (App Store guideline 5.1.1(v)); if
       // Apple can't be reached the server retries it after the account goes.
       await deleteInOrder({
+        storing: appleCodeSent,
         revokeApple: linkedToApple(data.session) ? () => revokeAppleTokens(client.functions) : null,
         deleteAccount: () => run(() => client.rpc("delete_account")),
       });
