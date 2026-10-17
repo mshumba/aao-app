@@ -17,6 +17,7 @@ Screens talk to `useAccount()` and `useGate()`. They never import supabase-js.
 | `src/auth/intent.ts` | The pending intent: what a guest tapped before signing up |
 | `src/auth/ui.tsx` | Shared kit for the sign-in and onboarding screens (`FlowScreen`, `AuthField`, `CodeInput`, `ProviderButtons`, …) |
 | `src/auth/messages.ts` | One user-facing message per `AuthError` code |
+| `src/auth/supabaseSession.ts` | The Supabase parts that run in Node tests: errors in the app's terms, the session to launch with, sign-out, links back with a code |
 | `src/auth/sessionStorage.ts` | Keychain/Keystore storage for the native session |
 | `src/lib/storage.ts` | JSON helpers over AsyncStorage and the app's storage keys |
 
@@ -101,6 +102,17 @@ On iPhone the link opens the web app. Opening it in the installed app needs univ
 A first launch onto a tab, with no account, opens `/welcome` (`FirstRun` in `src/app/_layout.tsx`). Links to a sermon skip it. The flow runs `/welcome` → `/onboarding/topics` → `/onboarding/account` → `/onboarding/name` → `/onboarding/done`. The account step uses the same sign-in screens as the gate, with `next=onboarding`. The name step is skipped when Apple or Google supplied a name. A guest can leave at the welcome or the account step and browse.
 
 Onboarding state lives on the device in `aao.onboarding.v1` as `{ welcomed, interests }`. `interests` holds only a guest's topics: while signed in, topic changes go to the profile alone. When an account's profile loads, the guest's topics move into it if it has none (or give way to its own) and leave the device, the profile's `onboarded_at` is set, and the device is marked as welcomed, so signing out later doesn't bring the welcome back and one account's topics never reach the next.
+
+## Opening the app on a weak connection
+
+An access token lasts an hour. Opened offline after that, Supabase tries to renew the token for about 30 seconds, then reports no session but keeps the saved one. It also retries the renewal every 30 seconds while the app is open. The launch doesn't wait for that (`restore()` in `supabaseBackend.ts`, `restoreSession` in `supabaseSession.ts`):
+
+- **About 1.5 seconds at most.** The launch waits that long for Supabase's answer, then starts **signed in** from the session saved on the device. The renewal carries on in the background and arrives as an ordinary session change.
+- **A renewal that can't reach the server isn't a sign-out.** Supabase's "no session" while it keeps the saved one is ignored (`watchSession`). When the server refuses the session (revoked, or signed out everywhere), Supabase removes it, and the app signs out as before.
+- **Account data uses the account's own token only** (`liveSession`). Until the token can be renewed, profile, saved-sermon and progress requests fail as "offline" and are retried later. They are never sent with the public key in its place, which would read the account as empty.
+- **Every Supabase request has a 15-second deadline, body included** (`fetchWithDeadline`, the same rule as `src/learning/request.ts`). A connection that hangs fails instead of waiting for good. supabase-js retries a failed table read three more times (1, 2 and 4 seconds apart), so a read that hangs takes about a minute to fail. Writes aren't retried.
+
+The browser tests run the stand-in, which has no tokens. These rules are tested in Node against the real supabase-js (`tests/offline-launch.spec.ts`).
 
 A profile read that fails is kept apart from an empty profile (`profileError`): nothing is seeded or written from it, the name step waits (offering Skip) rather than asking, and the read is retried shortly, on returning to the app and when the connection comes back.
 

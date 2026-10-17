@@ -11,9 +11,18 @@ import * as WebBrowser from "expo-web-browser";
 import { AppState, Platform, TurboModuleRegistry } from "react-native";
 import { CategoryId } from "../data/categories";
 import { googleClientIds, isNativeApple, supabaseConfig } from "./config";
-import { SESSION_KEY, forgetSession, secureSessionStorage } from "./sessionStorage";
+import { SESSION_KEY, forgetSession, readSavedSession, secureSessionStorage } from "./sessionStorage";
 import { signInMethod } from "./signInMethod";
-import { codeExchange, run, signOutHere, translate } from "./supabaseSession";
+import {
+  codeExchange,
+  fetchWithDeadline,
+  liveSession,
+  restoreSession,
+  run,
+  signOutHere,
+  translate,
+  watchSession,
+} from "./supabaseSession";
 import {
   AuthBackend,
   AuthError,
@@ -61,6 +70,12 @@ function toUser(session: Session | null): AuthUser | null {
 
 // How long a save or unsave may take before it's given up.
 const SAVE_DEADLINE_MS = 15_000;
+// How long any request to the account service may take, body included,
+// before it fails: the app's usual deadline (src/learning/request.ts).
+const REQUEST_DEADLINE_MS = 15_000;
+// How long the launch waits for Supabase's own answer before starting from
+// the session saved on the device (restoreSession).
+const RESTORE_WAIT_MS = 1500;
 
 const otpType: Record<CodePurpose, "email" | "signup" | "recovery"> = {
   "sign-in": "email",
@@ -91,6 +106,9 @@ export function createSupabaseBackend(): AuthBackend {
         flowType: "pkce",
         lock: processLock,
       },
+      // Without a deadline, a connection that hangs would hold sign-in, the
+      // session's renewal and every account request for good.
+      global: { fetch: fetchWithDeadline(REQUEST_DEADLINE_MS) },
     },
   );
 
@@ -106,11 +124,13 @@ export function createSupabaseBackend(): AuthBackend {
     });
   }
 
-  async function currentUserId() {
-    const { data } = await client.auth.getSession();
-    const id = data.session?.user.id;
-    if (!id) throw new AuthError("invalid_credentials", "Not signed in");
-    return id;
+  /**
+   * The account a request is for (the signed-in one when not given), once
+   * its session can be used: never sent with no token, or another account's.
+   */
+  async function accountFor(userId?: string) {
+    const session = await liveSession(client.auth, userId || undefined);
+    return session.user.id;
   }
 
   /** Runs an OAuth provider in an in-app browser sheet (native) or a redirect (web). */
@@ -203,15 +223,10 @@ export function createSupabaseBackend(): AuthBackend {
   return {
     kind: "supabase",
     async restore() {
-      const { data } = await client.auth.getSession();
-      return toUser(data.session);
+      return toUser(await restoreSession(client.auth, readSavedSession, RESTORE_WAIT_MS));
     },
     subscribe(listener) {
-      const { data } = client.auth.onAuthStateChange((_event, session) => {
-        // Supabase warns against awaiting its own calls inside this callback.
-        setTimeout(() => listener(toUser(session)), 0);
-      });
-      return () => data.subscription.unsubscribe();
+      return watchSession(client.auth, readSavedSession, (session) => listener(toUser(session)));
     },
 
     async signUpWithPassword(email, password, displayName) {
@@ -340,6 +355,7 @@ export function createSupabaseBackend(): AuthBackend {
     },
 
     async getProfile(userId) {
+      await accountFor(userId);
       const data = await run(() =>
         client
           .from("profiles")
@@ -354,6 +370,7 @@ export function createSupabaseBackend(): AuthBackend {
       } satisfies Profile;
     },
     async updateProfile(userId, changes) {
+      await accountFor(userId);
       const row: Record<string, unknown> = { id: userId };
       if ("displayName" in changes) row.display_name = changes.displayName;
       if ("interests" in changes) row.interests = changes.interests;
@@ -361,6 +378,7 @@ export function createSupabaseBackend(): AuthBackend {
       await run(() => client.from("profiles").upsert(row));
     },
     async listSaved(userId) {
+      await accountFor(userId);
       const data = await run(() =>
         client
           .from("saved_sermons")
@@ -371,12 +389,18 @@ export function createSupabaseBackend(): AuthBackend {
       return (data ?? []).map((row: { sermon_id: string }) => row.sermon_id);
     },
     async setSaved(userId, sermonId, saved) {
-      const id = userId || (await currentUserId());
       // A write that stalls is cancelled, not left to land later, so the
-      // taps queued behind it for this sermon (AccountProvider) go on.
+      // taps queued behind it for this sermon (AccountProvider) go on. The
+      // deadline covers waiting for the session too, which offline can
+      // take Supabase half a minute of retries to give up on.
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), SAVE_DEADLINE_MS);
+      const stopped = new Promise<never>((_, reject) =>
+        controller.signal.addEventListener("abort", () => reject(controller.signal.reason)),
+      );
+      stopped.catch(() => {});
       try {
+        const id = await Promise.race([accountFor(userId), stopped]);
         if (saved) {
           await run(() =>
             client
@@ -403,6 +427,7 @@ export function createSupabaseBackend(): AuthBackend {
     },
 
     async listProgress(userId) {
+      await accountFor(userId);
       const data = await run(() =>
         client
           .from("watch_progress")
@@ -429,7 +454,7 @@ export function createSupabaseBackend(): AuthBackend {
       );
     },
     async saveProgress(userId, progress) {
-      const id = userId || (await currentUserId());
+      const id = await accountFor(userId);
       // One row per sermon; updated_at is set by the database.
       await run(() =>
         client.from("watch_progress").upsert({
