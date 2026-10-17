@@ -1,5 +1,9 @@
 import { defineConfig } from "@playwright/test";
-const baseURL = process.env.EXPO_BASE_URL || "http://localhost:8081";
+// The tests' own web server, never 8081: that's the developer's simulator
+// server (which may use the real Supabase project), that reuseExistingServer
+// would otherwise attach to.
+const PORT = 8089;
+const baseURL = process.env.EXPO_BASE_URL || `http://localhost:${PORT}`;
 export default defineConfig({
   testDir: "./tests",
   testMatch: "**/*.spec.ts",
@@ -14,7 +18,10 @@ export default defineConfig({
   webServer: process.env.EXPO_BASE_URL
     ? undefined
     : {
-        command: "npx expo start --web --localhost --port 8081",
+        command: `npx expo start --web --localhost --port ${PORT}`,
+        // The deterministic on-device account service, even if a developer's
+        // .env points at a real Supabase project.
+        env: { EXPO_PUBLIC_AUTH_MODE: "local" },
         url: baseURL,
         reuseExistingServer: !process.env.CI,
         timeout: 120_000,

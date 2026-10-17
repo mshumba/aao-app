@@ -1,0 +1,42 @@
+{
+  "cli": {
+    "version": ">= 24.0.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "environment": "development",
+      "channel": "development"
+    },
+    "simulator": {
+      "extends": "development",
+      "ios": {
+        "simulator": true
+      }
+    },
+    "preview": {
+      "distribution": "internal",
+      "environment": "preview",
+      "channel": "preview",
+      "android": {
+        "buildType": "apk"
+      }
+    },
+    "production": {
+      "environment": "production",
+      "channel": "production",
+      "autoIncrement": true
+    }
+  },
+  "submit": {
+    "production": {
+      "ios": {
+        "appName": "AAO App",
+        "language": "en-US",
+        "ascAppId": "6823010745"
+      }
+    }
+  }
+}

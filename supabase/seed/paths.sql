@@ -1,0 +1,170 @@
+-- Guided paths: the eight drafts for ministry review (status 'draft'), in
+-- order: the first is Home's "Start here".
+-- Idempotent: re-running updates the text and days in place and removes days
+-- beyond each path's last day. It never changes status, so a path the
+-- ministry has published stays published.
+--
+-- Each key_quote is a contiguous verbatim span of the sermon's YouTube
+-- auto-captions with only capitalisation and punctuation added; key_at is
+-- about 3 s before the quote's first word (json3 caption timings). Focus
+-- windows and key moments are in seconds.
+--
+-- Review pack: paths/review.md (scratchpad), data: paths/paths.json.
+-- Requires the paths migration (20261015000100_paths.sql) and the sermon
+-- catalogue (every youtube_id below must exist in public.sermons).
+
+begin;
+
+insert into public.paths (id, name, italic, promise, why, needs, minutes_per_day, status, sort) values
+  ('hearing-the-voice-of-god', 'Hearing the voice of God', 'voice of God',
+   'Five days to recognise how God speaks to you, and to answer.',
+   'For believers who long to hear God but are unsure what his voice sounds like. The path explains the senses of the recreated spirit, how knowings and the inner voice work, how to tell his voice from your own, how Scripture becomes his voice, and why obedience keeps your hearing clear.',
+   array['hear-god']::text[], 14, 'draft', 1),
+  ('building-a-life-of-prayer', 'Building a life of prayer', 'life of prayer',
+   'Six days from occasional prayer to a daily place with God.',
+   'For believers who want to pray but find it hard to start or to stay consistent. The path begins with why we were made to pray, then moves through giving yourself to prayer, finding your place, guarding your time and praying in the Spirit, and ends with the persistence that keeps knocking.',
+   array['prayer']::text[], 16, 'draft', 2),
+  ('discovering-your-purpose-and-calling', 'Discovering your purpose and calling', 'purpose and calling',
+   'Six days on why you were made and how to walk in it.',
+   'For anyone asking what their life is for. The path defines a call from God, roots purpose in Christ the Maker, helps you take inventory of the grace on your life, shows what a call carries, and asks for faithfulness in small things and steadiness in your assignment.',
+   array['purpose', 'calling']::text[], 14, 'draft', 3),
+  ('learning-to-wait-on-god', 'Learning to wait on God', 'wait on God',
+   'Six days on staying faithful when God''s promise seems slow.',
+   'For anyone in a season where prayers seem unanswered and promises delayed. The path shows why God makes us wait, how he renews strength while we wait, the danger of helping God in the flesh, and how to keep believing until the word comes to pass.',
+   array['waiting', 'delay']::text[], 14, 'draft', 4),
+  ('overcoming-fear-and-anxiety', 'Overcoming fear and anxiety', 'fear and anxiety',
+   'Five days to trade anxious thoughts for the peace of God.',
+   'For anyone whose mind races with worry about money, health or the future. The path names how anxiety works, roots you in the Father who already knows your needs, and builds habits of prayer and inner quietness that let God''s peace guard your heart.',
+   array['fear', 'anxiety']::text[], 15, 'draft', 5),
+  ('walking-in-grace-and-holiness', 'Walking in grace and holiness', 'grace and holiness',
+   'Five days on the grace that teaches us to live holy.',
+   'For believers who have heard that grace covers everything and want to see how grace and holiness belong together. The path corrects the abuse of grace, describes holiness as oneness with God, and builds the daily habits of consecration, godly fear and a growing knowledge of God.',
+   array['holiness', 'grace']::text[], 16, 'draft', 6),
+  ('fasting-with-purpose', 'Fasting with purpose', 'with purpose',
+   'Five days on why to fast, how to fast and how to fast wisely.',
+   'For believers who want to fast but are unsure of the reason or the right way. The path follows Jesus into the wilderness, explains what fasting does to the flesh and the spirit, gives practical guidance with limits, and ends with fasting as part of a temperate, disciplined life.',
+   array['fasting']::text[], 14, 'draft', 7),
+  ('breaking-free-from-habitual-sin', 'Breaking free from habitual sin', 'habitual sin',
+   'Six days from the grip of a repeated sin to the freedom grace gives.',
+   'For the believer who keeps returning to the same sin and is tired of starting over. The path begins with how temptation actually works, grounds you in the truth that you are dead to sin, then builds practical disciplines for the mind and the appetites. It ends at the throne of grace, for the days you fall.',
+   array['same-sin']::text[], 16, 'draft', 8)
+on conflict (id) do update set
+  name = excluded.name,
+  italic = excluded.italic,
+  promise = excluded.promise,
+  why = excluded.why,
+  needs = excluded.needs,
+  minutes_per_day = excluded.minutes_per_day,
+  sort = excluded.sort;
+
+insert into public.path_days (path_id, day, youtube_id, focus_start, focus_end, theme, key_at, key_title, key_quote) values
+  ('breaking-free-from-habitual-sin', 1, 'G4Waap067c0', 211.3, 1240.0, 'How temptation finds its way in', 498.9, 'Temptation is personal',
+   'Temptation is idiosyncratic; temptation is particular to you.'),
+  ('breaking-free-from-habitual-sin', 2, 'OHhEiiMKXjg', 639.0, 1606.9, 'You are dead to sin', 1047.9, 'Dead to sin',
+   'In the new covenant, this is the accurate position. You must account that you are dead to sin.'),
+  ('breaking-free-from-habitual-sin', 3, 'fxORkBiWxXs', 4291.0, 5292.1, 'Stop sin while it is a thought', 4880.5, 'Sin starts as a thought',
+   'So according to scriptures, bad actions don''t start from actions. Bad actions are incubated through the outlet of the mind until they find expression in the womb of the heart.'),
+  ('breaking-free-from-habitual-sin', 4, 'XHyqYaLSwPk', 1457.6, 2383.9, 'Find the flesh''s booster stations', 1708.1, 'The root is self',
+   'The foundation of all sin is self.'),
+  ('breaking-free-from-habitual-sin', 5, 'QaBMqju7NQQ', 598.6, 1664.8, 'Gain mastery over your appetites', 1515.6, 'Learning to say no',
+   'Any man that cannot say no to himself cannot say no to others.'),
+  ('breaking-free-from-habitual-sin', 6, 'w-Nb7lByMxg', 3837.6, 4597.6, 'When you fall, come boldly for mercy', 4303.7, 'Mercy, then grace',
+   'It''s only those that have obtained mercy that can find grace.'),
+  ('overcoming-fear-and-anxiety', 1, 'vwKimnaQoco', 3236.6, 4119.1, 'How anxiety tries to win without a fight', 3844.5, 'Anxiety into prayer',
+   'Anything that is supposed to make you anxious is the same thing that should draw you to prayer.'),
+  ('overcoming-fear-and-anxiety', 2, 'ezPm1KC_qiE', 1058.0, 2212.1, 'Your heavenly Father already knows', 2136.5, 'Your Father knows',
+   'If you want to deal with a God that knows, the only thing that can impress him is your faith.'),
+  ('overcoming-fear-and-anxiety', 3, 'gP9MubHuVL4', 2655.2, 3264.7, 'Jesus speaks peace to fear and doubt', 2813.2, 'Win in your soul',
+   'If you win in your soul you will win on the ground; if you lose in your soul you will lose on the ground.'),
+  ('overcoming-fear-and-anxiety', 4, 'K7n_7hi3xuk', 1879.0, 2815.7, 'Find inner quietness before you react', 2592.7, 'Quietness within',
+   'Do you have quietness within you? Because if you have quietness you will not feel any need to respond.'),
+  ('overcoming-fear-and-anxiety', 5, 'Fal0ICd-XHw', 1189.2, 1875.1, 'Peace that holds until God answers', 1529.0, 'A place of rest',
+   'If you stay in that place of rest, not considering what is in the external, you will begin to see the sovereign hand of God.'),
+  ('building-a-life-of-prayer', 1, 'Kqw36QLZr6E', 1614.8, 2517.9, 'We were made to pray', 2388.4, 'Made to pray',
+   'Men ought always to pray, not to faint. You will never enter into that economy until you acknowledge the fact that you are insufficient.'),
+  ('building-a-life-of-prayer', 2, 'wem3w4ZPLyc', 1311.4, 2414.9, 'Give your whole self to prayer', 1322.9, 'Prayer is who we are',
+   'Prayer is who we are and not what we do.'),
+  ('building-a-life-of-prayer', 3, 'TWiVZeKhO2w', 1158.8, 2199.0, 'Find your point of prayer', 1613.0, 'The point of prayer',
+   'It is when you arrive the point of prayer that you can begin to offer your prayer point.'),
+  ('building-a-life-of-prayer', 4, 'YGnx3g5xOzQ', 571.2, 1599.8, 'Shut the door and keep the time', 991.6, 'Shut the door',
+   'Shut the door is a serious business; it''s not something that you can do double-minded.'),
+  ('building-a-life-of-prayer', 5, 'A3YdLXMlRxg', 472.0, 1088.0, 'Build yourself up in the Spirit', 819.3, 'Build yourself up',
+   'There are dimensions of believing that become possible when you gain heights in the Spirit.'),
+  ('building-a-life-of-prayer', 6, '5e7Y83Z7BIA', 0.0, 1113.6, 'Keep knocking and do not faint', 637.3, 'Pray or faint',
+   'The opposite of prayerful is not prayerless.'),
+  ('hearing-the-voice-of-god', 1, '32cOFekz4ds', 3803.4, 4545.0, 'Your spirit was made to hear God', 4125.2, 'The voice within',
+   'That voice is not without. That voice is within.'),
+  ('hearing-the-voice-of-god', 2, 'G3UvVP7US-4', 2829.0, 3731.2, 'Knowings and the inner voice', 3065.1, 'Small impressions',
+   'A little impression is a testimony to a mighty thing.'),
+  ('hearing-the-voice-of-god', 3, 'O1u7szjsr9s', 2726.8, 3689.2, 'Telling his voice from your own', 2883.4, 'His voice or mine',
+   'You do not live by his explanations; you live by his instructions.'),
+  ('hearing-the-voice-of-god', 4, '-VxddgaYe9o', 1765.3, 2613.7, 'Let Scripture slow you down to hear', 1787.1, 'Slow down with Scripture',
+   'Don''t be in a hurry with Scripture, because you just read it and you don''t know that the scriptures are gateways to spirit dimensions.'),
+  ('hearing-the-voice-of-god', 5, 'AYsESvakKek', 315.2, 1159.1, 'Obedience keeps your hearing clear', 513.7, 'Obey what you hear',
+   'The last time you heard God clearly, it was the last time you obeyed him.'),
+  ('learning-to-wait-on-god', 1, '-4r-s-jMFbo', 2891.6, 3591.9, 'God is a King, not a servant', 3408.7, 'Waiting on a King',
+   'The way up is waiting at the foot of the King until he stretches forth his scepter in your direction.'),
+  ('learning-to-wait-on-god', 2, '0O_H4IyR3lo', 462.3, 1257.2, 'He makes everything beautiful in its time', 784.3, 'Beautiful in its time',
+   'God doesn''t live in time, but he will use time to test your soul.'),
+  ('learning-to-wait-on-god', 3, 'MiE70TINsJo', 2920.4, 3694.8, 'Strength renewed for the faint', 3004.5, 'Power for the faint',
+   'The specialty of God is that he gives power to the faint.'),
+  ('learning-to-wait-on-god', 4, 'EdDHjGT6zrM', 3473.1, 4430.9, 'Do not help God in the flesh', 3487.1, 'Milk or wine',
+   'Wine gets better with time; milk gets bad with time. So the question is, are you milk or are you wine?'),
+  ('learning-to-wait-on-god', 5, '6vzoGqCUSDc', 6380.0, 7170.1, 'Keep the condition while you wait', 6878.0, 'Keep the condition',
+   'The proof that you believe in a conditional promise is that you are busy fulfilling the condition.'),
+  ('learning-to-wait-on-god', 6, 'TDVokmH0WAw', 3679.8, 4661.7, 'Believe against hope until it comes', 4529.9, 'Believe against hope',
+   'No one was there when God spoke to you; you are the only one to bear the burden of your faith.'),
+  ('fasting-with-purpose', 1, 'K7n_7hi3xuk', 650.3, 1448.3, 'Why Jesus fasted before the test', 1132.8, 'Fasting, then prayer',
+   'When Jesus said fasting and prayer, he meant the environment should not influence you, but you must influence environment.'),
+  ('fasting-with-purpose', 2, 'Yao8V16wrzE', 0.0, 727.9, 'Build capacity before the battle', 418.2, 'Build capacity',
+   'Don''t leave your life to chance. Don''t leave your destiny to chance. Build capacity.'),
+  ('fasting-with-purpose', 3, 'AwoOykuNJGM', 2409.2, 3475.5, 'Fast wisely and within safe limits', 2823.5, 'It changes you',
+   'Fasting doesn''t change God; fasting actually changes you.'),
+  ('fasting-with-purpose', 4, 'K1Q19hHq8Do', 7050.2, 7763.3, 'Set your face like Daniel', 7593.8, 'Set your face',
+   'If you set your face, it means you have decided to ignore what is behind you.'),
+  ('fasting-with-purpose', 5, '9a6NynM_D2o', 2028.4, 2793.7, 'Be temperate in all things', 2609.1, 'Temperate in all things',
+   'The requirement for expertise in the things of the Spirit is that you must master every appetite.'),
+  ('discovering-your-purpose-and-calling', 1, 'itIp_xL8EOk', 1280.8, 2205.2, 'What a call from God is', 2066.3, 'Your meaning is your assignment',
+   'It''s not your ability that is your meaning; it''s your assignment that is your meaning.'),
+  ('discovering-your-purpose-and-calling', 2, 'RG2nnvXKKHY', 679.5, 1385.5, 'Purpose is found in the Maker', 854.3, 'Ask the Manufacturer',
+   'It is not the product that tells the manufacturer what it was manufactured for.'),
+  ('discovering-your-purpose-and-calling', 3, 'DNkFzBGAHXk', 972.7, 2010.2, 'Take inventory of your grace', 1708.0, 'Sharpen your grace',
+   'When you locate the fact that there is grace in a certain area, you need to labor to sharpen it.'),
+  ('discovering-your-purpose-and-calling', 4, 'VdkD5g4qOFc', 1517.6, 2217.5, 'A call has an objective and place', 1752.3, 'What a call carries',
+   'God will not do anything on the earth without a calling.'),
+  ('discovering-your-purpose-and-calling', 5, 'wAYwEhxGYVY', 3071.0, 3922.5, 'Be faithful in the little things', 3336.9, 'Faithful in little',
+   'If you are too big to do little things, you''ll be too little to do big things.'),
+  ('discovering-your-purpose-and-calling', 6, 'aY3Nj2rgk0o', 833.2, 1619.6, 'Your assignment does not change', 1410.7, 'Your assignment stays',
+   'You will pass through many seasons in the implementation of that assignment, but the assignment itself does not change.'),
+  ('walking-in-grace-and-holiness', 1, 'KPcnaSrUpDI', 367.6, 1558.8, 'Grace is not a license for sin', 841.2, 'What grace is not',
+   'The antidote for sin cannot become the reason for sin.'),
+  ('walking-in-grace-and-holiness', 2, 'Ey1CtHPRrzY', 1352.6, 2072.6, 'Holiness is oneness with God', 1804.0, 'One with God',
+   'You may not be committing adultery or fornication, but you are not holy because you are not one with God.'),
+  ('walking-in-grace-and-holiness', 3, 'kSMvE2AWlTY', 3562.0, 4612.6, 'Yield yourself to God every morning', 3668.9, 'Holiness from love',
+   'Holy living is not motivated by the fear of hell. Holy living is a function of the fact that you actually stumbled on the love of God.'),
+  ('walking-in-grace-and-holiness', 4, 'GKjIC36hWs0', 3710.2, 4361.7, 'The fear of the Lord keeps you', 3930.5, 'The fear of the Lord',
+   'It is only the wisdom of God that can keep you from trespassing into the forbidden zone.'),
+  ('walking-in-grace-and-holiness', 5, '0QjtSGDxR8s', 218.0, 1298.7, 'Grow from grace to grace', 821.8, 'Grace multiplied',
+   'You need a multiplication of grace consistently in your life, and the agency through which this grace is multiplied is through the knowledge of God and the knowledge of our Lord Jesus Christ.')
+on conflict (path_id, day) do update set
+  youtube_id = excluded.youtube_id,
+  focus_start = excluded.focus_start,
+  focus_end = excluded.focus_end,
+  theme = excluded.theme,
+  key_at = excluded.key_at,
+  key_title = excluded.key_title,
+  key_quote = excluded.key_quote;
+
+delete from public.path_days pd using (values
+  ('breaking-free-from-habitual-sin', 6),
+  ('overcoming-fear-and-anxiety', 5),
+  ('building-a-life-of-prayer', 6),
+  ('hearing-the-voice-of-god', 5),
+  ('learning-to-wait-on-god', 6),
+  ('fasting-with-purpose', 5),
+  ('discovering-your-purpose-and-calling', 6),
+  ('walking-in-grace-and-holiness', 5)
+) as last_day (path_id, days)
+where pd.path_id = last_day.path_id and pd.day > last_day.days;
+
+commit;
