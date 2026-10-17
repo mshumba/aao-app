@@ -12,6 +12,7 @@ type YouTubePlayer = {
   loadModule?: (module: string) => void;
   unloadModule?: (module: string) => void;
   setOption?: (module: string, option: string, value: unknown) => void;
+  getOption?: (module: string, option: string) => { languageCode?: string } | undefined;
 };
 
 // Captions are off unless the viewer turns them on in the player (owner,
@@ -19,6 +20,7 @@ type YouTubePlayer = {
 // first starts, so they're switched off at both.
 function captionsOff(p: YouTubePlayer | undefined) {
   try {
+    p?.setOption?.("captions", "track", {});
     p?.unloadModule?.("captions");
     p?.unloadModule?.("cc");
   } catch {
@@ -80,11 +82,28 @@ export default function Embed({
   const player = useRef<YouTubePlayer | undefined>(undefined);
   const ready = useRef(false);
   const callback = useRef(onEvent);
+  const ccTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => {
     callback.current = onEvent;
   }, [onEvent]);
   // Whether the viewer turned captions on with CC; until then they're kept off.
   const captionsWanted = useRef(false);
+  const reportCaptions = () => {
+    const p = player.current;
+    if (!p || !ready.current) return;
+    try {
+      if (typeof p.getOption === "function") {
+        const track = p.getOption("captions", "track");
+        if (track && typeof track === "object") {
+          callback.current({ type: "captions", enabled: !!track.languageCode });
+          return;
+        }
+      }
+      callback.current({ type: "captions", enabled: captionsWanted.current });
+    } catch {
+      /* Ignore if captions module is unavailable. */
+    }
+  };
   // App controls reach the provider's own player through its official API.
   useImperativeHandle(ref, () => ({
     command: (command) => {
@@ -96,20 +115,20 @@ export default function Embed({
       else if (command.type === "rate") p.setPlaybackRate(command.rate);
       else if (command.type === "captions") {
         captionsWanted.current = command.enabled;
+        if (ccTimer.current) clearTimeout(ccTimer.current);
         try {
           if (command.enabled) {
             p.loadModule?.("captions");
             p.setOption?.("captions", "track", { languageCode: "en" });
           } else {
-            p.setOption?.("captions", "track", {});
-            p.unloadModule?.("captions");
+            captionsOff(p);
           }
         } catch {
           /* Captions module may not be available on every video. */
         }
+        ccTimer.current = setTimeout(reportCaptions, 500);
       }
     },
-    focus: () => holder.current?.querySelector("iframe")?.focus(),
   }));
   useEffect(() => {
     let disposed = false;
@@ -150,6 +169,21 @@ export default function Embed({
               ready.current = true;
               if (!captionsWanted.current) captionsOff(player.current);
               callback.current({ type: "ready", duration: duration() });
+            },
+            onApiChange: () => {
+              if (disposed) return;
+              if (!captionsWanted.current) {
+                captionsOff(player.current);
+                callback.current({ type: "captions", enabled: false });
+              } else {
+                try {
+                  player.current?.setOption?.("captions", "track", { languageCode: "en" });
+                } catch {
+                  /* Ignore */
+                }
+                if (ccTimer.current) clearTimeout(ccTimer.current);
+                ccTimer.current = setTimeout(reportCaptions, 500);
+              }
             },
             onError: (e: { data: number }) => {
               if (!disposed) callback.current({ type: "error", code: e.data });
@@ -192,6 +226,7 @@ export default function Embed({
       disposed = true;
       ready.current = false;
       if (timer) clearInterval(timer);
+      if (ccTimer.current) clearTimeout(ccTimer.current);
       player.current?.destroy();
       player.current = undefined;
     };

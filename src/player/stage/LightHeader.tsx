@@ -1,12 +1,11 @@
-import { memo, useState, type Ref } from "react";
+import { memo, useState } from "react";
 import { Platform, StyleSheet, View } from "react-native";
 import Animated from "react-native-reanimated";
 import { RoundButton } from "../../kit";
+import { STAGE_BAR } from "../layout";
 import { c, easeOut, radius, space, type } from "../../theme";
 import { T, Tap } from "../../ui";
 import { PlaylistIcon } from "./icons";
-
-export const LIGHT_HEADER_HEIGHT = 56;
 
 export type LightHeaderProps = {
   /** Column width on wide viewports. */
@@ -21,7 +20,6 @@ export type LightHeaderProps = {
   onRightPress: () => void;
   rightLabel: string;
   rightHint?: string;
-  rightRef?: Ref<View>;
   /** Web: offer a keyboard skip link straight to the video player after Back. */
   skipToPlayer?: boolean;
   onSkipToPlayer?: () => void;
@@ -41,7 +39,6 @@ export const LightHeader = memo(function LightHeader({
   onRightPress,
   rightLabel,
   rightHint,
-  rightRef,
   skipToPlayer = false,
   onSkipToPlayer,
 }: LightHeaderProps) {
@@ -85,18 +82,16 @@ export const LightHeader = memo(function LightHeader({
             </Animated.View>
           ) : null}
         </View>
-        <View ref={rightRef} collapsable={false}>
-          <RoundButton
-            tone="surface"
-            size={40}
-            label={rightLabel}
-            hint={rightHint}
-            onPress={onRightPress}
-            testID="stage-header-right"
-          >
-            <PlaylistIcon size={20} color={c.text} />
-          </RoundButton>
-        </View>
+        <RoundButton
+          tone="surface"
+          size={40}
+          label={rightLabel}
+          hint={rightHint}
+          onPress={onRightPress}
+          testID="stage-header-right"
+        >
+          <PlaylistIcon size={20} color={c.text} />
+        </RoundButton>
       </View>
     </View>
   );
@@ -125,7 +120,7 @@ const styles = StyleSheet.create({
     zIndex: 3,
   },
   bar: {
-    height: LIGHT_HEADER_HEIGHT,
+    height: STAGE_BAR,
     alignSelf: "center",
     width: "100%",
     paddingHorizontal: space.lg,

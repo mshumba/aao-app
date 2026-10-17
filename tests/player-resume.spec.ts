@@ -196,7 +196,6 @@ function mountPlayer() {
   player.session.attach({
     command: (c: PlayerCommand) =>
       player.commands.push(c.type === "seek" ? `seek:${c.seconds}` : c.type === "rate" ? `rate:${c.rate}` : c.type),
-    focus() {},
   });
   return player;
 }

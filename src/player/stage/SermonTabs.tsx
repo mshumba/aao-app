@@ -1,5 +1,5 @@
 import { memo, useRef, type ReactNode } from "react";
-import { StyleSheet, View } from "react-native";
+import { Platform, StyleSheet, View } from "react-native";
 import { eventLine } from "../../data/display";
 import type { Sermon } from "../../data/sermons";
 import { c, font, fontSize, space, textCap, type } from "../../theme";
@@ -12,7 +12,6 @@ const TAB_KEYS: readonly SermonTabKey[] = ["moments", "about"];
 export type SermonTabsProps = {
   activeTab: SermonTabKey;
   onChangeTab: (tab: SermonTabKey) => void;
-  momentsCount?: number;
   /** "Part of your path · Day 2 of 6" and Mark done, shown where they appear today. */
   pathSlot?: ReactNode;
   momentsSlot: ReactNode;
@@ -61,17 +60,23 @@ export const SermonTabs = memo(function SermonTabs({
         {TAB_KEYS.map((key) => {
           const selected = activeTab === key;
           const label = key === "moments" ? "Moments" : "About";
+          const tabId = `sermon-tab-${key}`;
+          const panelId = `sermon-panel-${key}`;
           return (
             <Tap
               key={key}
               ref={(node) => {
                 tabRefs.current[key] = node;
               }}
-              testID={`sermon-tab-${key}`}
-              accessibilityRole="tab"
+              nativeID={tabId}
+              testID={tabId}
+              // iOS VoiceOver announces nothing for "tab"; "button" reads "selected, Moments, button".
+              accessibilityRole={Platform.OS === "ios" ? "button" : "tab"}
               accessibilityLabel={label}
               accessibilityState={{ selected }}
               {...web({
+                id: tabId,
+                "aria-controls": panelId,
                 "aria-selected": selected,
                 tabIndex: selected ? 0 : -1,
               })}
@@ -97,7 +102,16 @@ export const SermonTabs = memo(function SermonTabs({
 
       <View style={styles.body}>
         {pathSlot ? <View style={styles.pathSlot}>{pathSlot}</View> : null}
-        {activeTab === "moments" ? momentsSlot : aboutSlot}
+        <View
+          nativeID={`sermon-panel-${activeTab}`}
+          {...web({
+            id: `sermon-panel-${activeTab}`,
+            role: "tabpanel",
+            "aria-labelledby": `sermon-tab-${activeTab}`,
+          })}
+        >
+          {activeTab === "moments" ? momentsSlot : aboutSlot}
+        </View>
       </View>
     </View>
   );

@@ -13,8 +13,10 @@ export type DaysDrawerProps = {
   onClose: () => void;
   pathDay: PathDayContext | null;
   moments: readonly Moment[];
+  seriesName?: string | null;
   onSelectDay?: (dayNumber: number, sermonId: string) => void;
   onOpenPath?: (pathId: string) => void;
+  onOpenSeries?: () => void;
   onSelectMoment?: (atSeconds: number) => void;
   onOpenYouTube?: () => void;
   onShowAbout?: () => void;
@@ -25,15 +27,17 @@ export type DaysDrawerProps = {
  * - On a path/series sermon: lists the path's days (with Done / Today / Upcoming
  *   status) and a link to the full path page.
  * - On a standalone sermon: lists the sermon's key moments to jump straight to.
- * Also keeps "Open in YouTube" and "About this sermon" reachable.
+ * Also keeps "Go to <series>", "Open in YouTube", and "About this sermon" reachable.
  */
 export const DaysDrawer = memo(function DaysDrawer({
   visible,
   onClose,
   pathDay,
   moments,
+  seriesName,
   onSelectDay,
   onOpenPath,
+  onOpenSeries,
   onSelectMoment,
   onOpenYouTube,
   onShowAbout,
@@ -131,7 +135,7 @@ export const DaysDrawer = memo(function DaysDrawer({
                       accessibilityLabel={`${words.unit} ${d.day}: ${d.theme}${isCurrent ? ", playing now" : isDone ? ", completed" : ""}`}
                       onPress={() => {
                         handleClose();
-                        onSelectDay?.(d.day, d.youtubeId);
+                        if (!isCurrent) onSelectDay?.(d.day, d.youtubeId);
                       }}
                       feedback="highlight"
                       highlightColor={c.feature}
@@ -217,6 +221,21 @@ export const DaysDrawer = memo(function DaysDrawer({
                 >
                   <RouteIcon size={20} color={c.accent} />
                   <T style={styles.footerItemText}>{`Go to ${pathDay.path.name}`}</T>
+                </Tap>
+              ) : !pathDay && seriesName && onOpenSeries ? (
+                <Tap
+                  accessibilityRole="menuitem"
+                  accessibilityLabel={`Go to ${seriesName}`}
+                  onPress={() => {
+                    handleClose();
+                    onOpenSeries();
+                  }}
+                  feedback="highlight"
+                  highlightColor={c.feature}
+                  style={styles.footerItem}
+                >
+                  <Icon name="albums-outline" size={20} color={c.accent} />
+                  <T style={styles.footerItemText}>{`Go to ${seriesName}`}</T>
                 </Tap>
               ) : null}
               {onOpenYouTube ? (
