@@ -22,7 +22,6 @@ export const careText = {
   title: "You don’t have to carry this alone.",
   body: "If you might act on these thoughts, call your local emergency number now.",
   link: "Find a helpline",
-  /** Under the card when search couldn't answer, or found nothing. */
+  /** Under the card when search couldn't answer, or answered with nothing. */
   failed: "The Apostle’s teaching couldn’t load just now.",
-  empty: "There’s nothing to show for this yet.",
 };

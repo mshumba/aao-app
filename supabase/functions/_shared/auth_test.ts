@@ -2,7 +2,7 @@
 // Deno specifier; the app's ESLint resolver only knows Node modules.
 // eslint-disable-next-line import/no-unresolved
 import { assertEquals } from "jsr:@std/assert@1.0.13";
-import { clientIp } from "./auth.ts";
+import { caller, callerKey, clientIp } from "./auth.ts";
 
 const headers = (h: Record<string, string>) => new Headers(h);
 
@@ -32,4 +32,18 @@ Deno.test("clientIp: cf-connecting-ip when set to, or when there is no usable x-
     hops: 0,
   });
   assertEquals(clientIp(headers({}), undefined), { ip: "unknown", from: "none", hops: 0 });
+});
+
+Deno.test("callerKey: caller()'s key (apple-tokens counts by it)", async () => {
+  const before = Deno.env.get("SUPABASE_SECRET_KEYS");
+  Deno.env.set("SUPABASE_SECRET_KEYS", JSON.stringify({ default: "sb_secret_test" }));
+  try {
+    const req = new Request("https://example.test/", { headers: { "x-forwarded-for": "198.51.100.7" } });
+    const key = await callerKey(req, "apple-tokens-sweep");
+    assertEquals(key, (await caller(req, "apple-tokens-sweep")).key);
+    assertEquals(/^apple-tokens-sweep:ip:[0-9a-f]{32}$/.test(key), true);
+  } finally {
+    if (before === undefined) Deno.env.delete("SUPABASE_SECRET_KEYS");
+    else Deno.env.set("SUPABASE_SECRET_KEYS", before);
+  }
 });

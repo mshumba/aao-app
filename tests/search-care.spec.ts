@@ -13,7 +13,7 @@ const TITLE = "You don’t have to carry this alone.";
 const BODY = "If you might act on these thoughts, call your local emergency number now.";
 
 type Fake = { delay?: number; care?: boolean };
-type Fault = "offline" | "unavailable" | null;
+type Fault = "offline" | "unavailable" | "empty" | null;
 
 const setFake = (page: Page, fake: Fake) =>
   page.addInitScript((f) => {
@@ -141,6 +141,71 @@ const PHRASES: [phrase: string, reads: "care" | "maybe" | null][] = [
   ["não aguento mais", "maybe"],
   ["nimechoka", "maybe"],
   ["sina matumaini", "maybe"],
+  // Still care: a devotional phrase mustn't hide these ("die daily" is
+  // teaching, "die every day" isn't; nor is "for God's sake")
+  ["I want to die every day", "care"],
+  ["I want to die each day", "care"],
+  ["I wanna die every day", "care"],
+  ["I wish I could die every day", "care"],
+  ["I just want to die for God's sake", "care"],
+  ["I wanna die for god's sake", "care"],
+  ["I want to die for christ's sake", "care"],
+  ["suicide prevention hotline", "care"],
+  ["I need suicide prevention help", "care"],
+  // Wordings neither list had
+  ["I feel like dying", "care"],
+  ["I don't wanna live anymore", "care"],
+  ["I'd rather be dead", "care"],
+  ["I wish I would die", "care"],
+  ["I want to unalive myself", "care"],
+  ["I took too many pills", "care"],
+  ["I took all my pills", "care"],
+  ["I wan drink sniper", "care"],
+  ["I go drink sniper", "care"],
+  ["je veux pas vivre", "care"],
+  ["I want to sleep and never wake up", "care"],
+  ["I hope I never wake up", "care"],
+  ["I'm done with life", "maybe"],
+  ["I want to end everything", "maybe"],
+  ["I'm going to end it tonight", "maybe"],
+  ["I want to leave this world", "maybe"],
+  ["I no fit continue", "maybe"],
+  ["je veux en finir", "maybe"],
+  ["la vie n'a plus de sens", "maybe"],
+  ["vou acabar com tudo", "maybe"],
+  ["quero sumir", "maybe"],
+  ["I feel like dying to self", null],
+  ["I wish I could die to self", null],
+  // Apostrophe look-alikes (´ and ʼ) read as an apostrophe
+  ["I don´t want to live", "care"],
+  ["I can´t go on", "care"],
+  ["I donʼt want to live", "care"],
+  // Care only as the whole thought; with more after it, the model reads it
+  ["I'm tired of living in sin", "maybe"],
+  ["tired of living in fear", "maybe"],
+  ["I'm tired of living for the world", "maybe"],
+  ["tired of living like this", "maybe"],
+  ["tired of living in my parents house", "maybe"],
+  ["sick of living in sin", "maybe"],
+  ["I hate living in fear", "maybe"],
+  ["I hate my life of sin", "maybe"],
+  ["I never wake up for prayer", "maybe"],
+  ["I never wake up early for prayer", "maybe"],
+  ["what's the point of life", "maybe"],
+  ["I feel empty inside", "maybe"],
+  // Afraid of dying, in Portuguese and Spanish
+  ["não quero morrer, estou doente", null],
+  ["no quiero morir", null],
+  // Sermon searches, not despair
+  ["breaking down strongholds", null],
+  ["breaking down the walls of Jericho", null],
+  ["when your marriage is falling apart", null],
+  ["my family is falling apart", null],
+  ["what's the point of fasting", null],
+  ["should a Christian take pills", null],
+  ["God makes a way when there is no way out", null],
+  ["en finir avec le péché", null],
+  ["unbearable pain in my back", null],
   // Ordinary searches
   ["I keep falling into the same sin", null],
   ["I'm afraid of what's coming", null],
@@ -247,6 +312,30 @@ for (const fault of ["unavailable", "offline"] as const) {
     await expectCard(page);
   });
 }
+
+// The search function answers care with nothing in it when its database is
+// down: that is search failing too, not an answer to keep.
+test("a care answer with nothing in it offers Try again, and isn't kept for the session", async ({ page }) => {
+  await setFault(page, "empty");
+  await search(page, "I want to die");
+  await expectCard(page);
+  const calm = shown(page.getByTestId("care-calm"));
+  await expect(calm).toContainText("The Apostle’s teaching couldn’t load just now.");
+  await expect(calm.getByRole("button", { name: "Try again", exact: true })).toBeVisible();
+  await expect(live(page)).toHaveText(`${TITLE} ${BODY} The Apostle’s teaching couldn’t load just now.`);
+  await page.evaluate(() => {
+    (globalThis as { __aaoSearchFault?: Fault }).__aaoSearchFault = null;
+  });
+  // Something else, then the same words again: searched again, not the empty answer.
+  const field = page.getByRole("searchbox", { name: "What are you going through?" });
+  await field.fill("grief");
+  await field.press("Enter");
+  await expect(results(page).first()).toBeVisible();
+  await field.fill("I want to die");
+  await field.press("Enter");
+  await expect(results(page)).toHaveCount(4);
+  await expectCard(page);
+});
 
 // Words that may mean distress: the card when search can't read them
 // (failing closed), never otherwise.

@@ -115,3 +115,8 @@ export async function caller(req: Request, scope: string): Promise<Caller> {
     ip: { from: found.from, hops: found.hops, cf },
   };
 }
+
+/** caller()'s key alone, for functions that only count requests (apple-tokens imports it). */
+export async function callerKey(req: Request, scope: string): Promise<string> {
+  return (await caller(req, scope)).key;
+}

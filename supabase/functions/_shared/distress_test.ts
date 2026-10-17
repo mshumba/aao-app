@@ -48,6 +48,36 @@ Deno.test("a devotional phrase is taken out, not the rest of the sentence", () =
   assertEquals(maybeDistress("die to the world, everything feels pointless"), true);
 });
 
+Deno.test("wordings a devotional phrase hid, or an open wording over-read", () => {
+  for (
+    const q of [
+      "I want to die every day",
+      "I wanna die for god's sake",
+      "suicide prevention hotline",
+      "I feel like dying",
+      "I took too many pills",
+      "I wan drink sniper",
+      "I don´t want to live",
+      "I donʼt want to live",
+    ]
+  ) assertEquals(readDistress(q), "care", q);
+  for (
+    const q of ["I'm tired of living in sin", "I never wake up for prayer", "what's the point of life", "quero sumir"]
+  ) {
+    assertEquals(readDistress(q), "maybe", q);
+  }
+  for (
+    const q of [
+      "I feel like dying to self",
+      "não quero morrer, estou doente",
+      "no quiero morir",
+      "breaking down strongholds",
+      "God makes a way when there is no way out",
+      "what's the point of fasting",
+    ]
+  ) assertEquals(readDistress(q), null, q);
+});
+
 Deno.test("the search function reads the same list and keys the cache the same way", () => {
   assertEquals(fromPrompts, inDistress);
   assertEquals(normaliseFromPrompts, normalise);

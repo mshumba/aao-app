@@ -15,7 +15,9 @@
 // flesh / to the world / to self / daily", "die for Christ", "ready to die for
 // Jesus", "I want to die empty", "suicide prevention sermon", "killing myself
 // slowly with sin". The rest of the sentence is still read, so "I want to die
-// to self, I want to kill myself" is still care.
+// to self, I want to kill myself" is still care. Each is kept as narrow as its
+// teaching use: "I want to die every day", "die for God's sake" and "suicide
+// prevention hotline" are still care.
 //
 // Text is compared as normalise() leaves it, without accents ("não" → "nao",
 // "désespoir" → "desespoir"). The phrase table in tests/search-care.spec.ts
@@ -33,10 +35,12 @@ export const DISTRESS_LIST_VERSION = 2;
  * keyed in the cache (case, spacing and punctuation don't matter).
  */
 export function normalise(s: string): string {
+  // Apostrophe look-alikes first: NFKC turns ´ into a space and an accent, and
+  // keeps ʼ as a letter, so "don´t" and "donʼt" would never read as "don't".
   return s
+    .replace(/[’‘`´ʼ′＇]/g, "'")
     .normalize("NFKC")
     .toLowerCase()
-    .replace(/[’‘`]/g, "'")
     .replace(/[^\p{L}\p{N}' ]+/gu, " ")
     .replace(/\s+/g, " ")
     .trim();
@@ -57,17 +61,22 @@ const DIES_FOR =
   "christ|jesus( christ)?|christ jesus|the lord|my lord|god|the gospel|the faith|my faith|(the |his |god'?s )?kingdom|" +
   "the cross|him|my saviou?r";
 
+// "Die daily" is 1 Corinthians 15:31; "suicide prevention" only with the sermon
+// or event it names.
 const DEVOTIONAL = words(
   [
-    `(die|dies|died|dying|dead|death) (to|unto) (${DIES_TO})`,
-    "(die|dies|dying) (daily|every day|each day)",
-    `(die|dies|died|dying|lay down my life) for (${DIES_FOR})`,
+    `(die|dies|died|dying|dead|death) (to|unto) (${DIES_TO})(?!'?s sake)`,
+    "(die|dies|dying) daily",
+    `(die|dies|died|dying|lay down my life) for (${DIES_FOR})(?!'?s sake)`,
     "die empty",
     "to die is gain",
-    "suicide (prevention|awareness)",
+    "suicide (prevention|awareness) (sermons?|messages?|teachings?|series|month|week|day|ministry|sunday|service)",
     "kill(ing)? my ?self (slowly )?(with|by|through|in) (sin|sins|my sins?|sinning)",
     // Afraid of dying (sickness, danger), not wanting to: "I don't want to die".
     "(don'?t|do not|no) (want|wan|wanna) (to )?die",
+    "(nao|no) (quero|quiero) (mais )?(morrer|morir\\w*)",
+    // "God makes a way where there is no way": not "no way out" (maybe).
+    "(make|makes|made|making) a way (when|where) there('?s| is| was| seems to be) no way( out)?",
     // French and Portuguese: dying to self, to the flesh, to the world.
     "mourir (a|au) (moi meme|soi meme|(la |ma )?chair|monde|peche)",
     "morrer (para|ao|a) (mim mesmo|si mesmo|(a )?carne|(o )?mundo|pecado)",
@@ -83,7 +92,12 @@ const CARE = words([
   "tak(e|ing) my (own )?life",
   "(want|wanna|wish|ready|longing) (to|i could|i was|i were) (die|be dead|dead)",
   "wanna die",
+  "wish i (would|could) die",
+  "feel like dying",
+  "(rather|better) be dead",
+  "unalive\\w*",
   "(don'?t|do not|no longer) want to (live|be alive|wake up|exist|be here any ?more)",
+  "(don'?t|do not) wanna (live|be alive|exist|wake up)",
   "no (reason|point) (to|in|for) (live|living|go on|going on|being alive|life)",
   "nothing (left )?to live for",
   "self ?harm\\w*",
@@ -91,21 +105,27 @@ const CARE = words([
   "(hang|hanging|drown|drowning|poison|poisoning|shoot|shooting|stab|stabbing) my ?self",
   "slit(ting)? my wrists?",
   "jump(ing)? (off|from) (a |the )?(bridge|building|roof|cliff)",
+  "(took|taken|swallowed?) (too many|a lot of|all( of)?( my| the| these)?) pills",
+  "(drink|drank|drinking|take|took|swallow\\w*) sniper", // Sniper: a pesticide, in Nigeria
   "better off (dead|without me)",
   "(nobody|no one|noone) (would|will|is going to|gonna) (miss me|notice i'?m gone|care if i (die|died|was gone|were gone))",
-  "tired of (living|being alive|life|this life|my life|existing)",
-  "(sick|weary) of (living|being alive|life)",
-  "(hate|hating) (my life|living|being alive)",
+  // As the whole thought: "tired of living in sin" or "I hate living in fear"
+  // is maybe (the model reads it).
+  "tired of (living|being alive|life|this life|my life|existing)( any ?more| any longer)?$",
+  "(sick|weary) of (living|being alive|life)( any ?more| any longer)?$",
+  "(hate|hating) (my life|living|being alive)( so much)?$",
   // "I can't go on" as the whole thought; "can't go on like this" is maybe.
   "(can'?t|cannot|can not) (go|carry) on( (any ?more|any longer|living|with (my |this )?life))?$",
   "(can'?t|cannot|can not) live (any ?more|any longer)",
   "(give|giving|given|gave) up on (life|living)",
   "(lost|losing|no|have no) (the )?will to live",
-  "never wake up",
+  // Not "I never wake up for prayer" (maybe).
+  "(want|wish|hope|pray)( that)?( i| to)?( could| would| will)? never wake up",
+  "(sleep|asleep) and never wake up",
   "(wish|wishing) i (was|were|had) never (been )?born",
   "(life|living) (isn'?t|is not|ain'?t) worth (living|it)",
   "not worth living",
-  "what'?s the point (of|in) (living|life|being alive|going on)",
+  "what'?s the point (of|in) (living|being alive|going on)",
   // Nigerian Pidgin
   "wan (go )?die", // I wan die, I wan go die
   "make i (just )?die",
@@ -118,6 +138,7 @@ const CARE = words([
   "me tuer",
   "me (donner|foutre) la mort",
   "veux plus vivre",
+  "je (ne )?veux pas vivre",
   "(plus|pas) envie de vivre",
   "en finir avec (la|ma) vie",
   "mettre fin a (mes jours|ma vie)",
@@ -161,36 +182,50 @@ const MAYBE = words([
   "burden (to|on) (everyone|everybody|my family|others|people)",
   "depress\\w*",
   "despair\\w*",
-  "no way out",
+  // Not "God makes a way when there is no way out" (a devotional phrase).
+  "(there'?s|there is|i see|i have) no way out$",
   "(nobody|no one|noone) (cares|loves me|understands me|wants me)",
   "don'?t want to be here",
   "dark (thoughts|place)",
   "overdos\\w*",
-  "(swallow|take|took|taking) (all )?(the |my |these )?pills",
-  "what'?s the point",
+  // Not "should a Christian take pills".
+  "(swallow\\w*|took|taking|take all) (all )?(the |my |these )?pills",
+  // Not "what's the point of fasting".
+  "what'?s the point( (of|in) (it all|life|anything))?( any ?more)?$",
   "(life|everything|it all) (is|feels) (so )?(pointless|meaningless)",
   "(my )?life has no (meaning|purpose)",
   "tired of (everything|it all)",
+  // "Tired of living in sin" and the like: the care list takes these only as the whole thought.
+  "tired of (living|being alive|life|this life|my life|existing)",
+  "(sick|weary) of (living|being alive|life)",
+  "(hate|hating) (my life|living|being alive)",
+  "never wake up",
+  "done with (life|living)",
+  "(end|ending) (it|everything)( tonight| today)?$",
+  "(want to|going to|wan) (leave|comot) this world",
   "(want|wanna) the pain to (stop|end)",
-  "unbearable",
-  "falling apart",
-  "breaking down",
+  // Not "unbearable pain in my back", "breaking down strongholds" or "my family is falling apart".
+  "(it'?s|it is|this is|life is|everything is|the pain is|this pain is) unbearable",
+  "(i am|i'?m|im|i feel|my life is|my world is|everything is) (falling apart|breaking down)",
   // Nigerian Pidgin
   "(don|done) tire",
   "life no (sweet|get meaning)",
-  "i no fit (again|cope|bear)",
+  "i no fit (again|cope|bear|continue)",
   "wahala don too much",
-  // French
-  "en finir",
+  // French ("en finir avec le péché" is not; "en finir avec la vie" is care)
+  "en finir( avec tout( ca)?)?$",
   "en peux plus",
   "desespo\\w*|desesper\\w*",
   "deprim\\w*", // also Portuguese deprimido
   "plus (la )?force",
   "marre de tout",
+  "(la|ma) vie n'?a plus (de )?sens",
   // Portuguese
   "nao aguento mais",
   "sem esperanca",
   "cansad[oa] de tudo",
+  "acabar com tudo",
+  "quero sumir",
   // Swahili
   "nimechoka",
   "sina (matumaini|tumaini)",

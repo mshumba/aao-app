@@ -91,7 +91,8 @@ deno test --allow-env --allow-read _shared/
 
 Send `apikey: <publishable key>` and `Authorization: Bearer <user access token, or the publishable key for guests>`.
 
-**search.** `POST /functions/v1/search` with body `{"q": "I keep going back to the same sin"}`. The response:
+**search.** `POST /functions/v1/search` with body `{"q": "I keep going back to the same sin", "accept": ["titles"]}`.
+`accept` is optional: `"titles"` says the app can take a titles-only answer (see `fallback` below). The response:
 
 ```
 {
@@ -121,7 +122,12 @@ Added on 15 October 2026 (older app builds can ignore both):
 Added on 17 October 2026: `fallback`, set only when nothing could be searched by meaning. `"curated"`: the moments are
 the needs' hand-picked ones from `public.moments` (a chip whose phrases couldn't be embedded, or someone in distress
 when the comfort phrasing couldn't be searched). `"titles"`: no moments, and `sermons` are title matches with
-`moments: 0` (the app shows its own "isn't answering" state with its own title matches for these).
+`moments: 0`, sent only when the request has `"accept": ["titles"]` (the app shows its own "isn't answering" state with
+its own title matches for these). Without it the answer is the 503 it always was: older builds would list the titles as
+results, each with "0 moments on this".
+
+A `care` answer with nothing in it (`moments: []`, `sermons: []`) means search couldn't reach the database: the app
+says the teaching couldn't load, offers Try again and doesn't keep the answer.
 
 Errors:
 
@@ -152,6 +158,11 @@ How it works:
      refused: their search counts only against `SEARCH_CARE_PER_HOUR`, an allowance for the model's reading, and past it
      they get the care answer without the model. A "maybe" search past the limits gets the care answer too, and a chip
      past the limits its curated moments. Only anything else gets the 429.
+   - The care answer without the model is the same whatever was typed, so it is cached once, under
+     `search:v5:d2:care-default`: past the limits, each distress search costs one cache read, not a `match_passages`
+     call of its own. A cached answer refused for someone in distress is replaced from the same entry.
+   - A chip that `search_open()` let through uncounted is never searched with the model: if the needs fail to load, it
+     answers with its curated moments (or a 503).
 3. **Need chips.** When the question is a published need's label or short name ("I'm struggling with fear", "Fear"),
    compared after `normalise()`, and the need has a `needs.query`, no chat model is used. The fixed teaching phrase and
    the need's label are searched with their embeddings from `need_vectors`; the first time a chip is used (or after its
@@ -186,8 +197,9 @@ How it works:
 9. **When OpenAI fails** (nothing could be embedded): a chip answers with its curated moments from `public.moments`
    (best first, at most 2 per sermon, never a hidden passage); someone in distress with the comfort list from the stored
    embedding, or else the curated moments of Discouragement, God's presence and Rejection, or else `moments: []`; any
-   other question with sermons whose title or headline holds its content words (`match_sermon_titles()`), or a 503 when
-   none do. These answers carry `fallback` and aren't cached.
+   other question with sermons whose title or headline holds its content words (`match_sermon_titles()`) when the
+   request has `"accept": ["titles"]`, or a 503 when it hasn't or none match. These answers carry `fallback` and aren't
+   cached.
 10. Database calls that fail with a connection error, a timeout, a 502-504 from the gateway, `PGRST000`-`PGRST003` or a
     Postgres start-up/shut-down code are retried once after 0.4-0.7 s (`withRetry` in `_shared/db.ts`), so a brief
     connection drop, or the end of a database restart, doesn't reach the app as a 503. A longer outage still does.
@@ -199,11 +211,14 @@ How it works:
 The distress list (`_shared/distress.ts`) is one file, used by this function and by the app. It is read on the question
 in lower case, without punctuation or accents, after taking out devotional phrases ("die to my flesh / to the world / to
 self / daily", "die for Christ", "ready to die for Jesus", "I want to die empty", "to die is gain", "suicide prevention
-sermon", "killing myself slowly with sin", "I don't want to die"); the rest of the sentence is still read.
+sermon", "killing myself slowly with sin", "I don't want to die", "God makes a way where there is no way"); the rest of
+the sentence is still read. Each is only as wide as its teaching use: "I want to die every day", "I want to die for God's
+sake" and "suicide prevention hotline" are still care.
 
 - **care**: they plainly say it, in English, Nigerian Pidgin, French, Portuguese, Spanish or Swahili ("I'm tired of
   living", "I can't go on", "nobody would miss me", "I wan die", "I don tire for this life", "je veux mourir", "quero
-  morrer", "nataka kufa", "najiua"). Always care, whatever the model says; never refused by the limits.
+  morrer", "nataka kufa", "najiua"). Always care, whatever the model says; never refused by the limits. Some only as
+  the whole thought: "I'm tired of living" is care, "I'm tired of living in sin" is maybe.
 - **maybe**: despair that may mean it ("I can't go on like this", "hopeless", "depressed", "je n'en peux plus", "não
   aguento mais", "nimechoka"). The model decides; when it can't (it failed, timed out, or the limits stopped it), the
   search is care. The app does the same when search itself fails: the card shows above "The Apostle's teaching couldn't
@@ -226,17 +241,21 @@ by a keyed hash of their address.
 | `SEARCH_CARE_PER_HOUR`   | 300     | Distress searches an hour that get the model's reading (past it: care without it)       |
 | `QUOTES_GLOBAL_PER_HOUR` | 600     | `quotes` calls that reach the model, an hour, everyone together                         |
 | `QUOTES_USER_PER_5MIN`   | 30      | Those per signed-in person, per 5 minutes                                               |
-| `QUOTES_GUEST_PER_5MIN`  | 120     | Those per guest address, per 5 minutes                                                  |
+| `QUOTES_GUEST_PER_5MIN`  | 30      | Those per guest address, per 5 minutes (so no one address uses up everyone's)           |
 
 How the defaults follow from a budget (October 2026 list prices, see [Cost](#cost)), assuming an OpenAI hard monthly
 spending limit of about $100 as the real ceiling:
 
 - An uncached typed search costs about $0.0004, so 3,000 an hour is at most $1.20 an hour, and a whole day at the
   ceiling about $29: a launch-day peak gets through (a church of 500 making 3 searches each, half of them chips or
-  repeats, is about 750 an hour), and a day of abuse can't spend the month. Chips with stored embeddings and repeats
-  cost nothing.
-- A `quotes` call costs at most about $0.008 (14 new passages), so 600 an hour is at most $4.80 an hour. Each passage
-  goes to the model once, ever, so quoting the whole archive costs about $73 in all.
+  repeats, is about 750 an hour), and a day of abuse on search alone can't spend the month. Chips with stored
+  embeddings and repeats cost nothing.
+- A `quotes` call costs at most about $0.008 (14 new passages), so 600 an hour is at most $4.80 an hour, and one guest
+  address at most $2.88 an hour. Only passages search can show are quoted, each once, ever, so quoting the whole archive
+  costs about $73 in all. That is spent once, not every month, but abuse can bring it forward: at the ceiling it takes
+  about 15 hours. So the worst day is about $29 of search plus that one-time $73. Leave room for it in OpenAI's limit in
+  the month of launch, or lower `QUOTES_GLOBAL_PER_HOUR` (at 120 an hour the archive takes about 3 days, and a day costs
+  at most about $23).
 - Distress searches: at most 300 model readings an hour, about $0.12 an hour.
 - To fit another budget, scale `SEARCH_GLOBAL_PER_HOUR` with it (about 30 an hour per $1 a month) and set OpenAI's
   monthly limit to the budget. When OpenAI's limit is reached, chips, distress searches and title matches keep working
@@ -299,8 +318,9 @@ are"); "very very", "no no", "had had", a word that isn't small said three times
 before a noun ("that that deliverance") always stay. The model may not leave them out either: such a sentence is not
 used.
 
-1. Cached rows in `passage_quotes` are returned first.
-2. The rest go to one batched chat call (`quotes/pick.ts`, 20 s timeout). For each passage the model gives a quote and a
+1. Cached rows in `passage_quotes` are returned first. Of the rest, only passages search can show (not a twin, not
+   hidden, at least 120 words) go on; any other id is `null`.
+2. They go to one batched chat call (`quotes/pick.ts`, 20 s timeout). For each passage the model gives a quote and a
    backup from another stretch, and says whether each is clear (every word correct, makes sense on its own); an unclear
    one is not used.
 3. Each pick is rebuilt in code (`buildQuote` in `_shared/verbatim.ts`):

@@ -91,10 +91,15 @@ Deno.serve(async (req) => {
     log.cached = ids.length - missing.length;
 
     if (missing.length) {
+      // Only passages search can show (match_passages' own filter): no other
+      // id ever reaches the model.
       const found = await db
         .from("passages")
         .select("id,text,words,start_s,end_s,seg_words,seg_times")
         .in("id", missing)
+        .is("dup_of", null)
+        .eq("hidden_from_search", false)
+        .gte("words", 120)
         .abortSignal(dbTimeout(5000));
       if (found.error) throw new Error(`passages: ${found.error.code ?? found.error.message}`);
       const passages = (found.data ?? []) as PassageRow[];

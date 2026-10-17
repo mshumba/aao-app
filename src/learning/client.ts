@@ -83,7 +83,9 @@ export async function search(q: string, signal?: AbortSignal): Promise<SearchRes
   const query = q.trim();
   if (!query || query.length > 200) throw new LearningError("bad_query");
   if (learningMode === "local") return fakeSearch(query, signal);
-  const data = await post<SearchResponse>("search", { q: query }, SEARCH_TIMEOUT, signal);
+  // `accept`: this build knows a titles-only answer (search sends older builds
+  // a 503 instead, as they would list the titles as results).
+  const data = await post<SearchResponse>("search", { q: query, accept: ["titles"] }, SEARCH_TIMEOUT, signal);
   if (!data || !Array.isArray(data.moments)) throw new LearningError("unavailable", "Unexpected response");
   // Only sermon titles matched (finding moments by meaning failed): the
   // screen's "isn't answering" state says so, beside its own title matches.
