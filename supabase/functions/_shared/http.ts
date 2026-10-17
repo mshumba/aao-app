@@ -79,7 +79,8 @@ function clientKeys(): string[] {
   return keys;
 }
 
-function sameText(a: string, b: string): boolean {
+/** Compares two secrets in constant time. */
+export function sameText(a: string, b: string): boolean {
   const x = new TextEncoder().encode(a);
   const y = new TextEncoder().encode(b);
   let diff = x.length ^ y.length;

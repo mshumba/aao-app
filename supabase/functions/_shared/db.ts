@@ -20,6 +20,20 @@ export function secretKey(): string {
   return legacy;
 }
 
+/** Every secret key of the project, plus the legacy service_role key (for admin-only requests). */
+export function secretKeys(): string[] {
+  const keys: string[] = [];
+  try {
+    const named = JSON.parse(Deno.env.get("SUPABASE_SECRET_KEYS") ?? "{}") as Record<string, unknown>;
+    for (const value of Object.values(named)) if (typeof value === "string" && value) keys.push(value);
+  } catch {
+    // not set or not JSON
+  }
+  const legacy = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  if (legacy) keys.push(legacy);
+  return keys;
+}
+
 let client: SupabaseClient | null = null;
 
 export function admin(): SupabaseClient {
@@ -61,14 +75,15 @@ export async function withRetry<R extends DbResult>(run: () => PromiseLike<R>, o
 }
 
 export type Limit = { key: string; max: number; windowSeconds: number };
-export type RateResult = { ok: true } | { ok: false; retryAfter: number };
+/** `refused`: which limit said no, counting from 1 (the last is the one everyone shares). */
+export type RateResult = { ok: true } | { ok: false; retryAfter: number; refused: number };
 
 /**
  * search_rate_ok(): true (and the call counted) while `key` is under `max`
  * calls in the last `windowSeconds`. When it says no, also how many seconds
  * until the oldest counted call leaves the window.
  */
-async function checkOne({ key, max, windowSeconds }: Limit): Promise<RateResult> {
+async function checkOne({ key, max, windowSeconds }: Limit): Promise<{ ok: true } | { ok: false; retryAfter: number }> {
   const db = admin();
   const { data, error } = await db
     .rpc("search_rate_ok", { key, max_hits: max, window_seconds: windowSeconds })
@@ -94,9 +109,9 @@ async function checkOne({ key, max, windowSeconds }: Limit): Promise<RateResult>
  * shared ceiling that follows it.
  */
 export async function rateLimit(limits: Limit[]): Promise<RateResult> {
-  for (const limit of limits) {
+  for (const [i, limit] of limits.entries()) {
     const result = await checkOne(limit);
-    if (!result.ok) return result;
+    if (!result.ok) return { ...result, refused: i + 1 };
   }
   return { ok: true };
 }

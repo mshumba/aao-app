@@ -1,30 +1,19 @@
 /**
- * Someone saying they want to die or to harm themselves. Search answers such
- * a question with `care: true` (and comforting teaching, never the words as
+ * Someone who may want to die or to harm themselves. Search answers such a
+ * question with `care: true` (and comforting teaching, never the words as
  * typed); this is the app's own check for when it can't tell, such as a
- * search that fails or an older answer without the flag. The same wordings
- * as the search function's CARE (supabase/functions/_shared/prompts.ts):
- * "die to self" and "dying to the flesh" are teaching phrases, not distress.
+ * search that fails or an older answer without the flag.
+ *
+ * The wordings are the search function's own: one file, imported here and by
+ * the function (supabase/functions/_shared/distress.ts). `inDistress`: they
+ * plainly say it, so the card always shows. `maybeDistress`: that, or a
+ * wording of despair that may mean it ("I can't go on like this",
+ * "hopeless"); the card shows when search can't answer. Devotional phrases
+ * ("die to self", "ready to die for Christ") are neither.
  *
  * Plain TypeScript, no React Native, so the tests can run it directly.
  */
-const CARE =
-  /\b(suicid\w*|kill(ing)? my ?self|end(ing)? (it all|my life|my own life)|take my (own )?life|(want|wanna|wish|ready) (to|i could|i was|i were) (die|be dead|dead)(?! to (self|myself|the flesh|sin))|wanna die(?! to)|don'?t want to (live|be alive|wake up)|do not want to (live|be alive|wake up)|no (reason|point) (to|in) (live|living|go on|going on)|self[- ]?harm\w*|(hurt|hurting|cut|cutting) my ?self|better off dead)\b/i;
-
-/** Lower-case words only, as the search function compares questions. */
-function normalise(text: string) {
-  return text
-    .normalize("NFKC")
-    .toLowerCase()
-    .replace(/[’‘`]/g, "'")
-    .replace(/[^\p{L}\p{N}' ]+/gu, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-export function inDistress(text: string | null | undefined): boolean {
-  return !!text && CARE.test(normalise(text));
-}
+export { inDistress, maybeDistress } from "../../supabase/functions/_shared/distress";
 
 /** Where "Find a helpline" goes: helplines by country, free and confidential. */
 export const HELPLINE_URL = "https://findahelpline.com";

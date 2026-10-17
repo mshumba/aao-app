@@ -298,7 +298,7 @@ test.describe("as a guest", () => {
 // The calm states, through the stand-in search's development-only fault
 // switch (src/learning/fixtures.ts).
 test.describe("when search can't answer", () => {
-  type Fault = "offline" | "rate_limited" | "unavailable" | "empty" | null;
+  type Fault = "offline" | "rate_limited" | "busy" | "unavailable" | "empty" | null;
   const setFault = (page: Page, fault: Fault) =>
     page.addInitScript((f) => {
       (globalThis as { __aaoSearchFault?: Fault }).__aaoSearchFault = f;
@@ -321,12 +321,23 @@ test.describe("when search can't answer", () => {
     await expect(results(page)).toHaveCount(6);
   });
 
-  test("too many searches: asks to try again in a minute", async ({ page }) => {
+  test("over their own limit: asks to try again in a minute, without blame", async ({ page }) => {
     await setFault(page, "rate_limited");
     await page.goto(`/search?q=${encodeURIComponent(NEED)}`);
     const state = shown(page.getByTestId("search-busy"));
-    await expect(state.getByRole("heading", { name: "Too many searches at once" })).toBeVisible();
+    await expect(state.getByRole("heading", { name: "Search needs a moment" })).toBeVisible();
     await expect(state).toContainText("Try again in a minute.");
+    await expect(page.getByText("Too many searches", { exact: false })).toHaveCount(0);
+    await expect(results(page)).toHaveCount(0);
+  });
+
+  test("the shared limit: says search is busy for everyone", async ({ page }) => {
+    await setFault(page, "busy");
+    await page.goto(`/search?q=${encodeURIComponent(NEED)}`);
+    const state = shown(page.getByTestId("search-busy"));
+    await expect(state.getByRole("heading", { name: "Search is busy for everyone right now" })).toBeVisible();
+    await expect(state).toContainText("Try again in a few minutes. Sermon titles still match as you type.");
+    await expect(page.getByTestId("search-status")).toHaveText("Search is busy for everyone right now");
     await expect(results(page)).toHaveCount(0);
   });
 
