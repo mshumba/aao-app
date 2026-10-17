@@ -1,5 +1,5 @@
 import * as Haptics from "expo-haptics";
-import { router, useIsFocused, useNavigation } from "expo-router";
+import { router, useIsFocused, useNavigation, type Href } from "expo-router";
 import {
   memo,
   useCallback,
@@ -47,15 +47,16 @@ import {
 import { SearchField } from "../../kit";
 import { Confetti } from "../../kit/Confetti";
 import { FocusedStatusBar } from "../../kit/FocusedStatusBar";
-import { useEnrollment, useNeeds, usePaths } from "../../learning";
+import { useEnrollment, useMyTopics, useNeeds, usePaths } from "../../learning";
 import { useReducedMotion } from "../../motion";
 import { requestSearchFocus, useGo, usePageTitle } from "../../navigation";
 import { pathWords } from "../../paths/model";
+import { PathSuggestions } from "../../paths/Suggestions";
 import { resumePoint } from "../../player/progress";
 import { useDockInset } from "../../player/useDockInset";
-import type { CategoryId } from "../../data/categories";
 import { c, easeOut, space } from "../../theme";
 import { useToast } from "../../toast";
+import { topicHref } from "../../topics";
 import { Notice, TextButton, dockScrollPadding, gradient, nowrap } from "../../ui";
 
 // The hero shows the four newest; "Latest" the next six.
@@ -85,8 +86,8 @@ type TabsNavigation = {
  * Home, as the approved Immersive concept's screen 01: a dark hero with the
  * greeting and the newest sermons, then on ivory the question "What are you
  * going through?" with common needs, the path you're on (or paths to start),
- * Continue watching, the sermons in your topics, the latest sermons (See
- * all: every sermon) and the conferences.
+ * Continue watching, the sermons and paths for your topics, the latest
+ * sermons (See all: every sermon) and the conferences.
  *
  * The blessing has its own screen, opened from here at a cold start and
  * after 30 minutes or more away (src/blessing).
@@ -103,6 +104,7 @@ export default function Home() {
   const actions = useSermonActions();
   const { needs } = useNeeds();
   const { paths, daysOf } = usePaths();
+  const myTopics = useMyTopics();
   const enrollment = useEnrollment();
   const active = enrollment.active;
 
@@ -177,11 +179,8 @@ export default function Home() {
     (key: string) => goRef.current.push({ pathname: "/series/[key]", params: { key } }),
     [],
   );
-  const openTopic = useCallback(
-    (categoryId: CategoryId) =>
-      goRef.current.push({ pathname: "/topics/[categoryId]", params: { categoryId } }),
-    [],
-  );
+  const openTopic = useCallback((id: string) => goRef.current.push(topicHref(id)), []);
+  const openSuggested = useCallback((href: Href) => goRef.current.push(href), []);
 
   // ---- A new account's welcome (see Welcome) -----------------------------------------
   const screen = useRef<View>(null);
@@ -284,7 +283,9 @@ export default function Home() {
             <>
               <ContinueRail exclude={active?.today?.youtubeId} onWatch={actions.watch} />
 
-              <TopicsRail sermons={sermons} topics={account.interests} onSeeAll={openTopic} />
+              <TopicsRail sermons={sermons} topics={myTopics} onSeeAll={openTopic} />
+
+              <PathSuggestions onOpen={openSuggested} inset={24} style={styles.suggested} />
 
               <LatestSermons
                 sermons={latest}
@@ -439,6 +440,7 @@ const styles = StyleSheet.create({
   column: { width: "100%", maxWidth: 760, alignSelf: "center" },
   field: { marginTop: -HERO_OVERLAP, marginHorizontal: 20 },
   offline: { gap: space.xs, marginTop: space.lg, paddingHorizontal: 24 },
+  suggested: { marginTop: 32 },
   cover: { ...StyleSheet.absoluteFill, backgroundColor: c.bg },
   statusShade: {
     position: "absolute",

@@ -1,8 +1,8 @@
 import { SERMON, expect, rows, seedWatchProgress, shown, test } from "./fixtures";
 
-// The pages redesign: All sermons, "From your topics",
-// Continue watching's See all, the privacy disclosures, and one look that
-// holds at 320pt.
+// The pages redesign: All sermons, Continue watching's See all, the privacy
+// disclosures, and one look that holds at 320pt. "From your topics" is in
+// real-topics.spec.ts.
 
 test.describe("All sermons", () => {
   test("Latest's See all lists every sermon, newest first", async ({ page }) => {
@@ -29,14 +29,14 @@ test.describe("All sermons", () => {
     await expect(page.getByTestId("sermons-count")).toHaveText("3 sermons of 4");
 
     await page.getByTestId("filter-topic").click();
-    await page.getByRole("radio", { name: "Faith" }).click();
+    await page.getByRole("radio", { name: "Purpose & Calling" }).click();
     await expect(rows(page)).toHaveCount(2);
 
     await page.getByTestId("filter-year").click();
     await page.getByRole("radio", { name: "2026" }).click();
     await expect(rows(page)).toHaveCount(2);
 
-    await page.getByTestId("sermons-search").fill("day one");
+    await page.getByTestId("sermons-search").fill("grand finale");
     await expect(rows(page)).toHaveCount(0);
     await expect(page.getByRole("heading", { name: "No sermons match" })).toBeVisible();
     await page.getByRole("button", { name: "Clear filters", exact: true }).click();
@@ -62,31 +62,6 @@ test.describe("All sermons", () => {
     await group.getByRole("radio", { name: "Any year" }).focus();
     await page.keyboard.press("ArrowRight");
     await expect(group.getByRole("radio", { name: "2026" })).toHaveAttribute("aria-checked", "true");
-  });
-});
-
-test.describe("From your topics", () => {
-  test.use({ viewer: "guest" });
-
-  test("puts the viewer's topics first on Home, and says they're samples", async ({ page }) => {
-    await page.addInitScript(() => {
-      if (sessionStorage.getItem("__topics_seeded")) return;
-      sessionStorage.setItem("__topics_seeded", "1");
-      localStorage.setItem("aao.onboarding.v1", JSON.stringify({ welcomed: true, interests: ["faith"] }));
-    });
-    await page.goto("/");
-    const rail = shown(page.getByTestId("from-your-topics"));
-    await expect(rail.getByRole("heading", { name: "From your topics" })).toBeVisible();
-    await expect(rail.getByTestId("topic-card")).toHaveCount(2);
-    await expect(rail).toContainText("Topics are sample labels");
-    await rail.getByRole("button", { name: "See all", exact: true }).click();
-    await expect(page).toHaveURL(/\/topics\/faith$/);
-  });
-
-  test("is not on Home before any topic is picked", async ({ page }) => {
-    await page.goto("/");
-    await expect(shown(page.getByTestId("latest-sermons"))).toBeVisible();
-    await expect(page.getByTestId("from-your-topics")).toHaveCount(0);
   });
 });
 
@@ -134,7 +109,7 @@ test("one look at 320pt: no page runs off the side", async ({ page }) => {
     "/privacy",
     "/terms",
     "/about",
-    "/topics/faith",
+    "/topics/purpose-calling",
     "/series/apostolic-shift-2026",
     "/paths",
     "/path/breaking-free-from-habitual-sin",

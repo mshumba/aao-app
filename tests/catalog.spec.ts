@@ -1,19 +1,20 @@
 import { expect, test } from "@playwright/test";
 import { editorialHeadlines } from "../src/catalogue/editorial";
 import { parseTitle } from "../src/catalogue/parseTitle";
-import { categories } from "../src/data/categories";
 import { eventLine, eventParts, headline } from "../src/data/display";
-import { assignments } from "../src/data/edification";
 import {
+  fromTopics,
   relatedSermons,
   sampleRecords,
   sampleSermons as sermons,
   searchSermons,
   sermonCategoryIds,
-  sermonsInCategory,
+  sermonsInTopic,
   seriesRails,
   toSermon,
+  type SermonTopic,
 } from "../src/data/sermons";
+import { fixtureTopics } from "../src/learning/fixtures";
 
 // Verified on 30 September 2026 against public ministry links and YouTube.
 // Interface changes must never alter these strings.
@@ -57,47 +58,56 @@ test("the bundled sample is what the import writes for the same videos", () => {
   }
 });
 
-test("demo topic assignments are separate, stable and point at real records", () => {
-  const ids = categories.map((c) => c.id);
-  expect(new Set(ids).size).toBe(ids.length);
-  const sermonIds = sermons.map((s) => s.id);
-  for (const [sermonId, assignment] of Object.entries(assignments)) {
-    expect(sermonIds).toContain(sermonId);
-    expect(assignment.reviewStatus).toBe("demo");
-    expect(ids).toContain(assignment.primaryCategoryId);
-    for (const id of assignment.additionalCategoryIds) expect(ids).toContain(id);
-    expect(new Set(assignment.additionalCategoryIds).size).toBe(
-      assignment.additionalCategoryIds.length,
-    );
-    expect(assignment.additionalCategoryIds).not.toContain(
-      assignment.primaryCategoryId,
-    );
-  }
-  for (const sermon of sermons)
-    for (const id of sermonCategoryIds(sermon)) expect(ids).toContain(id);
-  // Topic assignments live in edification.ts, never on the record.
+test("the bundled sample carries its real topics, apart from the record", () => {
+  const ids = fixtureTopics.map((t) => t.id);
+  expect(new Set(ids).size).toBe(8);
+  // As public.sermon_topics has them: one topic a sermon, and the Grand
+  // Finale has none.
+  expect(sermons.map((s) => [s.id, sermonCategoryIds(s)])).toEqual([
+    ["nUW8NT2Pe88", ["prayer"]],
+    ["H9sRbSUt0YE", []],
+    ["yUDzMcZsVk8", ["purpose-calling"]],
+    ["WYiA7rjenVI", ["purpose-calling"]],
+  ]);
+  for (const sermon of sermons) for (const id of sermonCategoryIds(sermon)) expect(ids).toContain(id);
+  // Topics live in public.sermon_topics, never on the catalogue record.
   for (const record of sampleRecords)
     expect(Object.keys(record).join()).not.toMatch(/categor|topic|tag/);
 });
 
-test("topic membership includes secondary categories and empty collections", () => {
-  expect(categories.map((c) => sermonsInCategory(sermons, c.id).length)).toEqual([
-    3, 2, 2, 0,
-  ]);
-  expect(sermonsInCategory(sermons, "prayer").map((s) => s.id)).toEqual([
-    "nUW8NT2Pe88",
-    "WYiA7rjenVI",
-  ]);
+const tagged = (id: string, topic: SermonTopic | null, seconds = 3600) =>
+  toSermon({ ...sampleRecords[3], youtube_id: id, duration_seconds: seconds }, null, topic);
+
+test("a topic lists its sermons, the best match first", () => {
+  expect(sermonsInTopic(sermons, "purpose-calling").map((s) => s.id)).toEqual(["yUDzMcZsVk8", "WYiA7rjenVI"]);
+  expect(sermonsInTopic(sermons, "prayer").map((s) => s.id)).toEqual(["nUW8NT2Pe88"]);
+  expect(sermonsInTopic(sermons, "hearing-god")).toEqual([]);
+  // By how well each matches, whatever the order they came in (newest first).
+  const list = [tagged("weak", { id: "a", score: -0.4 }), tagged("best", { id: "a", score: 2.5 }), tagged("mid", { id: "a", score: 1 })];
+  expect(sermonsInTopic(list, "a").map((s) => s.id)).toEqual(["best", "mid", "weak"]);
 });
 
-test("search matches topic labels and tags, intersects selected scope", () => {
-  expect(searchSermons(sermons, "  SPIRITUAL   Growth ")).toHaveLength(3);
-  expect(searchSermons(sermons, "devotion")).toHaveLength(2);
-  expect(searchSermons(sermons, "faith", "prayer")).toHaveLength(0);
-  expect(searchSermons(sermons, "", "christian-living")).toHaveLength(0);
-  expect(searchSermons(sermons, "faith", "spiritual-growth").map((s) => s.id)).toEqual([
-    "H9sRbSUt0YE",
-  ]);
+test("Home's topic rail takes each topic's best, the topics taking turns", () => {
+  const list = [
+    tagged("a2", { id: "a", score: 1 }),
+    tagged("a1", { id: "a", score: 2 }),
+    tagged("b1", { id: "b", score: 3 }),
+    tagged("b2", { id: "b", score: 0.5 }),
+    tagged("b3", { id: "b", score: 0.2 }),
+    tagged("b4", { id: "b", score: 0.1 }),
+    // Over three hours, and finished: left out, however close.
+    tagged("long", { id: "a", score: 9 }, 3 * 3600 + 60),
+    tagged("done", { id: "b", score: 4 }),
+    tagged("other", { id: "c", score: 8 }),
+    tagged("untagged", null),
+  ];
+  const finished = (id: string) => id === "done";
+  // A small topic runs out ("a" has two); the other carries on.
+  expect(fromTopics(list, ["a", "b"], finished, 10).map((s) => s.id)).toEqual(["a1", "b1", "a2", "b2", "b3", "b4"]);
+  expect(fromTopics(list, ["a", "b"], finished, 3).map((s) => s.id)).toEqual(["a1", "b1", "a2"]);
+  // Three hours exactly is fine.
+  expect(fromTopics([tagged("three", { id: "a", score: 1 }, 3 * 3600)], ["a"], () => false, 10)).toHaveLength(1);
+  expect(fromTopics(list, [], finished, 10)).toEqual([]);
 });
 
 test("every sermon has a short headline kept apart from its verified title", () => {

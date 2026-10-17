@@ -50,11 +50,6 @@ export function totalTime(seconds: number) {
   return { text, spoken: `About ${words.join(" ")}` };
 }
 
-/** "Day 3 of 7". */
-export function dayOfLabel(day: number, total: number) {
-  return `Day ${day} of ${total}`;
-}
-
 /** "2 of 7 done". */
 export function doneLabel(done: number, total: number) {
   return `${done} of ${total} done`;
@@ -74,7 +69,3 @@ export function searchSermonMeta(sermon: Pick<SearchSermon, "preachedOn" | "publ
     .join(" · ");
 }
 
-/** Thumbnail for a search sermon, falling back to YouTube's standard one. */
-export function searchSermonArt(sermon: Pick<SearchSermon, "thumbnailUrl" | "youtubeId">) {
-  return sermon.thumbnailUrl || `https://i.ytimg.com/vi/${sermon.youtubeId}/hqdefault.jpg`;
-}

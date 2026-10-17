@@ -1,5 +1,3 @@
-import type { CategoryId } from "../data/categories";
-
 export type Provider = "apple" | "google" | "email";
 
 export type AuthUser = {
@@ -13,7 +11,8 @@ export type AuthUser = {
 
 export type Profile = {
   displayName: string | null;
-  interests: CategoryId[];
+  /** The topics picked (public.topics ids). */
+  interests: string[];
   /** ISO time onboarding was finished on this account, if it was. */
   onboardedAt: string | null;
 };

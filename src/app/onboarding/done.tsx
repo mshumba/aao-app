@@ -1,4 +1,4 @@
-import { router } from "expo-router";
+import { router, type Href } from "expo-router";
 import { useEffect, useState } from "react";
 import { Platform, StyleSheet, View } from "react-native";
 import Animated, {
@@ -16,43 +16,33 @@ import { useFinishFlow, useGate } from "../../auth/gate";
 import { setPendingIntent } from "../../auth/intent";
 import { FlowButton, FlowScreen } from "../../auth/ui";
 import { useCatalogue } from "../../catalogue/CatalogueProvider";
-import { CategoryId, getCategory } from "../../data/categories";
 import { eventLine, headline } from "../../data/display";
-import { Sermon, sampleSermons, sermonCategoryIds } from "../../data/sermons";
+import { fromTopics, sampleSermons, type Sermon } from "../../data/sermons";
+import { useMyTopics, type Topic } from "../../learning";
 import { useReducedMotion } from "../../motion";
 import { useGo, usePageTitle } from "../../navigation";
 import { Artwork, ItalicTitle } from "../../kit";
+import { PathSuggestions } from "../../paths/Suggestions";
 import { radius, shadows, space, textCap, type } from "../../theme";
-import {
-  Icon,
-  SermonTitle,
-  T,
-  Tap,
-  TextButton,
-  c,
-  nowrap,
-  s,
-  sermonLabel,
-  topicLabels,
-  web,
-} from "../../ui";
+import { topicIcon } from "../../topics";
+import { Icon, SermonTitle, T, Tap, TextButton, c, nowrap, s, sermonLabel, web } from "../../ui";
 
-/** The first sermon in one of their topics, or the latest one. */
-function recommend(
-  list: Sermon[],
-  interests: CategoryId[],
-): { sermon: Sermon; lead?: CategoryId } {
+/** The best match for their first topic it can (as Home's rail picks), or the latest sermon. */
+function recommend(list: Sermon[], topics: readonly Topic[]): Sermon {
   const sermons = list.length ? list : sampleSermons;
-  for (const sermon of sermons) {
-    const match = sermonCategoryIds(sermon).find((id) => interests.includes(id));
-    if (match) return { sermon, lead: match };
-  }
-  return { sermon: sermons[0] };
+  const [best] = fromTopics(
+    sermons,
+    topics.map((topic) => topic.id),
+    () => false,
+    1,
+  );
+  return best ?? sermons[0];
 }
 
 /**
- * The end of onboarding: a quiet confirmation, their topics, and one sermon
- * to start with. Starting it closes onboarding and plays it.
+ * The end of onboarding: a quiet confirmation, their topics, one sermon to
+ * start with and the paths for their topics. Starting the sermon closes
+ * onboarding and plays it; a path closes it and opens the path.
  */
 export default function OnboardingDone() {
   const account = useAccount();
@@ -66,8 +56,10 @@ export default function OnboardingDone() {
   const title = first ? `You’re all set, ${first}` : "You’re all set";
   usePageTitle(title);
   const { sermons } = useCatalogue();
-  const { sermon, lead } = recommend(sermons, account.interests);
-  const kicker = topicLabels(sermon, lead).slice(0, 2).join(" · ");
+  const mine = useMyTopics();
+  const sermon = recommend(sermons, mine);
+  // Its topic, when it's one of theirs.
+  const kicker = mine.find((topic) => topic.id === sermon.topic?.id)?.label;
   // Signed in, or a guest when playback is open to guests.
   const playable = gate.canWatch(sermon.id);
 
@@ -95,6 +87,13 @@ export default function OnboardingDone() {
       await finish();
     });
 
+  const openPath = (href: Href) =>
+    go.run(async () => {
+      await account.finishWelcome();
+      await finish();
+      setTimeout(() => router.navigate(href), Platform.OS === "web" ? 60 : 450);
+    });
+
   return (
     <FlowScreen
       leading="none"
@@ -120,7 +119,7 @@ export default function OnboardingDone() {
           style={styles.title}
           maxFontSizeMultiplier={textCap.display}
         />
-        {account.interests.length > 0 && <TopicChips ids={account.interests} />}
+        {mine.length > 0 && <TopicChips topics={mine} />}
       </View>
 
       <View style={{ gap: space.md }}>
@@ -129,7 +128,7 @@ export default function OnboardingDone() {
             the same action as the button below. */}
         <Tap
           accessibilityRole="button"
-          accessibilityLabel={`${playable ? "Start watching" : "View sermon"}: ${sermonLabel(sermon, lead)}`}
+          accessibilityLabel={`${playable ? "Start watching" : "View sermon"}: ${sermonLabel(sermon)}`}
           onPress={start}
           feedback="scaleLarge"
           style={styles.card}
@@ -151,6 +150,8 @@ export default function OnboardingDone() {
           </View>
         </Tap>
       </View>
+
+      <PathSuggestions onOpen={openPath} />
     </FlowScreen>
   );
 }
@@ -183,25 +184,20 @@ function Check({ reduced }: { reduced: boolean }) {
 }
 
 /** The topics they picked, as quiet labels (sand, no edge: not buttons). */
-function TopicChips({ ids }: { ids: CategoryId[] }) {
-  const labels = ids.map((id) => getCategory(id)?.label).filter(Boolean) as string[];
+function TopicChips({ topics }: { topics: readonly Topic[] }) {
   return (
     <View
       style={styles.chips}
       accessible={Platform.OS !== "web"}
-      accessibilityLabel={`Your topics: ${labels.join(", ")}`}
+      accessibilityLabel={`Your topics: ${topics.map((topic) => topic.label).join(", ")}`}
       {...web({ role: "list", "aria-label": "Your topics" })}
     >
-      {ids.map((id) => {
-        const category = getCategory(id);
-        if (!category) return null;
-        return (
-          <View key={id} style={styles.chip} {...web({ role: "listitem" })}>
-            <Icon name={category.icon} size={14} color={c.accent} />
-            <T style={styles.chipLabel}>{category.label}</T>
-          </View>
-        );
-      })}
+      {topics.map((topic) => (
+        <View key={topic.id} style={styles.chip} {...web({ role: "listitem" })}>
+          <Icon name={topicIcon(topic.id)} size={14} color={c.accent} />
+          <T style={styles.chipLabel}>{topic.label}</T>
+        </View>
+      ))}
     </View>
   );
 }

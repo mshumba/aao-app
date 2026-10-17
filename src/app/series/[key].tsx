@@ -20,9 +20,10 @@ import { useSermonActions } from "../../home/actions";
 import { CoverPage, StickyCTA, spokenKicker } from "../../kit";
 import { messagesLabel } from "../../learning/format";
 import { exitTo, firstParam } from "../../navigation";
-import { fraction, isFinished, resumePoint, timeLeft } from "../../player/progress";
+import { fraction, resumePoint, timeLeft } from "../../player/progress";
 import { font, fontSize, radius, space, tabular, textCap, type } from "../../theme";
 import { Header, Heading, Icon, Page, SermonRow, StatePanel, T, Tap, c, pressedTint, spokenDuration } from "../../ui";
+import { watched } from "../../watched";
 
 /**
  * Every part of a series, in order, under a cover built like a path's: a
@@ -99,10 +100,6 @@ type Gathering = { grouped: boolean; days: SessionDay[] };
 
 const idsOf = (sessions: Gathering) => sessions.days.flatMap((d) => d.rows.map((row) => row.sermon.id));
 
-/** Watched to the end, or near enough. */
-function watched(watch: WatchProgress | null) {
-  return !!watch && (watch.finished || isFinished(watch.positionSeconds, watch.durationSeconds));
-}
 
 /** Begun and not finished: 0 to 1 of the way through, else 0. */
 function begun(watch: WatchProgress | null) {

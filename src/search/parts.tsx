@@ -1,14 +1,13 @@
 import { memo, useMemo, type ReactNode } from "react";
 import { Platform, StyleSheet, View, useWindowDimensions } from "react-native";
 import { useCatalogue } from "../catalogue/CatalogueProvider";
-import { categories, topicDisclaimer, type CategoryId } from "../data/categories";
 import { eventLine, headline } from "../data/display";
-import { sermonsInCategory, type Sermon } from "../data/sermons";
+import { sermonsInTopic, type Sermon } from "../data/sermons";
 import { Artwork, NeedChip, spokenText } from "../kit";
 import { Spark } from "../kit/Spark";
-import { searchSermonMeta, type Need, type SearchSermon } from "../learning";
+import { searchSermonMeta, useTopics, type Need, type SearchSermon } from "../learning";
 import { useGo } from "../navigation";
-import { sermonCount } from "../topics";
+import { sermonCount, topicHref } from "../topics";
 import { c, font, radius, shadows, tabular, textCap, type } from "../theme";
 import { Heading, Icon, SermonTitle, T, Tap, TextButton, nowrap, type IconName } from "../ui";
 
@@ -295,42 +294,38 @@ const MIN_TOPIC = 6;
 export const TopicCards = memo(function TopicCards() {
   const go = useGo();
   const { sermons } = useCatalogue();
+  const { topics } = useTopics();
   const { width, fontScale } = useWindowDimensions();
   const inner = Math.min(width, 760) - 48;
   const half = (inner - 12) / 2;
   const oneColumn = fontScale >= 1.35 || half < 140;
-  // Each card peeks a different sermon where it can, newest first.
+  // Each card peeks a different sermon where it can, its best match first.
   const cards = useMemo(() => {
     const used = new Set<string>();
     // In the whole library a topic with a handful of sermons reads as a
     // mistake: only well-filled ones show (the small sample shows all).
     const min = sermons.length >= LIBRARY ? MIN_TOPIC : 0;
-    return categories
-      .map((category) => {
-        const list = sermonsInCategory(sermons, category.id);
-        return { category, list };
-      })
+    return topics
+      .map((topic) => ({ topic, list: sermonsInTopic(sermons, topic.id) }))
       .filter(({ list }) => list.length >= min)
-      .map(({ category, list }) => {
+      .map(({ topic, list }) => {
         const peek = list.find((s) => !used.has(s.id)) ?? list[0];
         if (peek) used.add(peek.id);
-        return { category, count: list.length, peek };
+        return { topic, count: list.length, peek };
       });
-  }, [sermons]);
+  }, [sermons, topics]);
   if (!cards.length) return null;
   return (
     <View>
       <ListHeading title="Browse by topic" />
       <View style={styles.grid}>
-        {cards.map(({ category, count, peek }) => (
+        {cards.map(({ topic, count, peek }) => (
           <Tap
-            key={category.id}
+            key={topic.id}
             accessibilityRole="button"
-            accessibilityLabel={`${category.label}, ${sermonCount(count)}`}
-            accessibilityHint={category.description}
-            onPress={() =>
-              go.push({ pathname: "/topics/[categoryId]", params: { categoryId: category.id as CategoryId } })
-            }
+            accessibilityLabel={`${topic.label}, ${sermonCount(count)}`}
+            accessibilityHint={topic.description}
+            onPress={() => go.push(topicHref(topic.id))}
             unstable_pressDelay={60}
             feedback="scaleLarge"
             style={[styles.topic, { width: oneColumn ? inner : half }]}
@@ -342,16 +337,12 @@ export const TopicCards = memo(function TopicCards() {
             ) : null}
             <View style={styles.topicText}>
               <T style={styles.topicName} maxFontSizeMultiplier={textCap.section}>
-                {category.label}
+                {topic.label}
               </T>
               <T style={styles.topicCount}>{sermonCount(count)}</T>
             </View>
           </Tap>
         ))}
-      </View>
-      <View style={styles.disclaimer}>
-        <Icon name="information-circle-outline" size={15} color={c.muted} />
-        <T style={styles.disclaimerText}>{topicDisclaimer}</T>
       </View>
     </View>
   );
@@ -527,8 +518,6 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     pointerEvents: "none",
   },
-  disclaimer: { flexDirection: "row", alignItems: "flex-start", gap: 6, paddingHorizontal: 24, marginTop: 14 },
-  disclaimerText: { ...type.meta, color: c.muted, flex: 1 },
 
   state: { marginHorizontal: 20, marginTop: 24, padding: 22, borderRadius: radius.r22, backgroundColor: c.surface, boxShadow: shadows.card },
   stateIcon: {

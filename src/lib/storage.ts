@@ -59,4 +59,6 @@ export const keys = {
   watchQueue: (userId: string) => `aao.watchQueue.v1.${userId}`,
   // The sermon library's on-device copy (catalogue/records.ts).
   catalogue: "aao.catalogue.v1",
+  // Every sermon's topics (catalogue/CatalogueProvider.tsx).
+  topicTags: "aao.catalogue.topics.v1",
 };

@@ -25,9 +25,10 @@ test("guest browse, exact sermon identity, search and back navigation", async ({
   await expect(input).toBeFocused();
   await expect(tab(page, "Search")).toHaveAttribute("aria-selected", "true");
   await input.fill("pray");
+  // Titles only: topics aren't searched as words (they have their own pages).
   await expect(
     shown(page.getByTestId("result-count")),
-  ).toHaveText("2 sermons");
+  ).toHaveText("1 sermon");
   await page.getByRole("button", { name: /^Pray Without Ceasing\./ }).click();
   // A short headline leads; the verified title is kept exactly, with its
   // source, in the details.
@@ -342,7 +343,7 @@ test("missing artwork falls back to the event name or an icon", async ({
   for (const row of await rows(page).all()) await expect(row).toContainText("The Votage");
   // Every list uses the same row, so a topic's rows do the same: the
   // occasion's name on the sermon's dark tile.
-  await page.goto("/topics/prayer");
+  await page.goto("/topics/purpose-calling");
   await expect(rows(page)).toHaveCount(2);
   for (const row of await rows(page).all())
     await expect(row.getByText(/^(Lioness Conference|Apostolic Shift)$/)).toBeVisible();
@@ -414,7 +415,7 @@ test("a double tap on Back goes back one screen, not two", async ({ page }) => {
   await page.goto("/");
   await tab(page, "Search").click();
   await page
-    .getByRole("button", { name: "Prayer, 2 sermons", exact: true })
+    .getByRole("button", { name: "Prayer, 1 sermon", exact: true })
     .click();
   await rows(page).first().click();
   await expect(

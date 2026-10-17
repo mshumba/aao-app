@@ -1,6 +1,6 @@
 # AAO App
 
-A React Native / Expo app for finding and watching public sermons, on TestFlight. Browse as a guest, explore edification topics, search the library and watch a message; a free account saves sermons and keeps your topics. The palette is ivory and navy, chosen by the owner in October 2026: a warm ivory page, white surfaces, one deep navy accent for actions and selection, a little gold for editorial labels, and video kept dark. Type is Manrope, with a Newsreader serif for a few headlines. Other design choices remain open. The app isn't endorsed by the ministry whose sermons it shows.
+A React Native / Expo app for finding and watching public sermons, on TestFlight. Browse as a guest, pick the topics you want to grow in, follow a guided path and watch a message; a free account saves sermons and keeps your topics. The palette is ivory and navy, chosen by the owner in October 2026: a warm ivory page, white surfaces, one deep navy accent for actions and selection, a little gold for editorial labels, and video kept dark. Type is Manrope, with a Newsreader serif for a few headlines. Other design choices remain open. The app isn't endorsed by the ministry whose sermons it shows.
 
 ## Get started
 
@@ -21,7 +21,7 @@ On a phone, use a development build: Expo Go can't play the sermons (YouTube err
 
 ## What is here
 
-- **First-run onboarding:** a welcome, topic choice, a free account and your name, then a sermon to start with. Guests can skip it and browse.
+- **First-run onboarding:** a welcome, topic choice, a free account and your name, then a sermon and up to three guided paths for your topics. Guests can skip it and browse.
 - **Real accounts on Supabase:** Continue with Apple or Google, the two main ways in, side by side. Email is a quieter fallback (**Use email instead**): a 6-digit code, or a password if you prefer. There is no phone or text-message sign-in. Sessions are kept in the iPhone Keychain / Android Keystore. Account deletion is in the app.
 - **Guest browsing with a gate:** guests open every screen. Watch (except from a shared link) and Save ask for a free account, then carry on with what was tapped. A remote `guest_watch` setting can open watching to everyone without a new build.
 - **Shared links:** `/s/<id>` lets anyone watch that sermon without an account.
@@ -30,7 +30,7 @@ On a phone, use a development build: Expo Go can't play the sermons (YouTube err
 - A floating tab bar (Home, Paths, Search, Account). Topic pages, paths and sermons open over the tabs with Back. Topic pages open from a sermon's topic tags, Home's **From your topics** rail and links; Search's **Browse by topic** lists only topics with at least 6 sermons in the full library, so today it appears only with the bundled sample.
 - One app-wide player: **Watch sermon** starts the YouTube player on a Now Playing screen tinted from the sermon's artwork, with play/pause, back 15s, forward 30s, a scrubber and speed. Going back docks the video above the tabs and it keeps playing while you browse; close it from the dock.
 - **The full Apostle Arome Osayi channel library** (about 2,800 long-form videos, including sermons by other ministers on the channel), served from Supabase so new sermons appear without an app update. Short headlines, events, series, days and preaching dates are read from each YouTube title; the exact title is always kept and shown. Home has the newest sermon, the latest ones and rails for recent series; Search covers the whole library. The app keeps a copy on the device and syncs only what changed; offline on first launch, four bundled sermons stand in.
-- Stable local category IDs, one primary topic plus optional secondary topics and tags per sermon. Assignments are explicitly **demo / unreviewed**, cover only four sermons, and live in their own module (`src/data/edification.ts`), apart from the catalogue.
+- **Eight topics** (Hearing God, Prayer, Purpose & Calling and so on), picked by AI from the Apostle's teaching and approved by the owner, live in Supabase (`public.topics`). About half the library (1,379 sermons) is matched to one of them from its transcript (`public.sermon_topics`); the rest stay in the library and search. Home's **From your topics** shows the best matches for the topics you picked, each topic's page lists its sermons best match first, and each topic suggests its guided paths. The app holds only an icon for each topic (`src/topics.tsx`).
 - Official provider playback with YouTube's own controls visible, minimum 200×200 viewport full or docked, retry where it can help and a Watch on YouTube fallback. Leaving the app pauses the sermon; there is no download or background audio.
 - TestFlight configuration: bundle ID `com.mshumba.aao`, EAS build profiles and EAS Update channels; builds are on TestFlight. The app icon is a plain black square until the owner's logo is added.
 
