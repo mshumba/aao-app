@@ -16,8 +16,8 @@
 // Jesus", "I want to die empty", "suicide prevention sermon", "killing myself
 // slowly with sin". The rest of the sentence is still read, so "I want to die
 // to self, I want to kill myself" is still care. Each is kept as narrow as its
-// teaching use: "I want to die every day", "die for God's sake" and "suicide
-// prevention hotline" are still care.
+// teaching use: "I want to die every day", "die for God's sake" (or "for God
+// sake") and "suicide prevention hotline" are still care.
 //
 // Text is compared as normalise() leaves it, without accents ("não" → "nao",
 // "désespoir" → "desespoir"). The phrase table in tests/search-care.spec.ts
@@ -27,8 +27,9 @@
  * Bump when either list or the devotional phrases change: it is part of the
  * search cache key, so answers given under an older list aren't served again.
  * 1: the list until October 2026. 2: languages, maybe-list, devotional phrases.
+ * 3: the review's further wordings ("for God sake", poison, kms, stop living).
  */
-export const DISTRESS_LIST_VERSION = 2;
+export const DISTRESS_LIST_VERSION = 3;
 
 /**
  * Lower-case words only: how a search is compared with a need's wording and
@@ -62,12 +63,13 @@ const DIES_FOR =
   "the cross|him|my saviou?r";
 
 // "Die daily" is 1 Corinthians 15:31; "suicide prevention" only with the sermon
-// or event it names.
+// or event it names. Never before "sake": "die for God's sake", "for God sake",
+// "for Jesus Christ's sake" say it.
 const DEVOTIONAL = words(
   [
-    `(die|dies|died|dying|dead|death) (to|unto) (${DIES_TO})(?!'?s sake)`,
+    `(die|dies|died|dying|dead|death) (to|unto) (${DIES_TO})(?!( \\w+)?'?s? sake)`,
     "(die|dies|dying) daily",
-    `(die|dies|died|dying|lay down my life) for (${DIES_FOR})(?!'?s sake)`,
+    `(die|dies|died|dying|lay down my life) for (${DIES_FOR})(?!( \\w+)?'?s? sake)`,
     "die empty",
     "to die is gain",
     "suicide (prevention|awareness) (sermons?|messages?|teachings?|series|month|week|day|ministry|sunday|service)",
@@ -75,6 +77,9 @@ const DEVOTIONAL = words(
     // Afraid of dying (sickness, danger), not wanting to: "I don't want to die".
     "(don'?t|do not|no) (want|wan|wanna) (to )?die",
     "(nao|no) (quero|quiero) (mais )?(morrer|morir\\w*)",
+    // Afraid of dying in their sleep: "I don't want to sleep and never wake up"
+    // keeps "never wake up" (maybe), not "want to sleep and never wake up" (care).
+    "(don'?t|do not) (want|wanna) (to )?(go to |fall )?(sleep|asleep) and",
     // "God makes a way where there is no way": not "no way out" (maybe).
     "(make|makes|made|making) a way (when|where) there('?s| is| was| seems to be) no way( out)?",
     // French and Portuguese: dying to self, to the flesh, to the world.
@@ -91,6 +96,7 @@ const CARE = words([
   "end(ing)? (it all|my life|my own life)",
   "tak(e|ing) my (own )?life",
   "(want|wanna|wish|ready|longing) (to|i could|i was|i were) (die|be dead|dead)",
+  "wish i (wasn'?t|was not|weren'?t|were not) alive",
   "wanna die",
   "wish i (would|could) die",
   "feel like dying",
@@ -99,14 +105,21 @@ const CARE = words([
   "(don'?t|do not|no longer) want to (live|be alive|wake up|exist|be here any ?more)",
   "(don'?t|do not) wanna (live|be alive|exist|wake up)",
   "no (reason|point) (to|in|for) (live|living|go on|going on|being alive|life)",
+  "(don'?t|do not|can'?t|cannot) see (the|any) point (of|in) (living|life|going on|being alive)",
+  // As the whole thought: "I want to stop living in fear" is neither.
+  "(want to|wanna|going to|gonna) stop living( any ?more)?$",
   "nothing (left )?to live for",
   "self ?harm\\w*",
   "(hurt|hurting|harm|harming|cut|cutting) my ?self",
   "(hang|hanging|drown|drowning|poison|poisoning|shoot|shooting|stab|stabbing) my ?self",
   "slit(ting)? my wrists?",
   "jump(ing)? (off|from) (a |the )?(bridge|building|roof|cliff)",
-  "(took|taken|swallowed?) (too many|a lot of|all( of)?( my| the| these)?) pills",
+  "(took|taken|swallowed?) (too many|a lot of|all( of)?( my| the| these)?|a handful of|a bunch of|loads of|lots of) pills",
   "(drink|drank|drinking|take|took|swallow\\w*) sniper", // Sniper: a pesticide, in Nigeria
+  // Their own act or wish: not "unforgiveness is like drinking poison".
+  "i('ve| have)?( just)? (drank|drunk|took|taken|swallowed) (some |the )?poison",
+  "(want|wanna|wan|going|gonna) (to )?(drink|take|swallow) (some |the )?poison",
+  "(want to|wanna|gonna|going to|i will|i'?ll) kms", // kill myself
   "better off (dead|without me)",
   "(nobody|no one|noone) (would|will|is going to|gonna) (miss me|notice i'?m gone|care if i (die|died|was gone|were gone))",
   // As the whole thought: "tired of living in sin" or "I hate living in fear"
@@ -119,13 +132,15 @@ const CARE = words([
   "(can'?t|cannot|can not) live (any ?more|any longer)",
   "(give|giving|given|gave) up on (life|living)",
   "(lost|losing|no|have no) (the )?will to live",
-  // Not "I never wake up for prayer" (maybe).
+  // Not "I never wake up for prayer", "what if I sleep and never wake up" or
+  // "pray I don't wake up late" (maybe or neither).
   "(want|wish|hope|pray)( that)?( i| to)?( could| would| will)? never wake up",
-  "(sleep|asleep) and never wake up",
+  "(want|wanna|wish|hope|pray)( that)?( to| i| i could| i would| i can| i will| i'?d)?( just)?( go to| fall)? (sleep|asleep) and never wake up",
+  "(hope|pray|wish) i (don'?t|do not|won'?t|will not) wake up( tomorrow| again| any ?more)?$",
   "(wish|wishing) i (was|were|had) never (been )?born",
   "(life|living) (isn'?t|is not|ain'?t) worth (living|it)",
   "not worth living",
-  "what'?s the point (of|in) (living|being alive|going on)",
+  "what('?s| is) the point (of|in) (living|being alive|going on)",
   // Nigerian Pidgin
   "wan (go )?die", // I wan die, I wan go die
   "make i (just )?die",
@@ -150,7 +165,7 @@ const CARE = words([
   "nao quero (mais )?viver",
   "tirar (a )?minha (propria )?vida",
   "acabar com (a )?minha (propria )?vida",
-  "cansad[oa] de viver",
+  "cansad[oa] de (viver|vivir)", // Portuguese and Spanish
   "sem (razao|motivo) (para|pra) viver",
   // Spanish
   "quiero morir\\w*",
@@ -182,16 +197,18 @@ const MAYBE = words([
   "burden (to|on) (everyone|everybody|my family|others|people)",
   "depress\\w*",
   "despair\\w*",
-  // Not "God makes a way when there is no way out" (a devotional phrase).
-  "(there'?s|there is|i see|i have) no way out$",
+  // The whole thought; not "there is no way out of hell" ("God makes a way
+  // when there is no way out" is a devotional phrase).
+  "(^|(there'?s|there is|i see|i have) )no way out( for me| of this)?$",
+  "i (can'?t|cannot|don'?t) see (a|any) way out",
   "(nobody|no one|noone) (cares|loves me|understands me|wants me)",
   "don'?t want to be here",
   "dark (thoughts|place)",
   "overdos\\w*",
   // Not "should a Christian take pills".
   "(swallow\\w*|took|taking|take all) (all )?(the |my |these )?pills",
-  // Not "what's the point of fasting".
-  "what'?s the point( (of|in) (it all|life|anything))?( any ?more)?$",
+  // Not "what's the point of fasting" or "what is the point of prayer".
+  "what('?s| is) the point( (of|in) (it all|life|this life|my life|anything|trying|me|my existence|living like this))?( any ?more)?$",
   "(life|everything|it all) (is|feels) (so )?(pointless|meaningless)",
   "(my )?life has no (meaning|purpose)",
   "tired of (everything|it all)",
@@ -205,8 +222,8 @@ const MAYBE = words([
   "(want to|going to|wan) (leave|comot) this world",
   "(want|wanna) the pain to (stop|end)",
   // Not "unbearable pain in my back", "breaking down strongholds" or "my family is falling apart".
-  "(it'?s|it is|this is|life is|everything is|the pain is|this pain is) unbearable",
-  "(i am|i'?m|im|i feel|my life is|my world is|everything is) (falling apart|breaking down)",
+  "(it'?s|it is|this is|life is|everything is|the pain is|this pain is)( so| too| just)? unbearable",
+  "(i am|i'?m|im|i feel|i keep|my life is|my whole life is|my world is|everything is)( so| completely| totally| just)? (falling apart|breaking down)",
   // Nigerian Pidgin
   "(don|done) tire",
   "life no (sweet|get meaning)",

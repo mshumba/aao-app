@@ -1,5 +1,4 @@
-// POST /functions/v1/search {"q": "I keep going back to the same sin", "accept": ["titles"]}
-// ("accept" is optional: see "When OpenAI fails" below.)
+// POST /functions/v1/search {"q": "I keep going back to the same sin"}
 //
 // Need-based search over the sermon passages (see migrations need_search,
 // search_polish and search_safety, and supabase/functions/README.md). In order:
@@ -34,11 +33,11 @@
 // can't read it (it failed, timed out, or the limits stopped it).
 // When OpenAI fails: a chip answers with the need's curated moments (public
 // .moments), someone in distress with the comfort list or else the curated
-// moments of the comforting needs, anything else with sermon-title matches
-// (fallback: "titles") when the app asks for them ({"accept": ["titles"]}),
-// otherwise a 503. None of these is cached. If the chat model alone fails
-// (and there is no distress), search answers from the question alone (theme =
-// the question, no related needs, no path) and isn't cached.
+// moments of the comforting needs, anything else with a 503 (the app shows
+// its own sermon-title matches then). None of these is cached. If the chat
+// model alone fails (and there is no distress), search answers from the
+// question alone (theme = the question, no related needs, no path) and isn't
+// cached.
 // POST {"warm": true} with the project's secret key as the bearer token stores
 // the embeddings of every published need and of the comfort phrasing ahead of
 // time, so no chip tap ever needs OpenAI.
@@ -155,12 +154,10 @@ type SearchResponse = {
   sermons: (Sermon & { moments: number })[];
   total: { moments: number; sermons: number };
   /**
-   * Set when nothing could be searched by meaning (OpenAI failed or, for a
-   * chip, the limits stopped it): "curated", the needs' hand-picked moments;
-   * "titles", sermons whose titles match the words (moments: 0 on each), only
-   * for a request with "accept": ["titles"].
+   * "curated": nothing could be searched by meaning (OpenAI failed or, for a
+   * chip, the limits stopped it), so the needs' hand-picked moments stand in.
    */
-  fallback?: "curated" | "titles";
+  fallback?: "curated";
   cached: boolean;
   tookMs: number;
 };
@@ -461,19 +458,6 @@ async function curated(needIds: string[], onRetry: OnRetry): Promise<Moment[]> {
     });
   }
   return shown;
-}
-
-/** Sermons whose title or headline holds the question's content words (match_sermon_titles()). */
-async function titleMatches(q: string, onRetry: OnRetry): Promise<Sermon[]> {
-  const { data, error } = await withRetry(
-    () =>
-      admin()
-        .rpc("match_sermon_titles", { query_text: q, match_count: MAX_SERMONS })
-        .abortSignal(dbTimeout(4000)),
-    () => onRetry("titles"),
-  );
-  if (error) throw new Error(`match_sermon_titles: ${error.code ?? ""} ${error.message}`);
-  return ((data ?? []) as SermonRow[]).map(sermonOf);
 }
 
 // ---- Fusing the searches ---------------------------------------------------------------
@@ -820,13 +804,8 @@ async function freeSearch(
   return { reading, lists, complete, curated: care ? CARE_RELATED : [] };
 }
 
-/** A response from moments that weren't searched (curated) or from title matches. */
-function fromFallback(
-  query: string,
-  reading: Reading,
-  moments: Moment[],
-  titles: Sermon[],
-): Omit<SearchResponse, "cached" | "tookMs"> {
+/** A response from moments that weren't searched (curated), or none. */
+function fromFallback(query: string, reading: Reading, moments: Moment[]): Omit<SearchResponse, "cached" | "tookMs"> {
   const count = new Map<string, number>();
   for (const m of moments) count.set(m.youtubeId, (count.get(m.youtubeId) ?? 0) + 1);
   const sermons: (Sermon & { moments: number })[] = [];
@@ -834,7 +813,6 @@ function fromFallback(
     if (sermons.some((x) => x.youtubeId === m.youtubeId)) continue;
     sermons.push({ ...m.sermon, moments: count.get(m.youtubeId) ?? 1 });
   }
-  for (const t of titles) if (!sermons.some((x) => x.youtubeId === t.youtubeId)) sermons.push({ ...t, moments: 0 });
   const p = reading.path;
   return {
     query,
@@ -844,7 +822,7 @@ function fromFallback(
     moments,
     sermons: sermons.slice(0, MAX_SERMONS),
     total: { moments: moments.length, sermons: Math.min(sermons.length, MAX_SERMONS) },
-    ...(moments.length ? { fallback: "curated" as const } : titles.length ? { fallback: "titles" as const } : {}),
+    ...(moments.length ? { fallback: "curated" as const } : {}),
   };
 }
 
@@ -915,9 +893,6 @@ Deno.serve(async (req) => {
   // Before anything else, so the limits never stand between someone in
   // distress and help.
   const distress = readDistress(q);
-  // Title matches are sent only to an app that asks for them: an older build
-  // would list them as results, each with "0 moments on this".
-  const acceptsTitles = Array.isArray(body?.accept) && body.accept.includes("titles");
 
   const log: Record<string, unknown> = { fn: "search" };
   if (distress) log.distress = distress;
@@ -941,19 +916,12 @@ Deno.serve(async (req) => {
         })
         : [];
       // Someone in distress gets an answer even with nothing to show, so the
-      // app can still offer help. Anyone else gets title matches (when the app
-      // asked for them), or a 503.
-      const titles = moments.length || found.reading.care || !acceptsTitles
-        ? []
-        : await titleMatches(q, onRetry).catch((error) => {
-          log.titles_error = errorText(error);
-          return [] as Sermon[];
-        });
-      if (!moments.length && !titles.length && !found.reading.care) {
+      // app can still offer help. Anyone else gets a 503.
+      if (!moments.length && !found.reading.care) {
         console.error(JSON.stringify({ ...log, failed: true, ms: since(), steps: run.ms, retries }));
         return json(req, 503, { error: "unavailable" });
       }
-      result = fromFallback(q, found.reading, moments, titles);
+      result = fromFallback(q, found.reading, moments);
       if (result.fallback) log.fallback = result.fallback;
     }
     const tookMs = since();
@@ -1066,7 +1034,7 @@ Deno.serve(async (req) => {
     // app shows the care card above it.
     if (distress) {
       return json(req, 200, {
-        ...fromFallback(q, { theme: CARE_THEME, related: [], path: null, care: true }, [], []),
+        ...fromFallback(q, { theme: CARE_THEME, related: [], path: null, care: true }, []),
         cached: false,
         tookMs: since(),
       });
