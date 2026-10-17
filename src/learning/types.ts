@@ -148,11 +148,11 @@ export type SearchResponse = {
   sermons: (SearchSermon & { moments: number })[];
   total: { moments: number; sermons: number };
   /**
-   * Nothing could be searched by meaning (OpenAI failed): "curated", the
-   * needs' hand-picked moments stand in; "titles", only sermon-title matches
-   * (their `moments` are 0). From the search function of 17 October 2026.
+   * "curated": nothing could be searched by meaning (OpenAI failed), so the
+   * needs' hand-picked moments stand in. From the search function of
+   * 17 October 2026.
    */
-  fallback?: "curated" | "titles";
+  fallback?: "curated";
   cached: boolean;
   tookMs: number;
 };

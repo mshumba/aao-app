@@ -78,9 +78,50 @@ Deno.test("wordings a devotional phrase hid, or an open wording over-read", () =
   ) assertEquals(readDistress(q), null, q);
 });
 
+Deno.test("the second review's wordings: for God sake, poison, kms, stop living, sleep", () => {
+  for (
+    const q of [
+      "I want to die for God sake",
+      "I wan die for God sake",
+      "I want to die for Jesus Christ's sake",
+      "I want to stop living",
+      "I drank poison",
+      "what is the point of living",
+      "I wish I wasn't alive",
+      "I hope I don't wake up tomorrow",
+      "I took a handful of pills",
+      "I want to kms",
+      "estoy cansado de vivir",
+      "I wish I could fall asleep and never wake up",
+    ]
+  ) assertEquals(readDistress(q), "care", q);
+  for (
+    const q of [
+      "what's the point of my life",
+      "no way out",
+      "I see no way out of this",
+      "life is so unbearable",
+      "I keep breaking down",
+      "what if I sleep and never wake up",
+      "I don't want to sleep and never wake up",
+    ]
+  ) assertEquals(readDistress(q), "maybe", q);
+  for (
+    const q of [
+      "dying for Christ's sake",
+      "unforgiveness is like drinking poison",
+      "I want to stop living in fear",
+      "pray I don't wake up late",
+      "what is the point of prayer",
+      "there is no way out of hell",
+      "the world is falling apart",
+    ]
+  ) assertEquals(readDistress(q), null, q);
+});
+
 Deno.test("the search function reads the same list and keys the cache the same way", () => {
   assertEquals(fromPrompts, inDistress);
   assertEquals(normaliseFromPrompts, normalise);
   assertEquals(normalise("  I’m TIRED, of living!! "), "i'm tired of living");
-  assertEquals(Number.isInteger(DISTRESS_LIST_VERSION) && DISTRESS_LIST_VERSION >= 2, true);
+  assertEquals(Number.isInteger(DISTRESS_LIST_VERSION) && DISTRESS_LIST_VERSION >= 3, true);
 });

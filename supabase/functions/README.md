@@ -11,7 +11,7 @@ Two Supabase Edge Functions (Deno) behind "What are you going through?". The app
 Both functions need the tables and SQL functions from `migrations/20261015000000_need_search.sql` and the index from
 `migrations/20261015000300_passages_hnsw.sql`. `search` also needs `migrations/20261015000600_search_polish.sql`
 (`needs.query`/`related`, hidden passages, the clean-up job) and `migrations/20261017000000_search_safety.sql`
-(`search_open()`, the stored embeddings in `need_vectors` and `search_vectors`, `match_sermon_titles()`), and reads
+(`search_open()` and the stored embeddings in `need_vectors` and `search_vectors`), and reads
 `paths`/`path_days` (`20261015000100_paths.sql`, with `kind` from `20261015001000_teaching_series.sql`).
 
 ## Files
@@ -87,8 +87,7 @@ deno test --allow-env --allow-read _shared/
 
 Send `apikey: <publishable key>` and `Authorization: Bearer <user access token, or the publishable key for guests>`.
 
-**search.** `POST /functions/v1/search` with body `{"q": "I keep going back to the same sin", "accept": ["titles"]}`.
-`accept` is optional: `"titles"` says the app can take a titles-only answer (see `fallback` below). The response:
+**search.** `POST /functions/v1/search` with body `{"q": "I keep going back to the same sin"}`. The response:
 
 ```
 {
@@ -115,12 +114,9 @@ Added on 15 October 2026 (older app builds can ignore both):
   `moments: []`, so the help still shows.
 - `path.status`: `"draft"` or `"published"`, from `paths.status`. The app labels drafts.
 
-Added on 17 October 2026: `fallback`, set only when nothing could be searched by meaning. `"curated"`: the moments are
+Added on 17 October 2026: `fallback: "curated"`, set only when nothing could be searched by meaning: the moments are
 the needs' hand-picked ones from `public.moments` (a chip whose phrases couldn't be embedded, or someone in distress
-when the comfort phrasing couldn't be searched). `"titles"`: no moments, and `sermons` are title matches with
-`moments: 0`, sent only when the request has `"accept": ["titles"]` (the app shows its own "isn't answering" state with
-its own title matches for these). Without it the answer is the 503 it always was: older builds would list the titles as
-results, each with "0 moments on this".
+when the comfort phrasing couldn't be searched).
 
 A `care` answer with nothing in it (`moments: []`, `sermons: []`) means search couldn't reach the database: the app
 says the teaching couldn't load, offers Try again and doesn't keep the answer.
@@ -193,9 +189,8 @@ How it works:
 9. **When OpenAI fails** (nothing could be embedded): a chip answers with its curated moments from `public.moments`
    (best first, at most 2 per sermon, never a hidden passage); someone in distress with the comfort list from the stored
    embedding, or else the curated moments of Discouragement, God's presence and Rejection, or else `moments: []`; any
-   other question with sermons whose title or headline holds its content words (`match_sermon_titles()`) when the
-   request has `"accept": ["titles"]`, or a 503 when it hasn't or none match. These answers carry `fallback` and aren't
-   cached.
+   other question with a 503 (the app's "isn't answering" state lists its own sermon-title matches). These answers
+   aren't cached, and those with curated moments carry `fallback`.
 10. Database calls that fail with a connection error, a timeout, a 502-504 from the gateway, `PGRST000`-`PGRST003` or a
     Postgres start-up/shut-down code are retried once after 0.4-0.7 s (`withRetry` in `_shared/db.ts`), so a brief
     connection drop, or the end of a database restart, doesn't reach the app as a 503. A longer outage still does.
@@ -208,8 +203,8 @@ The distress list (`_shared/distress.ts`) is one file, used by this function and
 in lower case, without punctuation or accents, after taking out devotional phrases ("die to my flesh / to the world / to
 self / daily", "die for Christ", "ready to die for Jesus", "I want to die empty", "to die is gain", "suicide prevention
 sermon", "killing myself slowly with sin", "I don't want to die", "God makes a way where there is no way"); the rest of
-the sentence is still read. Each is only as wide as its teaching use: "I want to die every day", "I want to die for God's
-sake" and "suicide prevention hotline" are still care.
+the sentence is still read. Each is only as wide as its teaching use: "I want to die every day", "I want to die for
+God's sake" (or "for God sake") and "suicide prevention hotline" are still care.
 
 - **care**: they plainly say it, in English, Nigerian Pidgin, French, Portuguese, Spanish or Swahili ("I'm tired of
   living", "I can't go on", "nobody would miss me", "I wan die", "I don tire for this life", "je veux mourir", "quero

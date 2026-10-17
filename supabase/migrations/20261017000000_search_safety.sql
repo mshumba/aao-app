@@ -1,7 +1,7 @@
 -- Search safety (17 October 2026): stored embeddings so a need chip and the
--- comfort list never need OpenAI, one database call that knows a chip and says
--- which limit refused, and sermon-title matches for when OpenAI is down. Used
--- by the search Edge Function from this change on (cache prefix search:v5:).
+-- comfort list never need OpenAI, and one database call that knows a chip and
+-- says which limit refused. Used by the search Edge Function from this change
+-- on (cache prefix search:v5:).
 --
 -- 1. need_vectors: each published need's teaching phrase (needs.query) and
 --    label, embedded once by the search function (the first time the chip is
@@ -22,8 +22,6 @@
 --    - a refusal says which limit refused ("limit", counting from 1), so the
 --      app can say "Search is busy for everyone right now" for the shared one.
 --    search_start() stays until the previous function version is retired.
--- 4. match_sermon_titles(): sermons whose title or headline holds the
---    question's content words, for when the question can't be embedded.
 --
 -- Same rules as the earlier migrations: row level security on, explicit
 -- grants, and only the service role (the Edge Functions) can reach any of it.
@@ -177,48 +175,3 @@ revoke execute on function public.search_open(text, text, text, text, integer, t
   from public, anon, authenticated;
 grant execute on function public.search_open(text, text, text, text, integer, text[], integer[], integer[])
   to service_role;
-
--- 4. Sermon-title matches ------------------------------------------------------------
--- The question's content words (search_terms(): stemmed, stopwords and filler
--- removed) against each sermon's headline and exact title, best first. About
--- 2,850 sermons, so the text is read on the fly rather than indexed; this runs
--- only when the question can't be embedded.
-
-create function public.match_sermon_titles(query_text text, match_count integer default 10)
-returns table (
-  youtube_id text,
-  title text,
-  headline text,
-  published_at timestamptz,
-  preached_on date,
-  duration_seconds integer,
-  thumbnail_url text,
-  speaker text,
-  rank real
-)
-language sql
-stable
-security definer
-set search_path = ''
-as $$
-  with q as (
-    select case when cardinality(t.terms) > 0
-                then pg_catalog.array_to_string(t.terms, ' | ')::pg_catalog.tsquery
-           end as tsq
-    from (select public.search_terms(query_text) as terms) t
-  ),
-  docs as (
-    select s.*, pg_catalog.to_tsvector('english'::regconfig, s.headline || ' ' || s.title) as doc
-    from public.sermons s
-  )
-  select d.youtube_id, d.title, d.headline, d.published_at, d.preached_on, d.duration_seconds, d.thumbnail_url,
-         d.speaker, pg_catalog.ts_rank(d.doc, q.tsq)::real as rank
-  from docs d
-  cross join q
-  where q.tsq is not null and d.doc @@ q.tsq
-  order by rank desc, d.published_at desc, d.youtube_id
-  limit greatest(1, least(coalesce(match_count, 10), 50))
-$$;
-
-revoke execute on function public.match_sermon_titles(text, integer) from public, anon, authenticated;
-grant execute on function public.match_sermon_titles(text, integer) to service_role;
