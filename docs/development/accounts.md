@@ -48,6 +48,7 @@ Configuration (copy `.env.example` to `.env`; for EAS builds use EAS environment
 | `EXPO_PUBLIC_WEB_URL` | Public web address used in share links. Default `https://aao-app.expo.app` |
 | `EXPO_PUBLIC_AUTH_MODE` | `local` forces the stand-in |
 | `EXPO_PUBLIC_GUEST_WATCH` | Stand-in only: `shared`, `all` or `none` in place of the remote setting |
+| `EXPO_PUBLIC_SENTRY_DSN` | The Sentry project's DSN for crash and [failure reports](failure-alerts.md), sent from release builds only. Empty: nothing is sent. |
 
 `EXPO_PUBLIC_*` values are compiled into the JavaScript bundle and are public by design. Row level security limits what the publishable key can do. Never put the `service_role` or secret key in the app, `.env` or `eas.json`. Restart Metro after changing `.env`.
 

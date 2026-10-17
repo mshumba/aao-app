@@ -41,11 +41,11 @@ Every variable, and how the service is chosen, is in [accounts](accounts.md#whic
 | `npm run doctor` | Pinned Expo Doctor compatibility/configuration checks |
 | `npm run test:catalog` | Catalog integrity, title parsing, sync and search assertions |
 | `npm run catalogue:import -- <manifest.json>` | Load the channel catalogue into Supabase ([details](../../supabase/README.md#7-load-the-sermon-catalogue)) |
-| `npm test` | Catalog plus deterministic browser regressions |
+| `npm test` | Catalog, Node tests of the account, sync and queue rules, and deterministic browser regressions |
 | `npm run export:all` | Web assets and iOS/Android JavaScript/Hermes bundles in `dist/` |
 | `npm run icons` | Redraws the app icon, adaptive icon, splash mark and favicon in `assets/` from `assets/icon-source/render.mjs` |
 | `npm run ios:simulator` | EAS build of the development client for the iOS Simulator |
-| `npm run build:testflight` | EAS production build for iPhone, uploaded to TestFlight ([releasing](releasing.md#testflight)) |
+| `npm run build:testflight` | EAS production build for iPhone. Its upload to TestFlight needs an App Store Connect API key that EAS can't make for this account ([releasing](releasing.md#build-and-upload)) |
 | `npm run update:preview` | Publishes an EAS Update to `preview` builds |
 
 The `eas` scripts need EAS CLI (`npm install -g eas-cli`, then `eas login`) and change things on the Expo account; see [releasing](releasing.md) before running them.
@@ -53,6 +53,8 @@ The `eas` scripts need EAS CLI (`npm install -g eas-cli`, then `eas login`) and 
 `npm test` uses Playwright Chromium (`npx playwright install chromium`) and starts localhost Metro when none exists. Use `EXPO_BASE_URL=http://localhost:PORT npm test` for a server on another port; this opts out of automatic startup. `PLAYWRIGHT_CHANNEL=chrome npm test` selects installed Chrome. CI uses bundled Chromium. Tests run at a phone-sized browser viewport; that does not emulate native WebView or accessibility services.
 
 ## Try the app
+
+These steps use the on-device stand-in and the four bundled sermons (no `.env`, or `EXPO_PUBLIC_AUTH_MODE=local`).
 
 1. The first visit (or a private browser window) opens the welcome. **Explore first** browses as a guest; **Get started** picks topics, offers a free account and asks your name.
 2. Browse as a guest. Open the **Search** tab → **Browse by topic** → Prayer, or the **Paths** tab and a path.
@@ -98,7 +100,7 @@ Before calling native playback ready, test iOS and Android: provider identity/er
 
 The project is linked to the Expo account `mshumba` as `@mshumba/aao-app` (`extra.eas.projectId` in `app.json`). Teammates follow the shared team testing guide.
 
-- **Web:** while the app is in private testing, the public addresses (https://aao-app.expo.app on EAS Hosting, and the Cloudflare Pages production site) show a branded holding page with the privacy policy and terms (`web/holding`, published by `scripts/deploy-holding.sh`). The app itself goes to a private Cloudflare Pages preview branch: `scripts/deploy-web.sh <empty output folder> <preview branch>`, which reads only the `EXPO_PUBLIC_*` values in `.env` and refuses the production branch. `eas deploy --prod` publishes to aao-app.expo.app, so an app export sent there would replace the holding page.
+- **Web:** while the app is in private testing, the public addresses (https://aao-app.expo.app on EAS Hosting, and the Cloudflare Pages production site) show a branded holding page with the privacy policy and terms (`web/holding`, published by `scripts/deploy-holding.sh`). The app itself goes to an unlisted (not access-controlled) Cloudflare Pages preview branch, `https://<preview branch>.aao-web.pages.dev`: `scripts/deploy-web.sh <empty output folder> <preview branch>`, which reads only the `EXPO_PUBLIC_*` values in `.env` and refuses the production branch. Anyone with the address can open it, sign-in and search included, so use a long random branch name of lowercase letters and digits, and never commit, post or log it. For real privacy, put Cloudflare Access in front of the `aao-web` project's preview deployments. `eas deploy --prod` publishes to aao-app.expo.app, so an app export sent there would replace the holding page.
 - **Android:** internal-distribution APK from the `preview` profile in `eas.json`: `npx eas-cli@latest build --platform android --profile preview`. Each build gets a new install link on expo.dev. Expo generated and stores the Android signing key. The package changed from `com.aao.prototype` to `com.mshumba.aao` in October 2026: the next APK installs as a separate app (remove the old one), and EAS keeps signing keys per package, so that build sets up a new key. Preview builds take EAS Updates from the `preview` channel (`npm run update:preview`).
 - **iPhone:** TestFlight, bundle ID `com.mshumba.aao`. The Apple Developer Program is joined and builds are on TestFlight ([releasing](releasing.md#testflight)); build 3 and later sign in with Google's own sheet ([accounts](accounts.md#sign-in-methods)). Personal-team installs from Xcode expire after 7 days.
 - **Expo Go:** not set up. Since May 2026 it opens shared updates only for members of the owning Expo organization, and it can't play the sermons (error 153).

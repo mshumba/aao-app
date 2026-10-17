@@ -19,8 +19,11 @@ Open **SQL Editor** and run each file in `migrations/` once, in order of their n
 - `watch_progress` (`20261014000200_watch_progress.sql`): where the viewer stopped in each sermon, for resuming and Home's Continue watching.
 - `delete_account()`: lets a signed-in viewer delete their own account (required by App Store guideline 5.1.1(v)); profile, saved and watch-progress rows are removed with it.
 - `apple_tokens` (`20261017001000_apple_tokens.sql`): Sign in with Apple refresh tokens, so deleting an account can revoke them. Only the `apple-tokens` Edge Function (service role) can read it. See [Apple token revocation](../docs/development/apple-token-revocation.md).
+- The learning data behind Search and Paths: transcript `passages`, `needs`, `moments`, `paths` and their days, and `blessings`, plus the search caches and limits ([Edge Functions](functions/README.md)).
+- `topics` and `sermon_topics` (`20261016000300_topics.sql`, re-tuned by `20261016000500_topics_reader.sql`): 8 AI-picked topics and each sermon's main topic, where an AI reader and the embedding match agree. The rows come from `seed/topics.sql`, and `scripts/tag-topics.py` tags new sermons. The app doesn't read them yet; its topic labels are still the sample in `src/data/edification.ts`.
+- `library_reader` (`20261016000400_library_reader.sql`): a read-only role for helper agents that reads the content tables and nothing of viewers'. It's created without a login; turn one on with a password set outside git, or leave it off.
 
-Row level security is on for every table: each viewer can only read and change their own rows. The sermon catalogue has its own migration; see [step 7](#7-load-the-sermon-catalogue).
+Row level security is on for every table: each viewer can only read and change their own rows, and the app can't write the content tables. The sermon catalogue has its own migration; see [step 7](#7-load-the-sermon-catalogue).
 
 (With the Supabase CLI instead: `supabase link --project-ref <ref>` then `supabase db push`.)
 
@@ -32,7 +35,7 @@ Row level security is on for every table: each viewer can only read and change t
 - **Redirect URLs** (add each):
   - `aao://auth/callback` (the installed app)
   - `https://aao-app.expo.app/auth/callback` (the public web address, which shows a holding page while the app is in private testing)
-  - the private Cloudflare Pages previews made by `scripts/deploy-web.sh`, which expects this list to match `*.aao-web.pages.dev`
+  - `https://*.aao-web.pages.dev/**` (the unlisted Cloudflare Pages previews made by `scripts/deploy-web.sh`; branch names are lowercase letters and digits only, so `*` covers them. Supabase matches the whole address, so `*.aao-web.pages.dev` alone never matches a callback.)
   - `http://localhost:8081/auth/callback` (local web development)
   - `exp://**` (Expo Go during development, optional)
 
