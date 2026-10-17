@@ -8,6 +8,10 @@ Two Supabase Edge Functions (Deno) behind "What are you going through?". The app
 | `search` | Finds sermon moments by meaning for a question of 1–200 characters.                    | A small chat model reads the question; `text-embedding-3-large` embeds it. |
 | `quotes` | Picks a clean verbatim quote for each moment `search` returned without one (up to 14). | One batched chat call for the passages not yet cached.                     |
 
+A third function, `apple-tokens`, keeps Sign in with Apple refresh tokens and revokes them when an account is
+deleted. It doesn't call OpenAI; its secrets, deployment and requests are in
+[Apple token revocation](../../docs/development/apple-token-revocation.md).
+
 Both functions need the tables and SQL functions from `migrations/20261015000000_need_search.sql` and the index from
 `migrations/20261015000300_passages_hnsw.sql`. `search` also needs `migrations/20261015000600_search_polish.sql`
 (`needs.query`/`related`, hidden passages, `search_start()`, the clean-up job) and reads `paths`/`path_days`

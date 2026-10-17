@@ -31,7 +31,7 @@ These need a person with the accounts; they can't be done from the repository.
 
 1. **Join the Apple Developer Program** ($99 a year) with an Apple Account that has two-factor authentication. Done. (An individual membership shows your legal name as the seller; an organization membership needs a legal entity and a D-U-N-S number.)
 2. **Choose the production bundle ID and store name.** Done: `com.mshumba.aao` in `ios.bundleIdentifier` and `android.package` in `app.json`, replacing `com.aao.prototype`, and the App Store Connect name "AAO App" (the record itself is created by the first submit). The bundle ID can't be changed once that record exists.
-3. **Set up Supabase** following [`supabase/README.md`](../../supabase/README.md): run the migration, enable the providers (Apple with `com.mshumba.aao` in **Client IDs**, Google, email with the code templates) and set up custom SMTP before inviting testers.
+3. **Set up Supabase** following [`supabase/README.md`](../../supabase/README.md): run the migration, enable the providers (Apple with `com.mshumba.aao` in **Client IDs**, Google, email with the code templates) and set up custom SMTP before inviting testers. Before App Review, set up [Apple token revocation](apple-token-revocation.md): a Sign in with Apple key, four Edge Function secrets and the `apple-tokens` function (guideline 5.1.1(v)).
 4. **Publish a privacy policy at a public URL**, and a support URL. App Store Connect asks for both.
 5. **Create a review account** (email and password) for TestFlight's Beta App Review and App Review.
 6. **Decide the guest gate for review**: see [accounts](accounts.md#app-store-notes).

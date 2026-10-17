@@ -10,6 +10,7 @@ import * as Linking from "expo-linking";
 import * as WebBrowser from "expo-web-browser";
 import { AppState, Platform, TurboModuleRegistry } from "react-native";
 import { CategoryId } from "../data/categories";
+import { deleteInOrder, linkedToApple, revokeAppleTokens, sendAppleCode } from "./appleTokens";
 import { googleClientIds, isNativeApple, supabaseConfig } from "./config";
 import { SESSION_KEY, forgetSession, secureSessionStorage } from "./sessionStorage";
 import { signInMethod } from "./signInMethod";
@@ -298,6 +299,10 @@ export function createSupabaseBackend(): AuthBackend {
       }
       if (!credential.identityToken) throw new AuthError("provider_unavailable");
       await signInWithToken("apple", credential.identityToken, rawNonce);
+      // The server swaps the one-time code for Apple's refresh token and
+      // keeps it, so deleting the account can revoke it. Sign-in doesn't
+      // wait for it.
+      void sendAppleCode(client.functions, credential.authorizationCode);
       // Apple shares the name only on the very first sign-in. The account
       // saves it to the profile once that has loaded, and keeps trying
       // until it's saved, so a failed write doesn't lose it for good.
@@ -321,7 +326,13 @@ export function createSupabaseBackend(): AuthBackend {
     },
     signOut: () => signOutHere(client.auth, forgetSession),
     async deleteAccount() {
-      await run(() => client.rpc("delete_account"));
+      const { data } = await client.auth.getSession();
+      // Apple's token is revoked first (App Store guideline 5.1.1(v)); if
+      // Apple can't be reached the server retries it after the account goes.
+      await deleteInOrder({
+        revokeApple: linkedToApple(data.session) ? () => revokeAppleTokens(client.functions) : null,
+        deleteAccount: () => run(() => client.rpc("delete_account")),
+      });
       // The account is gone either way; this clears the device.
       await signOutHere(client.auth, forgetSession).catch(() => {});
     },

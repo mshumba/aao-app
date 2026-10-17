@@ -18,6 +18,7 @@ Open **SQL Editor** and run each file in `migrations/` once, in order of their n
 - `saved_sermons`: the viewer's saved sermon IDs.
 - `watch_progress` (`20261014000200_watch_progress.sql`): where the viewer stopped in each sermon, for resuming and Home's Continue watching.
 - `delete_account()`: lets a signed-in viewer delete their own account (required by App Store guideline 5.1.1(v)); profile, saved and watch-progress rows are removed with it.
+- `apple_tokens` (`20261017001000_apple_tokens.sql`): Sign in with Apple refresh tokens, so deleting an account can revoke them. Only the `apple-tokens` Edge Function (service role) can read it. See [Apple token revocation](../docs/development/apple-token-revocation.md).
 
 Row level security is on for every table: each viewer can only read and change their own rows. The sermon catalogue has its own migration; see [step 7](#7-load-the-sermon-catalogue).
 
@@ -78,6 +79,7 @@ Needs the paid Apple Developer Program.
 
 Expo Go signs in with Apple as its own app (`host.exp.Exponent`), which isn't in **Client IDs**, so the app hides the Apple button in Expo Go (`src/auth/config.ts`); testers there use Google or email. Development, TestFlight and App Store builds show it.
 3. Apple on the **web** preview is optional and off by default. To offer it, create a Services ID with return URL `https://<project-ref>.supabase.co/auth/v1/callback` and a Sign in with Apple key, enter the Services ID and generated secret in the same Supabase screen (Apple requires a new secret every 6 months), then add `apple-web` to `EXPO_PUBLIC_AUTH_METHODS`.
+4. **Revoking Apple's tokens when an account is deleted** (guideline 5.1.1(v), needed before App Review): a Sign in with Apple key, four Edge Function secrets and the `apple-tokens` function. Follow [Apple token revocation](../docs/development/apple-token-revocation.md).
 
 ## 5. Google
 
