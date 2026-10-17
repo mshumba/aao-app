@@ -1,5 +1,5 @@
 import { router, useNavigation, useNavigationContainerRef, usePathname } from "expo-router";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { Platform } from "react-native";
 import { useCatalogue } from "../catalogue/CatalogueProvider";
 import { requestWatch, useGo } from "../navigation";
@@ -98,21 +98,24 @@ function guestMayWatch(account: Viewer, sermonId: string) {
 export function useGate() {
   const account = useAccount();
   const go = useGo();
-  const canWatch = (sermonId: string) =>
-    !!account.user || guestMayWatch(account, sermonId);
+  // The same object until the account changes, so what's built on it (a
+  // path's "Start Day 1", its days' cards) is kept from one draw to the next.
+  return useMemo(() => {
+    const canWatch = (sermonId: string) => !!account.user || guestMayWatch(account, sermonId);
 
-  /** True when the action may go ahead now; otherwise opens the sign-up sheet. */
-  const require = (intent: Intent) => {
-    if (intent.kind === "watch" && canWatch(intent.sermonId)) return true;
-    if (account.user) return true;
-    if (account.mode === "unavailable") return false;
-    const id = setPendingIntent(intent) ?? undefined;
-    const reason = intent.kind === "watch" && intent.path ? "path" : intent.kind;
-    go.push({ pathname: "/join", params: { reason, intent: id } });
-    return false;
-  };
+    /** True when the action may go ahead now; otherwise opens the sign-up sheet. */
+    const require = (intent: Intent) => {
+      if (intent.kind === "watch" && canWatch(intent.sermonId)) return true;
+      if (account.user) return true;
+      if (account.mode === "unavailable") return false;
+      const id = setPendingIntent(intent) ?? undefined;
+      const reason = intent.kind === "watch" && intent.path ? "path" : intent.kind;
+      go.push({ pathname: "/join", params: { reason, intent: id } });
+      return false;
+    };
 
-  return { canWatch, require };
+    return { canWatch, require };
+  }, [account, go]);
 }
 
 /**

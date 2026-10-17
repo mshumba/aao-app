@@ -1,14 +1,14 @@
 import * as Haptics from "expo-haptics";
 import { router, useFocusEffect, useIsFocused, useLocalSearchParams } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AccessibilityInfo, Platform, StyleSheet, View, useWindowDimensions } from "react-native";
 import Animated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAccount, useProgressOf } from "../../auth/AccountProvider";
 import { useCatalogue } from "../../catalogue/CatalogueProvider";
 import { Kicker, RoundButton, StickyCTA, useStickyCTASpace } from "../../kit";
-import { BAND, BUTTONS_END, CoverBand, CoverNav, useCoverScroll } from "../../kit/CoverPage";
+import { BAND, CoverBand, CoverNav, CoverRoom, useCoverScroll } from "../../kit/CoverPage";
 import { nextDay, trustLine, useEnrollment, usePath, type PathDayWithSermon } from "../../learning";
 import { firstParam, useGo, usePageTitle } from "../../navigation";
 import { DayCompleteSheet } from "../../paths/DayCompleteSheet";
@@ -81,13 +81,20 @@ export default function PathScreen() {
   const enrolled = !!mine;
   const done = mine?.done ?? EMPTY;
   const total = days.length || path?.dayCount || 0;
-  const words = pathWords(path ?? { kind: "path" });
+  const kind = path?.kind ?? "path";
+  const words = useMemo(() => pathWords({ kind }), [kind]);
   // Today: the first day not done (Day 1 before starting); null once all are.
   const today = enrolled ? nextDay(total, done) : total ? 1 : null;
   const todayDay = today != null ? days.find((d) => d.day === today) : undefined;
   const watchOf = useProgressOf(days.map((d) => d.youtubeId));
-  const timing = todayDay ? dayTiming(todayDay, watchOf(todayDay.youtubeId)) : null;
-  const fan = fanFor(days, today ?? 1);
+  // Held from one draw to the next, as the days' cards are built from them
+  // (a redraw that changes none of it leaves every card alone).
+  const timing = useMemo(
+    () => (todayDay ? dayTiming(todayDay, watchOf(todayDay.youtubeId)) : null),
+    [todayDay, watchOf],
+  );
+  const front = todayDay?.day ?? 1;
+  const fan = useMemo(() => fanFor(days, front), [days, front]);
   const length = useMemo(() => pathLength(days), [days]);
 
   // A teaching series of one teaching has no page: open the teaching.
@@ -174,31 +181,19 @@ export default function PathScreen() {
   // (CoverBand) pins them with the path's name, so the name never shows
   // twice, and the status bar and buttons turn dark. A page too short to
   // scroll its words up under the buttons never needs it; one that can,
-  // but not quite past the title, gets the room at its foot to (see
-  // useCoverScroll), so it never rests with Back over the title.
-  const [coverWords, setCoverWords] = useState(() => {
+  // but not quite past the title, gets the room at its foot to (CoverRoom),
+  // so it never rests with Back over the title. The page's measurements,
+  // the cover's words among them (about here until they're laid out), are
+  // read only by those: measuring never redraws the page or its days.
+  const { scrollY, onScroll, layout } = useCoverScroll(() => {
     const y = top + coverTop(width) + coverFanHeight(width) + 8;
     return { top: y, bottom: y + 80 };
   });
-  const onWordsLayout = useCallback(
-    (at: { top: number; bottom: number }) =>
-      setCoverWords((was) => (was.top === at.top && was.bottom === at.bottom ? was : at)),
-    [],
-  );
-  const from = coverWords.top - (top + BUTTONS_END);
-  const under = coverWords.bottom - (top + BAND);
   const padding = ctaSpace + dock;
-  const { scrollY, onScroll, onLayout, onContentLayout, room } = useCoverScroll({ from, under, padding });
   const share = useMemo(
     () => (path ? { label: "Share path", onPress: () => sharePath(path, toast), testID: "path-share" } : undefined),
     [path, toast],
   );
-
-  // "Why this path": three lines, the rest a tap away when it runs long.
-  // Whether it does is measured: an unseen copy, whole, against the three.
-  const [whyOpen, setWhyOpen] = useState(false);
-  const [whyHeights, setWhyHeights] = useState({ shown: 0, whole: 0 });
-  const longWhy = whyHeights.whole > whyHeights.shown + 2;
 
   // ---- Days ----------------------------------------------------------------------------
 
@@ -330,16 +325,16 @@ export default function PathScreen() {
     <View style={styles.screen}>
       {/* Pinned over the page once the cover's title has scrolled away. First
           in order (they're drawn above), so Back is read before the page. */}
-      <CoverBand title={path.name} top={top} under={under} scrollY={scrollY} />
-      <CoverNav top={top} under={under} scrollY={scrollY} onBack={go.back} backTestID="path-back" share={share} />
+      <CoverBand title={path.name} top={top} layout={layout} scrollY={scrollY} />
+      <CoverNav top={top} layout={layout} scrollY={scrollY} onBack={go.back} backTestID="path-back" share={share} />
       <Animated.ScrollView
         onScroll={onScroll}
-        onLayout={onLayout}
+        onLayout={layout.onLayout}
         scrollEventThrottle={16}
-        contentContainerStyle={{ paddingBottom: padding + room }}
+        contentContainerStyle={{ paddingBottom: padding }}
         testID="path-scroll"
       >
-        <View onLayout={onContentLayout}>
+        <View onLayout={layout.onContentLayout}>
           <PathCover
             path={path}
             fan={fan}
@@ -350,54 +345,14 @@ export default function PathScreen() {
             enrolled={enrolled}
             length={length}
             topInset={top}
-            onWordsLayout={onWordsLayout}
+            onWordsLayout={layout.onWordsLayout}
           />
           <View style={styles.panel}>
             <DayCarousel days={items} focus={today ?? 1} column={column} active={focused} markDone={markDone} />
-            <View style={styles.column}>
-              <Kicker style={styles.whyKicker}>{`Why this ${words.noun}`}</Kicker>
-              {path.why ? (
-                <View>
-                  <T
-                    style={[type.prose, styles.why]}
-                    maxFontSizeMultiplier={textCap.quote}
-                    numberOfLines={whyOpen ? undefined : WHY_LINES}
-                    onLayout={(e) => {
-                      const shown = e.nativeEvent.layout.height;
-                      if (!whyOpen) setWhyHeights((was) => (was.shown === shown ? was : { ...was, shown }));
-                    }}
-                  >
-                    {path.why}
-                  </T>
-                  <T
-                    style={[type.prose, styles.why, styles.measure]}
-                    maxFontSizeMultiplier={textCap.quote}
-                    accessible={false}
-                    importantForAccessibility="no-hide-descendants"
-                    aria-hidden
-                    onLayout={(e) => {
-                      const whole = e.nativeEvent.layout.height;
-                      setWhyHeights((was) => (was.whole === whole ? was : { ...was, whole }));
-                    }}
-                  >
-                    {path.why}
-                  </T>
-                </View>
-              ) : null}
-              {longWhy ? (
-                <View style={styles.whyMore}>
-                  <TextButton
-                    label={whyOpen ? "Show less" : "Read more"}
-                    align="start"
-                    onPress={() => setWhyOpen((was) => !was)}
-                  />
-                </View>
-              ) : null}
-              {/* Who set the order, quietly under the prose (published paths only). */}
-              {trust ? <T style={[styles.trust, longWhy && styles.trustAfterMore]}>{trust.text}</T> : null}
-            </View>
+            <WhyThis noun={words.noun} why={path.why} trust={trust?.text} />
           </View>
         </View>
+        <CoverRoom layout={layout} top={top} padding={padding} />
       </Animated.ScrollView>
 
       {cta ? (
@@ -462,6 +417,57 @@ export default function PathScreen() {
     </View>
   );
 }
+
+/**
+ * "Why this path" in three lines, the rest a tap away when it runs long,
+ * then who set the order, quietly under the prose (`trust`: published
+ * paths only). Whether it runs long is measured: an unseen copy, whole,
+ * against the three. Measuring it, and opening it, redraw only this.
+ */
+const WhyThis = memo(function WhyThis({ noun, why, trust }: { noun: string; why: string; trust?: string }) {
+  const [open, setOpen] = useState(false);
+  const [heights, setHeights] = useState({ shown: 0, whole: 0 });
+  const long = heights.whole > heights.shown + 2;
+  return (
+    <View style={styles.column}>
+      <Kicker style={styles.whyKicker}>{`Why this ${noun}`}</Kicker>
+      {why ? (
+        <View>
+          <T
+            style={[type.prose, styles.why]}
+            maxFontSizeMultiplier={textCap.quote}
+            numberOfLines={open ? undefined : WHY_LINES}
+            onLayout={(e) => {
+              const shown = e.nativeEvent.layout.height;
+              if (!open) setHeights((was) => (was.shown === shown ? was : { ...was, shown }));
+            }}
+          >
+            {why}
+          </T>
+          <T
+            style={[type.prose, styles.why, styles.measure]}
+            maxFontSizeMultiplier={textCap.quote}
+            accessible={false}
+            importantForAccessibility="no-hide-descendants"
+            aria-hidden
+            onLayout={(e) => {
+              const whole = e.nativeEvent.layout.height;
+              setHeights((was) => (was.whole === whole ? was : { ...was, whole }));
+            }}
+          >
+            {why}
+          </T>
+        </View>
+      ) : null}
+      {long ? (
+        <View style={styles.whyMore}>
+          <TextButton label={open ? "Show less" : "Read more"} align="start" onPress={() => setOpen((was) => !was)} />
+        </View>
+      ) : null}
+      {trust ? <T style={[styles.trust, long && styles.trustAfterMore]}>{trust}</T> : null}
+    </View>
+  );
+});
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: c.bg },
