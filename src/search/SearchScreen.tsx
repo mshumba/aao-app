@@ -468,15 +468,6 @@ function SearchView({ initialQuery, unknownTopic }: { initialQuery: string; unkn
     return () => clearTimeout(timer);
   }, [status, result.status]);
 
-  // ---- Results arriving ------------------------------------------------------------------
-
-  // Each new result set rises in once, with a selection tick.
-  const landed = data ? `${asked.toLocaleLowerCase()}#${tries}` : "";
-  const reveal = useResultsReveal(landed, reduced);
-  useEffect(() => {
-    if (landed && Platform.OS !== "web") Haptics.selectionAsync().catch(() => {});
-  }, [landed]);
-
   // ---- The list --------------------------------------------------------------------------
 
   // "A path for this": its length, and where you are on it if you've
@@ -668,7 +659,21 @@ function SearchView({ initialQuery, unknownTopic }: { initialQuery: string; unkn
   // The list draws a step behind the field: a keystroke shows in the field
   // at once, and the rows follow in the background, so typing never waits
   // on them (and the list is left alone while they would come out the same).
-  const rows = useDeferredValue(items);
+  // Which result set they are comes with them, so a set's rows are only ever
+  // drawn as that set: going back to a kept answer swaps one set for another
+  // in a single step.
+  const landed = data ? `${asked.toLocaleLowerCase()}#${tries}` : "";
+  const latestRows = useMemo(() => ({ items, landed }), [items, landed]);
+  const drawn = useDeferredValue(latestRows);
+  const rows = drawn.items;
+
+  // ---- Results arriving ------------------------------------------------------------------
+
+  // Each new result set rises in once, with a selection tick.
+  const reveal = useResultsReveal(drawn.landed, reduced);
+  useEffect(() => {
+    if (drawn.landed && Platform.OS !== "web") Haptics.selectionAsync().catch(() => {});
+  }, [drawn.landed]);
 
   // ---- Rows ------------------------------------------------------------------------------
 

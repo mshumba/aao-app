@@ -217,6 +217,51 @@ test("a related need searches again for that need", async ({ page }) => {
   );
 });
 
+test("going back to an earlier search, its answer rises in whole, rows the last one had too included", async ({
+  page,
+}) => {
+  const related = (name: string) =>
+    page.getByRole("list", { name: "Related needs" }).getByRole("button", { name, exact: true });
+  const settled = () =>
+    page.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished.catch(() => {}))));
+  await page.goto(`/search?q=${encodeURIComponent(NEED)}`);
+  await expect(results(page)).toHaveCount(6);
+  await related("Temptation").click();
+  await expect(results(page).first()).toContainText("“Temptation is idiosyncratic;");
+  await settled();
+  // From here, every frame: the faintest the related needs and the path
+  // card (rows both answers have) are drawn.
+  await page.evaluate(() => {
+    const w = window as unknown as { __faintest: Record<string, number> };
+    const rows = { related: '[aria-label="Related needs"]', path: '[data-testid="search-path"]' };
+    w.__faintest = { related: 1, path: 1 };
+    const until = performance.now() + 3000;
+    const tick = () => {
+      for (const [name, selector] of Object.entries(rows)) {
+        const el = document.querySelector(selector);
+        if (!el) continue;
+        let opacity = 1;
+        for (let a: Element | null = el; a; a = a.parentElement) opacity *= Number(getComputedStyle(a).opacity);
+        w.__faintest[name] = Math.min(w.__faintest[name], opacity);
+      }
+      if (performance.now() < until) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  });
+  // The first question's answer is kept from before, so it's there at once.
+  await related("The same sin again").click();
+  await expect(field(page)).toHaveValue(NEED);
+  await expect(results(page).first()).toContainText(FIRST_QUOTE);
+  await settled();
+  // They rose in with the new answer's other rows, not switched in place.
+  const faintest = await page.evaluate(
+    () => (window as unknown as { __faintest: Record<string, number> }).__faintest,
+  );
+  expect(faintest.related).toBeLessThan(0.5);
+  expect(faintest.path).toBeLessThan(0.5);
+  await expect(shown(page.getByTestId("search-path"))).toBeVisible();
+});
+
 test("the empty field offers common needs and topics to browse", async ({ page }) => {
   await page.goto("/search");
   await expect(

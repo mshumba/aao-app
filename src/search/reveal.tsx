@@ -10,14 +10,16 @@ import Animated, { cubicBezier, type CSSAnimationKeyframes } from "react-native-
  * scrolled away and back would play it again). Every row of one result set
  * keeps to a single clock instead, started as the set arrives: a row drawn
  * while it runs takes its place in the one movement, and a row drawn after
- * it ends is simply there. A row of a set that's been replaced (another
- * search on its way) is hidden until it goes.
+ * it ends is simply there.
  *
  * The movement is a CSS animation on the UI thread, ending on the row's
  * plain style: nothing is handed back to React as it settles, unlike a
  * settled animated style, which Reanimated redraws a second or so later
  * (every row of the set, on iOS). A row works out its part in the movement
- * once, as it's drawn for its set.
+ * once, as it's drawn for its set. A CSS animation that has played never
+ * plays again for the same keyframes, so a row the last set had too (a
+ * heading, the related needs, the path) is drawn afresh for the new one,
+ * and rises with the rest instead of changing in place.
  *
  * Under Reduce Motion only the opacity changes.
  */
@@ -33,7 +35,6 @@ const rise = {
   to: { opacity: 1, transform: [{ translateY: 0 }] },
 } satisfies CSSAnimationKeyframes;
 const fade = { from: { opacity: 0 }, to: { opacity: 1 } } satisfies CSSAnimationKeyframes;
-const hidden = { opacity: 0 };
 
 /**
  * When the set's movement started, outside React state: a row reads it as
@@ -61,7 +62,8 @@ const RevealContext = createContext<ResultSet | null>(null);
 
 /**
  * Starts the clock when a new result set (`id`, empty for none) arrives.
- * Pass the value to RevealProvider around the list.
+ * `id` names the set of the rows on screen, so it changes in the same draw
+ * as they do. Pass the value to RevealProvider around the list.
  */
 export function useResultsReveal(id: string, reduced: boolean): ResultSet {
   const [clock] = useState(() => new Clock());
@@ -94,7 +96,6 @@ export const Reveal = memo(function Reveal({
   // the set arrives), part way through (a row drawn while it runs), or
   // none (after it). Held while it plays, so a redraw never restarts it.
   const motion = useMemo(() => {
-    if (!id) return hidden;
     const start = delay - clock.elapsed(id);
     if (start <= -DURATION) return null;
     return {
@@ -105,5 +106,6 @@ export const Reveal = memo(function Reveal({
       animationFillMode: "backwards",
     } as const;
   }, [id, reduced, clock, delay]);
-  return <Animated.View style={[style, motion]}>{children}</Animated.View>;
+  // Keyed by its set, so a new set always starts a new animation.
+  return <Animated.View key={id} style={[style, motion]}>{children}</Animated.View>;
 });
