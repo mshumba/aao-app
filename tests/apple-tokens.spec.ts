@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import { createClient } from "@supabase/supabase-js";
 import {
   deleteInOrder,
+  deleteSignedIn,
   linkedToApple,
   revokeAppleTokens,
   sendAppleCode,
@@ -293,6 +294,8 @@ function standIns(options: {
   saved?: boolean;
   exchange?: () => Promise<{ refreshToken: string; sub: string }>;
   revoke?: (clientId: string, token: string) => Promise<void>;
+  /** Keeping a token without its account: fails when this rejects. */
+  orphan?: () => Promise<void>;
 }) {
   const steps: string[] = [];
   const store: Store = {
@@ -309,6 +312,10 @@ function standIns(options: {
     },
     async failed(id, reason) {
       steps.push(`failed ${id} ${reason}`);
+    },
+    async orphan(clientId, refreshToken, reason) {
+      steps.push(`orphan ${clientId} ${refreshToken} ${reason}`);
+      if (options.orphan) await options.orphan();
     },
     async due(max) {
       steps.push(`due ${max}`);
@@ -395,13 +402,48 @@ test.describe("the apple-tokens function", () => {
       `save user-1 ${BUNDLE_ID} refresh-new`,
       `revoke ${BUNDLE_ID} refresh-new`,
     ]);
+  });
 
+  test("store: a token for a deleted account that Apple can't revoke yet is kept for the sweep", async () => {
+    // Nothing else would ever revoke it, so it's kept without an account,
+    // as the tokens deleted accounts leave are.
     const down = standIns({ subs: null, revoke: () => Promise.reject(new AppleError("timeout")) });
     expect(await storeCode(down.apple, down.store, "user-1", "code-1")).toEqual({
       ok: false,
       error: "account_gone",
       reason: "timeout",
     });
+    expect(down.steps).toEqual([
+      "exchange code-1",
+      "appleSubs user-1",
+      `revoke ${BUNDLE_ID} refresh-new`,
+      `orphan ${BUNDLE_ID} refresh-new timeout`,
+    ]);
+
+    // The same when the account went between the look-up and saving.
+    const between = standIns({ saved: false, revoke: () => Promise.reject(new AppleError("invalid_client", 400)) });
+    expect(await storeCode(between.apple, between.store, "user-1", "code-1")).toEqual({
+      ok: false,
+      error: "account_gone",
+      reason: "invalid_client",
+    });
+    expect(between.steps.slice(-2)).toEqual([
+      `revoke ${BUNDLE_ID} refresh-new`,
+      `orphan ${BUNDLE_ID} refresh-new invalid_client`,
+    ]);
+
+    // Keeping it failing too still answers.
+    const stuck = standIns({
+      subs: null,
+      revoke: () => Promise.reject(new AppleError("network")),
+      orphan: () => Promise.reject(new Error("apple_tokens: 57014")),
+    });
+    expect(await storeCode(stuck.apple, stuck.store, "user-1", "code-1")).toEqual({
+      ok: false,
+      error: "account_gone",
+      reason: "network",
+    });
+    expect(stuck.steps.at(-1)).toBe(`orphan ${BUNDLE_ID} refresh-new network`);
   });
 
   test("revoke: Apple revokes the token before its row is deleted", async () => {
@@ -534,6 +576,11 @@ test.describe("the app's half", () => {
     expect(await revokeAppleTokens(retry.functions)).toBe(false);
     const missing = appClient(async () => reply(404, { code: "NOT_FOUND" }));
     expect(await revokeAppleTokens(missing.functions)).toBe(false);
+
+    // Given a session's token, it asks as that session.
+    const as = appClient(async () => reply(200, { revoked: true, stored: true }));
+    expect(await revokeAppleTokens(as.functions, 1000, "access-a")).toBe(true);
+    expect(as.sent[0].headers.get("authorization")).toBe("Bearer access-a");
   });
 
   test("revoking gives up at its deadline", async () => {
@@ -665,5 +712,156 @@ test.describe("the app's half", () => {
     expect(linkedToApple(user(["google"], { provider: "google", providers: ["google"] }))).toBe(false);
     expect(linkedToApple(user(["email"], { provider: "email" }))).toBe(false);
     expect(linkedToApple(null)).toBe(false);
+  });
+});
+
+type Asked = { path: string; authorization: string | null };
+
+/**
+ * The app's Supabase client and a stand-in for the account service,
+ * apple-tokens and delete_account. `linked` is each account's sign-in
+ * methods as the service has them now; a session keeps the user it was
+ * handed at sign-in. Each sign-in hands out a new access token
+ * (access-<account>-<n>). `answer` can answer a request instead.
+ */
+function accountService(
+  linked: Record<string, string[]>,
+  answer: (asked: Asked) => Response | undefined = () => undefined,
+) {
+  const sent: Asked[] = [];
+  let issued = 0;
+  const user = (id: string) => ({
+    id,
+    aud: "authenticated",
+    email: `${id}@example.com`,
+    created_at: "",
+    app_metadata: { provider: linked[id][0], providers: linked[id] },
+    user_metadata: {},
+    identities: linked[id].map((provider) => ({
+      id: `${provider}-${id}`,
+      identity_id: `${provider}-${id}`,
+      user_id: id,
+      provider,
+    })),
+  });
+  const client = createClient("https://aao.invalid", "sb_publishable_test", {
+    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+    global: {
+      fetch: (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = new URL(String(input));
+        const asked = {
+          path: url.pathname + url.search,
+          authorization: new Headers(init?.headers).get("authorization"),
+        };
+        sent.push(asked);
+        const custom = answer(asked);
+        if (custom) return custom;
+        if (asked.path === "/auth/v1/token?grant_type=password") {
+          const id = String(JSON.parse(String(init?.body)).email).split("@")[0];
+          issued += 1;
+          return reply(200, {
+            access_token: `access-${id}-${issued}`,
+            refresh_token: `refresh-${id}-${issued}`,
+            token_type: "bearer",
+            expires_in: 3600,
+            user: user(id),
+          });
+        }
+        if (asked.path === "/auth/v1/user") return reply(200, user(asked.authorization!.split("-")[1]));
+        if (asked.path === "/functions/v1/apple-tokens") return reply(200, { revoked: true, stored: true });
+        if (asked.path === "/rest/v1/rpc/delete_account") return new Response(null, { status: 204 });
+        throw new Error(`The stand-in server wasn't expecting ${asked.path}`);
+      }) as typeof fetch,
+    },
+  });
+  return {
+    client,
+    signIn: async (id: string) => {
+      const { error } = await client.auth.signInWithPassword({ email: `${id}@example.com`, password: "password" });
+      if (error) throw error;
+    },
+    /** What was asked after signing in, in order. */
+    asked: () => sent.filter((asked) => !asked.path.startsWith("/auth/v1/token")),
+  };
+}
+
+test.describe("deleting the account signed in", () => {
+  test("asks the account service whether an Apple ID is linked, as the saved user can be older", async () => {
+    const linked = { a: ["email"] };
+    const service = accountService(linked);
+    await service.signIn("a");
+    // Apple linked on another device since this session began.
+    linked.a = ["email", "apple"];
+    await deleteSignedIn(service.client, null);
+    // Each as this account's own session.
+    expect(service.asked()).toEqual([
+      { path: "/auth/v1/user", authorization: "Bearer access-a-1" },
+      { path: "/functions/v1/apple-tokens", authorization: "Bearer access-a-1" },
+      { path: "/rest/v1/rpc/delete_account", authorization: "Bearer access-a-1" },
+    ]);
+
+    // With no Apple ID linked, nothing is revoked.
+    const plain = accountService({ b: ["email"] });
+    await plain.signIn("b");
+    await deleteSignedIn(plain.client, null);
+    expect(plain.asked().map((asked) => asked.path)).toEqual(["/auth/v1/user", "/rest/v1/rpc/delete_account"]);
+  });
+
+  test("when the account service can't say, the saved user decides", async () => {
+    const down = accountService({ a: ["apple"] }, ({ path }) =>
+      path === "/auth/v1/user" ? reply(503, { code: "unexpected_failure" }) : undefined,
+    );
+    await down.signIn("a");
+    await deleteSignedIn(down.client, null);
+    expect(down.asked().map((asked) => asked.path)).toEqual([
+      "/auth/v1/user",
+      "/functions/v1/apple-tokens",
+      "/rest/v1/rpc/delete_account",
+    ]);
+
+    const offline = accountService({ b: ["google"] }, ({ path }) => {
+      if (path === "/auth/v1/user") throw new TypeError("Network request failed");
+      return undefined;
+    });
+    await offline.signIn("b");
+    await deleteSignedIn(offline.client, null);
+    expect(offline.asked().map((asked) => asked.path)).toEqual(["/auth/v1/user", "/rest/v1/rpc/delete_account"]);
+  });
+
+  test("another account signing in while it waits stops it before anything is revoked or deleted", async () => {
+    const service = accountService({ a: ["apple"], b: ["apple"] });
+    await service.signIn("a");
+    let arrive: () => void = () => {};
+    const storing = new Promise<void>((resolve) => (arrive = resolve));
+    const deletion = deleteSignedIn(service.client, storing);
+    deletion.catch(() => {});
+    // Waiting for the code an Apple sign-in sent, when B signs in here.
+    await expect.poll(() => service.asked().length).toBe(1);
+    await service.signIn("b");
+    arrive();
+    await expect(deletion).rejects.toThrow("Another account signed in");
+    expect(service.asked().map((asked) => asked.path)).toEqual(["/auth/v1/user"]);
+  });
+
+  test("the same account signing in again meanwhile is still deleted, with its newer session", async () => {
+    const service = accountService({ a: ["apple"] });
+    await service.signIn("a");
+    let arrive: () => void = () => {};
+    const storing = new Promise<void>((resolve) => (arrive = resolve));
+    const deletion = deleteSignedIn(service.client, storing);
+    await expect.poll(() => service.asked().length).toBe(1);
+    await service.signIn("a");
+    arrive();
+    await deletion;
+    expect(service.asked().slice(1)).toEqual([
+      { path: "/functions/v1/apple-tokens", authorization: "Bearer access-a-2" },
+      { path: "/rest/v1/rpc/delete_account", authorization: "Bearer access-a-2" },
+    ]);
+  });
+
+  test("nobody signed in is an error, and nothing is asked", async () => {
+    const service = accountService({});
+    await expect(deleteSignedIn(service.client, null)).rejects.toThrow("Not signed in");
+    expect(service.asked()).toEqual([]);
   });
 });

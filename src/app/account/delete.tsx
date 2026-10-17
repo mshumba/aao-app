@@ -1,3 +1,4 @@
+import { Stack } from "expo-router";
 import { useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { useAccount } from "../../auth/AccountProvider";
@@ -95,7 +96,9 @@ export default function DeleteAccount() {
 
   return (
     <Page>
-      <Header back />
+      {/* No leaving while it deletes: it may wait on Apple for a while. */}
+      <Stack.Screen options={{ gestureEnabled: !busy }} />
+      <Header back disabled={busy} />
       <PageTitle
         kicker="Account"
         title="Delete your account?"
@@ -125,7 +128,7 @@ export default function DeleteAccount() {
           You can keep browsing without an account, or create a new one later.
           Topics you chose on this device stay on it.
         </T>
-        {user.provider === "apple" && (
+        {(user.appleLinked || user.provider === "apple") && (
           <Notice icon="logo-apple">
             If you signed in with Apple, you can also stop using Apple ID with
             AAO in Settings › your name › Sign in with Apple.

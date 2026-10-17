@@ -94,6 +94,19 @@ const store: Store = {
       .abortSignal(dbTimeout(4000));
     if (error) throw dbError("apple_tokens_failed", error);
   },
+  async orphan(clientId, refreshToken, reason) {
+    // As apple_tokens_failed leaves a first failure: tried again in 2 minutes.
+    const row = {
+      user_id: null,
+      client_id: clientId,
+      refresh_token: refreshToken,
+      attempts: 1,
+      last_error: reason.slice(0, 200),
+      next_attempt_at: new Date(Date.now() + 2 * 60_000).toISOString(),
+    };
+    const { error } = await withRetry(() => admin().from("apple_tokens").insert(row).abortSignal(dbTimeout(4000)));
+    if (error) throw dbError("apple_tokens", error);
+  },
   async due(max) {
     const { data, error } = await admin()
       .rpc("apple_tokens_due", { max_rows: max })

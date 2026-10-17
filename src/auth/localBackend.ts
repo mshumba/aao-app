@@ -27,6 +27,9 @@ import {
  *   sent, and its unsaves at once, like a slow request a quicker one
  *   overtakes, so a save and an unsave from another screen just after it
  *   can be tested.
+ * - Signing in with Apple is apple.viewer@example.com. Like Supabase linking
+ *   identities by email, that address keeps the Apple ID linked however it
+ *   signs in later, until the account is deleted.
  *
  * Like the real service, the profile and saved list come back a moment
  * after they're asked for (as they were when asked), and fail while the
@@ -41,7 +44,12 @@ const SLOW_SAVES = "local:slowsave@example.com";
 const WRONG = "wrong-password";
 
 // Accounts stored before watch progress existed have no `progress`.
-type Stored = { profile: Profile; saved: string[]; progress?: WatchProgress[] };
+type Stored = {
+  profile: Profile;
+  saved: string[];
+  progress?: WatchProgress[];
+  appleLinked?: boolean;
+};
 const emptyProfile: Profile = { displayName: null, interests: [], onboardedAt: null };
 
 const wait = (ms = 450) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -62,10 +70,13 @@ export function createLocalBackend(): AuthBackend {
   };
 
   async function signIn(email: string, provider: Provider, displayName?: string) {
+    const id = `local:${email.trim().toLowerCase()}`;
+    if (provider === "apple") await change(id, (data) => ({ ...data, appleLinked: true }));
     const user: AuthUser = {
-      id: `local:${email.trim().toLowerCase()}`,
+      id,
       email: email.trim().toLowerCase(),
       provider,
+      appleLinked: Boolean((await load(id)).appleLinked),
     };
     await writeJSON(keys.localSession, user);
     if (displayName)
