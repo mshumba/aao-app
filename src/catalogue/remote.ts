@@ -1,5 +1,5 @@
 import { SERMON_COLUMNS, type Changes, type SeriesRecord, type SermonRecord } from "./records";
-import type { Remote } from "./sync";
+import { CatalogueError, type Remote } from "./sync";
 
 /**
  * Reads the catalogue from Supabase's REST API with the public key. The
@@ -34,7 +34,8 @@ export function createRemote(config: { url: string; key: string }): Remote {
         headers: { apikey: config.key, Accept: "application/json", ...extra },
         signal: controller.signal,
       });
-      if (!response.ok) throw new Error(`Catalogue request failed (${response.status})`);
+      if (!response.ok)
+        throw new CatalogueError(`Catalogue request failed (${response.status})`, "http", response.status);
       return { rows: (await response.json()) as Row[], range: response.headers.get("content-range") };
     } finally {
       clearTimeout(timer);

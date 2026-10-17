@@ -55,6 +55,7 @@ The suite starts a local web server if needed and always uses the on-device acco
 - [Supabase project setup](supabase/README.md)
 - [Contributing and verification](docs/development/contributing.md)
 - [CI, EAS builds, TestFlight, updates and rollback](docs/development/releasing.md)
+- [Failure alerts: what the app reports to Sentry and how to be told](docs/development/failure-alerts.md)
 - [UI audit and its verification limits](docs/development/ui-audit.md)
 
 Source: [mshumba/aao-app](https://github.com/mshumba/aao-app). The [GitHub workflow](https://github.com/mshumba/aao-app/actions/workflows/ci.yml) validates code only; inspect the run for the exact commit before treating a change as checked. The web preview is on EAS Hosting and Android test builds come from EAS; TestFlight and EAS Update are configured but not yet used.
