@@ -48,10 +48,12 @@ const SAVED: WatchProgress = {
 /**
  * Renders PlayerProvider with just enough React: state, refs, memos and
  * effects, re-rendering until nothing changes (`flush`). The account's
- * progress is still loading; each whenProgressReady() call waits on its own
- * answer, sent with `answer`. Timers never fire.
+ * progress hasn't been read from the server yet; `copy` is this device's
+ * copy of it from an earlier launch, shown meanwhile. Each
+ * whenProgressReady() call waits on its own answer, sent with `answer`.
+ * Timers never fire.
  */
-function mountPlayer() {
+function mountPlayer(copy: WatchProgress[] = []) {
   const slots: unknown[] = [];
   let cursor = 0;
   let dirty = false;
@@ -102,9 +104,9 @@ function mountPlayer() {
   const account = { user: { id: "local:member@example.com" } as { id: string } | null };
   const answers: ((items: WatchProgress[] | null) => void)[] = [];
   const progress = {
-    progress: [],
+    progress: copy,
     progressReady: false,
-    progressFor: () => null,
+    progressFor: (id: string) => copy.find((item) => item.sermonId === id) ?? null,
     whenProgressReady: () =>
       new Promise<WatchProgress[] | null>((resolve) => {
         answers.push(resolve);
@@ -325,4 +327,60 @@ test("a late saved place that fails to load leaves playback alone", async () => 
   await player.answer(null);
   expect(player.commands).toEqual(["play"]);
   expect(player.playback.seconds).toBe(4);
+});
+
+// This device's copy of the place, from an earlier launch, shown until the
+// account's progress has been read from the server: another device may have
+// saved a newer place since (SAVED).
+const COPY: WatchProgress = { ...SAVED, positionSeconds: 100, updatedAt: "2026-10-15T10:00:00.000Z" };
+
+/** Watch with no place asked for, the player becomes ready, and the sermon plays `played` seconds. */
+function watchFromCopy(player: Player, played: number) {
+  player.session.load(SERMON);
+  player.flush();
+  player.session.onEvent({ type: "ready", duration: 600 });
+  player.flush();
+  player.session.onEvent({ type: "state", state: 1, seconds: COPY.positionSeconds + played, duration: 600 });
+  player.flush();
+}
+
+test("the device's copy of the place starts the sermon, and a newer place from the server replaces it", async () => {
+  const player = mountPlayer([COPY]);
+  player.session.load(SERMON);
+  player.flush();
+  // Offline, this is where it stays.
+  expect(player.playback.seconds).toBe(100);
+  expect(player.session.resumedFrom).toBe(100);
+  player.session.onEvent({ type: "ready", duration: 600 });
+  player.flush();
+  player.session.onEvent({ type: "state", state: 1, seconds: 104, duration: 600 });
+  player.flush();
+  expect(player.commands).toEqual(["play"]);
+  await player.answer([SAVED]);
+  expect(player.commands).toEqual(["play", "seek:250"]);
+  expect(player.playback.seconds).toBe(250);
+  expect(player.session.resumedFrom).toBe(250);
+});
+
+test("the server's place leaves a viewer who has watched on from the device's copy where they are", async () => {
+  const player = mountPlayer([COPY]);
+  watchFromCopy(player, 20);
+  await player.answer([SAVED]);
+  expect(player.commands).toEqual(["play"]);
+  expect(player.playback.seconds).toBe(120);
+});
+
+test("the same place on the server changes nothing, and a sermon finished elsewhere starts over", async () => {
+  const same = mountPlayer([COPY]);
+  watchFromCopy(same, 4);
+  await same.answer([{ ...COPY, updatedAt: "2026-10-16T09:00:00.000Z" }]);
+  expect(same.commands).toEqual(["play"]);
+  expect(same.playback.seconds).toBe(104);
+
+  const finished = mountPlayer([COPY]);
+  watchFromCopy(finished, 4);
+  await finished.answer([{ ...SAVED, positionSeconds: 600, finished: true }]);
+  expect(finished.commands).toEqual(["play", "seek:0"]);
+  expect(finished.playback.seconds).toBe(0);
+  expect(finished.session.resumedFrom).toBe(0);
 });

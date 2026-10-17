@@ -38,11 +38,13 @@ async function failure(name: string, response: Response): Promise<LearningError>
   }
   const details = { step: name, status: response.status, code: body.error };
   if (response.status === 429 || body.error === "rate_limited") {
-    reportFailure("search_over_quota", details);
-    const header = Number(response.headers.get("retry-after"));
-    const retryAfter = body.retryAfter ?? (Number.isFinite(header) && header > 0 ? header : 30);
     // "everyone": the allowance everyone shares is used up, not this caller's.
     const scope = body.scope === "everyone" ? "everyone" : "caller";
+    // Told apart by code: everyone's running out is an outage, while one
+    // caller's (a church's guest Wi-Fi, say) is a limit to look at.
+    reportFailure("search_over_quota", { ...details, code: `rate_limited_${scope}` });
+    const header = Number(response.headers.get("retry-after"));
+    const retryAfter = body.retryAfter ?? (Number.isFinite(header) && header > 0 ? header : 30);
     return new LearningError("rate_limited", "Over the search limit", retryAfter, scope);
   }
   if (response.status === 400 || body.error === "bad_query")

@@ -1,5 +1,5 @@
 import type { Session, SupabaseClient, User } from "@supabase/supabase-js";
-import { run } from "./supabaseSession";
+import { liveSession, run, type ReadSaved } from "./supabaseSession";
 import { AuthError } from "./types";
 
 /**
@@ -141,19 +141,22 @@ export async function deleteInOrder(steps: {
  * saved with the session is only refreshed with its token, so it can predate
  * a link made on another device. If that can't be reached, the saved user
  * decides.
+ *
+ * Each session comes from liveSession (`readSaved` reads the one saved on
+ * the device), so a session that can't be renewed offline fails as
+ * "network", and one that's gone as "invalid_credentials".
  */
 export async function deleteSignedIn(
   client: Client,
   storing: Promise<unknown> | null,
+  readSaved: ReadSaved,
 ): Promise<void> {
-  const { data } = await client.auth.getSession();
-  const started = data.session;
-  if (!started) throw new AuthError("unknown", "Not signed in");
+  const started = await liveSession(client.auth, readSaved);
   const tokenFor = async () => {
-    const { data: now } = await client.auth.getSession();
-    if (!now.session || now.session.user.id !== started.user.id)
+    const now = await liveSession(client.auth, readSaved);
+    if (now.user.id !== started.user.id)
       throw new AuthError("unknown", "Another account signed in during the deletion");
-    return now.session.access_token;
+    return now.access_token;
   };
   const fresh = await within(
     client.auth.getUser(started.access_token).then(({ data: { user } }) => user),

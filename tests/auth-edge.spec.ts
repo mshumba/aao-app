@@ -108,6 +108,11 @@ async function device(answer: (sent: Sent) => Response) {
     signedOut: () => events.filter((event) => event === "SIGNED_OUT").length,
     /** The app's forgetSession, for this device's storage. */
     forget: async () => void saved.delete(KEY),
+    /** The app's readSavedSession, for this device's storage. */
+    readSaved: async () => {
+      const raw = saved.get(KEY);
+      return raw ? JSON.parse(raw) : null;
+    },
   };
 }
 
@@ -131,7 +136,7 @@ test.describe("signing out", () => {
     shift += 2 * HOUR;
     phone.network.online = false;
 
-    await signOutHere(phone.auth, phone.forget);
+    await signOutHere(phone.auth, phone.forget, phone.readSaved);
     expect(phone.saved.has(KEY)).toBe(false);
     expect(phone.signedOut()).toBe(1);
 
@@ -146,7 +151,7 @@ test.describe("signing out", () => {
     const phone = await signedIn();
     phone.network.online = false;
 
-    await signOutHere(phone.auth, phone.forget);
+    await signOutHere(phone.auth, phone.forget, phone.readSaved);
     expect(phone.saved.has(KEY)).toBe(false);
     expect(phone.signedOut()).toBe(1);
   });
@@ -155,7 +160,7 @@ test.describe("signing out", () => {
     const phone = await signedIn();
     shift += 2 * HOUR;
 
-    await signOutHere(phone.auth, phone.forget);
+    await signOutHere(phone.auth, phone.forget, phone.readSaved);
     expect(phone.asked("/token?grant_type=refresh_token")).toHaveLength(1);
     expect(phone.asked("/logout?scope=local")).toHaveLength(1);
     expect(phone.saved.has(KEY)).toBe(false);
@@ -167,7 +172,7 @@ test.describe("signing out", () => {
     shift += 2 * HOUR;
     phone.network.online = false;
 
-    const failure = await signOutHere(phone.auth, async () => {}).catch((error) => error);
+    const failure = await signOutHere(phone.auth, async () => {}, phone.readSaved).catch((error) => error);
     expect(failure).toBeInstanceOf(AuthError);
     expect((failure as AuthError).code).toBe("network");
     expect(phone.saved.has(KEY)).toBe(true);

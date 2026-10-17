@@ -21,7 +21,11 @@
 export type Failure =
   /** Search or quotes answered with an error (OpenAI down or out of balance shows here). */
   | "search_unavailable"
-  /** Search or quotes refused for its rate limit (the shared allowance is used up). */
+  /**
+   * Search or quotes refused for its rate limit: code rate_limited_everyone
+   * when the allowance everyone shares is used up, rate_limited_caller when
+   * it was the caller's own.
+   */
   | "search_over_quota"
   /** The sermon library couldn't be synced: the server answered with an error, or no sermons. */
   | "catalogue_sync"

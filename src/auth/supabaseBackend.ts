@@ -15,6 +15,7 @@ import { googleClientIds, isNativeApple, supabaseConfig } from "./config";
 import { SESSION_KEY, forgetSession, readSavedSession, secureSessionStorage } from "./sessionStorage";
 import { signInMethod } from "./signInMethod";
 import {
+  SESSION_WAIT_MS,
   codeExchange,
   fetchWithDeadline,
   liveSession,
@@ -79,9 +80,6 @@ const SAVE_DEADLINE_MS = 15_000;
 // How long any request to the account service may take, body included,
 // before it fails: the app's usual deadline (src/learning/request.ts).
 const REQUEST_DEADLINE_MS = 15_000;
-// How long the launch waits for Supabase's own answer before starting from
-// the session saved on the device (restoreSession).
-const RESTORE_WAIT_MS = 1500;
 
 const otpType: Record<CodePurpose, "email" | "signup" | "recovery"> = {
   "sign-in": "email",
@@ -135,7 +133,7 @@ export function createSupabaseBackend(): AuthBackend {
    * its session can be used: never sent with no token, or another account's.
    */
   async function accountFor(userId?: string) {
-    const session = await liveSession(client.auth, userId || undefined);
+    const session = await liveSession(client.auth, readSavedSession, userId || undefined);
     return session.user.id;
   }
 
@@ -232,7 +230,7 @@ export function createSupabaseBackend(): AuthBackend {
   return {
     kind: "supabase",
     async restore() {
-      return toUser(await restoreSession(client.auth, readSavedSession, RESTORE_WAIT_MS));
+      return toUser(await restoreSession(client.auth, readSavedSession, SESSION_WAIT_MS));
     },
     subscribe(listener) {
       return watchSession(client.auth, readSavedSession, (session) => listener(toUser(session)));
@@ -347,13 +345,13 @@ export function createSupabaseBackend(): AuthBackend {
     async updatePassword(password) {
       await run(() => client.auth.updateUser({ password }));
     },
-    signOut: () => signOutHere(client.auth, forgetSession),
+    signOut: () => signOutHere(client.auth, forgetSession, readSavedSession),
     async deleteAccount() {
       // Apple's token is revoked first (App Store guideline 5.1.1(v)); if
       // Apple can't be reached the server retries it after the account goes.
-      await deleteSignedIn(client, appleCodeSent);
+      await deleteSignedIn(client, appleCodeSent, readSavedSession);
       // The account is gone either way; this clears the device.
-      await signOutHere(client.auth, forgetSession).catch(() => {});
+      await signOutHere(client.auth, forgetSession, readSavedSession).catch(() => {});
     },
 
     async getGuestWatch() {

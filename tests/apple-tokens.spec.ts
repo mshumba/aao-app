@@ -717,6 +717,9 @@ test.describe("the app's half", () => {
 
 type Asked = { path: string; authorization: string | null };
 
+/** These clients keep the session in memory, with none saved on the device. */
+const nothingSaved = async () => null;
+
 /**
  * The app's Supabase client and a stand-in for the account service,
  * apple-tokens and delete_account. `linked` is each account's sign-in
@@ -792,7 +795,7 @@ test.describe("deleting the account signed in", () => {
     await service.signIn("a");
     // Apple linked on another device since this session began.
     linked.a = ["email", "apple"];
-    await deleteSignedIn(service.client, null);
+    await deleteSignedIn(service.client, null, nothingSaved);
     // Each as this account's own session.
     expect(service.asked()).toEqual([
       { path: "/auth/v1/user", authorization: "Bearer access-a-1" },
@@ -803,7 +806,7 @@ test.describe("deleting the account signed in", () => {
     // With no Apple ID linked, nothing is revoked.
     const plain = accountService({ b: ["email"] });
     await plain.signIn("b");
-    await deleteSignedIn(plain.client, null);
+    await deleteSignedIn(plain.client, null, nothingSaved);
     expect(plain.asked().map((asked) => asked.path)).toEqual(["/auth/v1/user", "/rest/v1/rpc/delete_account"]);
   });
 
@@ -812,7 +815,7 @@ test.describe("deleting the account signed in", () => {
       path === "/auth/v1/user" ? reply(503, { code: "unexpected_failure" }) : undefined,
     );
     await down.signIn("a");
-    await deleteSignedIn(down.client, null);
+    await deleteSignedIn(down.client, null, nothingSaved);
     expect(down.asked().map((asked) => asked.path)).toEqual([
       "/auth/v1/user",
       "/functions/v1/apple-tokens",
@@ -824,7 +827,7 @@ test.describe("deleting the account signed in", () => {
       return undefined;
     });
     await offline.signIn("b");
-    await deleteSignedIn(offline.client, null);
+    await deleteSignedIn(offline.client, null, nothingSaved);
     expect(offline.asked().map((asked) => asked.path)).toEqual(["/auth/v1/user", "/rest/v1/rpc/delete_account"]);
   });
 
@@ -833,7 +836,7 @@ test.describe("deleting the account signed in", () => {
     await service.signIn("a");
     let arrive: () => void = () => {};
     const storing = new Promise<void>((resolve) => (arrive = resolve));
-    const deletion = deleteSignedIn(service.client, storing);
+    const deletion = deleteSignedIn(service.client, storing, nothingSaved);
     deletion.catch(() => {});
     // Waiting for the code an Apple sign-in sent, when B signs in here.
     await expect.poll(() => service.asked().length).toBe(1);
@@ -848,7 +851,7 @@ test.describe("deleting the account signed in", () => {
     await service.signIn("a");
     let arrive: () => void = () => {};
     const storing = new Promise<void>((resolve) => (arrive = resolve));
-    const deletion = deleteSignedIn(service.client, storing);
+    const deletion = deleteSignedIn(service.client, storing, nothingSaved);
     await expect.poll(() => service.asked().length).toBe(1);
     await service.signIn("a");
     arrive();
@@ -861,7 +864,7 @@ test.describe("deleting the account signed in", () => {
 
   test("nobody signed in is an error, and nothing is asked", async () => {
     const service = accountService({});
-    await expect(deleteSignedIn(service.client, null)).rejects.toThrow("Not signed in");
+    await expect(deleteSignedIn(service.client, null, nothingSaved)).rejects.toThrow("Not signed in");
     expect(service.asked()).toEqual([]);
   });
 });

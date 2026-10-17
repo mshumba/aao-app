@@ -97,7 +97,7 @@ export function fetchWithDeadline(timeoutMs: number): typeof fetch {
     });
 }
 
-type StoredSession = Session & { user: { id: string } };
+type StoredSession = Session & { expires_at: number; user: { id: string } };
 
 /** A session as Supabase saves it (with its user), or null for anything else. */
 export function storedSession(value: unknown): StoredSession | null {
@@ -114,6 +114,48 @@ export function storedSession(value: unknown): StoredSession | null {
 
 /** Reads the session Supabase saved on this device, without Supabase. */
 export type ReadSaved = () => Promise<unknown>;
+
+/**
+ * How long the app waits for Supabase's answer about the session before
+ * going by the one saved on the device: as it launches (restoreSession), and
+ * for a request or a sign-out while Supabase is still trying to renew an
+ * expired session offline, which it holds them up for (about 30 seconds).
+ */
+export const SESSION_WAIT_MS = 1500;
+
+type Answer = { session: Session | null; error: unknown };
+
+/** Supabase's answer about the session, which may wait on a renewal. */
+function askSession(auth: Pick<SupabaseAuth, "getSession">): Promise<Answer> {
+  return auth.getSession().then(
+    ({ data, error }) => ({ session: data.session, error }),
+    (error: unknown) => ({ session: null, error }),
+  );
+}
+
+/** What `work` resolves to if it does within `ms`, else null (it carries on). */
+async function within<T>(work: Promise<T>, ms: number): Promise<T | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      work,
+      new Promise<null>((resolve) => {
+        timer = setTimeout(() => resolve(null), ms);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * The session saved on this device can't be used until it's renewed: its
+ * access token has run out. Offline, Supabase is then retrying the renewal.
+ */
+async function savedExpired(readSaved: ReadSaved) {
+  const saved = storedSession(await readSaved().catch(() => null));
+  return !!saved && saved.expires_at * 1000 <= Date.now();
+}
 
 /**
  * The session to start the app with: Supabase's own answer if it comes
@@ -135,16 +177,7 @@ export async function restoreSession(
 ): Promise<Session | null> {
   // Read now as well as later, in case a renewal is rewriting it then.
   const savedAtStart = readSaved().catch(() => null);
-  const answer = auth.getSession().then(
-    ({ data, error }) => ({ session: data.session, error }),
-    (error: unknown) => ({ session: null, error }),
-  );
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const late = new Promise<null>((resolve) => {
-    timer = setTimeout(() => resolve(null), waitMs);
-  });
-  const first = await Promise.race([answer, late]);
-  clearTimeout(timer);
+  const first = await within(askSession(auth), waitMs);
   if (first?.session) return first.session;
   // Answered with no session, and not because the server was out of reach.
   if (first && !isAuthRetryableFetchError(first.error)) return null;
@@ -185,10 +218,23 @@ export function watchSession(
  * someone else. Account data is only read and written with that account's
  * own token: without one, Supabase would send the request with the public
  * key, and the account's saved sermons or progress would read as empty.
+ *
+ * While Supabase is still retrying the renewal of an expired session (an
+ * offline launch), it answers only once it gives up; the request fails as
+ * "network" after SESSION_WAIT_MS instead, as it would then.
  */
-export async function liveSession(auth: Pick<SupabaseAuth, "getSession">, userId?: string) {
-  const { data, error } = await auth.getSession();
-  const session = data.session;
+export async function liveSession(
+  auth: Pick<SupabaseAuth, "getSession">,
+  readSaved: ReadSaved,
+  userId?: string,
+) {
+  const asked = askSession(auth);
+  let answer = await within(asked, SESSION_WAIT_MS);
+  if (!answer) {
+    if (await savedExpired(readSaved)) throw new AuthError("network", "The session couldn't be renewed yet");
+    answer = await asked;
+  }
+  const { session, error } = answer;
   if (session && (!userId || session.user.id === userId)) return session;
   if (!session && isAuthRetryableFetchError(error))
     throw new AuthError("network", "The session couldn't be renewed yet");
@@ -198,11 +244,13 @@ export async function liveSession(auth: Pick<SupabaseAuth, "getSession">, userId
 /**
  * Signs this device out, offline included, and resolves only once it is.
  * `forgetSession` removes the saved session from the storage Supabase keeps
- * it in.
+ * it in. Supabase can report the sign-out later than this resolves (see
+ * below), so the caller shows it at once.
  */
 export async function signOutHere(
   auth: Pick<SupabaseAuth, "signOut" | "getSession">,
   forgetSession: () => Promise<void>,
+  readSaved: ReadSaved,
 ) {
   // Local scope: only this device, so the server needn't be reached.
   const attempt = () =>
@@ -210,6 +258,21 @@ export async function signOutHere(
       ({ error }) => error,
       (error: unknown) => error,
     );
+  // Supabase holds every call, a sign-out too, while it retries renewing an
+  // expired session offline. That session is of no use meanwhile, so it's
+  // removed here at once; a renewal that lands later isn't kept (Supabase
+  // drops one whose saved session changed under it). Supabase's own
+  // sign-out, which reports it, follows once Supabase is free, unless
+  // someone has signed in by then: asked for now, it would run then and
+  // sign out whoever it found.
+  const free = askSession(auth);
+  if (!(await within(free, SESSION_WAIT_MS)) && (await savedExpired(readSaved))) {
+    await forgetSession();
+    void free.then(async () => {
+      if (!storedSession(await readSaved().catch(() => null))) await attempt();
+    });
+    return;
+  }
   if (!(await attempt())) return;
   // Supabase clears the device before telling the server, so most failures
   // still leave it signed out. But an expired access token is refreshed

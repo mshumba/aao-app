@@ -1,11 +1,66 @@
 import { expect, test } from "@playwright/test";
+import ts from "typescript";
 import { createFailureReports, failureTags, scrubEvent, type FailureTags } from "../src/lib/failureReports";
+import * as learningTypes from "../src/learning/types";
 
 // Handled failures sent to Sentry (src/lib/failureReports.ts, sent by
 // src/lib/monitoring.ts): what a report may carry, and how few an outage
 // sends from each phone.
 
 const MINUTE = 60_000;
+
+// Node's built-ins, typed here: the app's tsconfig leaves Node's types out.
+type Fs = { readFileSync(path: string, encoding: "utf8"): string };
+type Vm = {
+  compileFunction(code: string, params: string[], options: { filename: string }): (...args: unknown[]) => void;
+};
+const builtin = (id: string) =>
+  (globalThis as unknown as { process: { getBuiltinModule(id: string): unknown } }).process.getBuiltinModule(id);
+
+type Reported = { failure: string; details: Record<string, unknown> };
+
+/**
+ * src/learning/client.ts in Node, with the search and quotes functions
+ * answering `answer` and what it reports collected instead of sent to
+ * Sentry (src/lib/monitoring.ts needs a device).
+ */
+function learningClient(answer: () => Response) {
+  const fs = builtin("node:fs") as Fs;
+  const vm = builtin("node:vm") as Vm;
+  const reported: Reported[] = [];
+  const imports: Record<string, unknown> = {
+    "../lib/monitoring": {
+      reportFailure: (failure: string, details: Record<string, unknown>) => reported.push({ failure, details }),
+    },
+    "./fixtures": {},
+    "./request": {
+      request: (_url: string, _init: unknown, read: (response: Response) => Promise<unknown>) => read(answer()),
+    },
+    "./session": { authHeaders: async () => ({}), functionsBase: "https://aao.invalid/functions/v1", learningMode: "remote" },
+    "./types": learningTypes,
+  };
+  const filename = `${test.info().project.testDir}/../src/learning/client.ts`;
+  const code = ts.transpileModule(fs.readFileSync(filename, "utf8"), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  const mod = { exports: {} as Record<string, unknown> };
+  vm.compileFunction(code, ["module", "exports", "require"], { filename })(mod, mod.exports, (name: string) => {
+    // A new import in client.ts needs a stand-in here.
+    if (!(name in imports)) throw new Error(`failure-reports.spec: no stand-in for "${name}"`);
+    return imports[name];
+  });
+  return {
+    search: mod.exports.search as (q: string) => Promise<unknown>,
+    quotes: mod.exports.quotes as (ids: string[]) => Promise<unknown>,
+    reported,
+  };
+}
+
+const refused = (scope: string) => () =>
+  new Response(JSON.stringify({ error: "rate_limited", retryAfter: 60, scope }), {
+    status: 429,
+    headers: { "content-type": "application/json" },
+  });
 
 function reporter(limits: Parameters<typeof createFailureReports>[1] = {}) {
   let now = 0;
@@ -95,6 +150,31 @@ test("a report leaves without breadcrumbs, page address, extra data or user", ()
   // A crash keeps its breadcrumbs (to show what led to it), never the user.
   const crash = scrubEvent({ user: { id: "x" }, breadcrumbs: [{ category: "ui.click" }] });
   expect(crash).toEqual({ breadcrumbs: [{ category: "ui.click" }] });
+});
+
+test("a search or quotes refused for its limit says whose limit ran out", async () => {
+  // Everyone's allowance used up: an outage, which the alert is for.
+  const busy = learningClient(refused("everyone"));
+  const failure = await busy.search("tired").catch((error) => error);
+  expect(failure).toMatchObject({ code: "rate_limited", scope: "everyone", retryAfter: 60 });
+  expect(busy.reported).toEqual([
+    {
+      failure: "search_over_quota",
+      details: { step: "search", status: 429, code: "rate_limited_everyone" },
+    },
+  ]);
+
+  // One caller's own (a church's guest Wi-Fi on quotes): a code of its own,
+  // which the alert leaves out (docs/development/failure-alerts.md).
+  const church = learningClient(refused("caller"));
+  await expect(church.quotes(["moment-1"])).rejects.toMatchObject({ code: "rate_limited", scope: "caller" });
+  expect(church.reported).toEqual([
+    {
+      failure: "search_over_quota",
+      details: { step: "quotes", status: 429, code: "rate_limited_caller" },
+    },
+  ]);
+  expect(failureTags("search_over_quota", church.reported[0].details)["failure.code"]).toBe("rate_limited_caller");
 });
 
 test("a reporter that fails never breaks what it reports on", () => {

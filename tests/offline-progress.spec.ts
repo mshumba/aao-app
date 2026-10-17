@@ -5,6 +5,7 @@ import {
   fakeYouTube,
   goOffline,
   goOnline,
+  seedStorage,
   seedWatchProgress,
   shown,
   test,
@@ -19,20 +20,26 @@ import {
 // per real second.
 
 const SERMON = "WYiA7rjenVI";
-const DATA_KEY = `aao.local.data.v1.${MEMBER.id}`;
-const QUEUE_KEY = `aao.watchQueue.v1.${MEMBER.id}`;
 const COPY_KEY = `aao.watchProgress.v1.${MEMBER.id}`;
 
 type Place = { sermonId: string; positionSeconds: number; durationSeconds: number; finished: boolean };
 
-/** What the account service holds for the member. */
-async function onServer(page: Page): Promise<(Place & { updatedAt: string })[]> {
-  return page.evaluate((key) => JSON.parse(localStorage.getItem(key) ?? "{}").progress ?? [], DATA_KEY);
+/** What the account service holds for an account (the member's by default). */
+async function onServer(page: Page, owner = MEMBER.id): Promise<(Place & { updatedAt: string })[]> {
+  return page.evaluate(
+    (key) => JSON.parse(localStorage.getItem(key) ?? "{}").progress ?? [],
+    `aao.local.data.v1.${owner}`,
+  );
 }
 
-/** Positions waiting on the device to be sent. */
-async function waiting(page: Page): Promise<(Place & { savedAt: string })[]> {
-  return page.evaluate((key) => JSON.parse(localStorage.getItem(key) ?? "[]"), QUEUE_KEY);
+/** An account's positions waiting on the device to be sent. */
+async function waiting(page: Page, owner = MEMBER.id): Promise<(Place & { savedAt: string })[]> {
+  return page.evaluate((key) => JSON.parse(localStorage.getItem(key) ?? "[]"), `aao.watchQueue.v1.${owner}`);
+}
+
+/** The device's copies of accounts' watch progress, by key. */
+async function copies(page: Page) {
+  return page.evaluate(() => Object.keys(localStorage).filter((key) => key.startsWith("aao.watchProgress.v1.")));
 }
 
 const clock = (seconds: number) => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
@@ -140,4 +147,73 @@ test("a newer place made while an older one waits is the one that lands", async 
   await expect.poll(async () => (await waiting(page)).length).toBe(0);
   const landed = (await onServer(page)).filter((place) => place.sermonId === SERMON);
   expect(landed.map((place) => place.positionSeconds)).toEqual([newer]);
+});
+
+test.describe("another device", () => {
+  // slow@example.com's progress arrives 6 s after the app asks for it.
+  const SLOW = { id: "local:slow@example.com", email: "slow@example.com", provider: "email" };
+  test.use({ viewer: "guest" });
+
+  test("a newer place saved on another device wins over this device's older copy", async ({ page }) => {
+    const place = { sermonId: SERMON, durationSeconds: 6441, finished: false };
+    await seedStorage(
+      page,
+      {
+        "aao.local.session.v1": SLOW,
+        // What this device last showed: 10:00, two days ago.
+        [`aao.watchProgress.v1.${SLOW.id}`]: [
+          { ...place, positionSeconds: 600, updatedAt: "2026-10-11T10:00:00.000Z" },
+        ],
+      },
+      "slow",
+    );
+    // Since then, the web app saved 40:00.
+    await seedWatchProgress(
+      page,
+      [{ ...place, positionSeconds: 2400, updatedAt: "2026-10-12T10:00:00.000Z" }],
+      SLOW.id,
+    );
+    await fakeYouTube(page, { duration: 6441 });
+    await page.goto(`/sermon/${SERMON}`);
+
+    // Until the account's list arrives, the device's copy is all there is.
+    await page.getByRole("button", { name: "Resume at 10:00", exact: true }).click();
+    await expect(page.getByTestId("playback-status")).toHaveText("Playing");
+    expect((await ytLog(page)).starts).toEqual([600]);
+    await page.getByTestId("now-playing-toggle").click();
+    await expect(page.getByTestId("playback-status")).toHaveText("Paused");
+
+    // The list arrives: the viewer moves to the newer place, and nothing
+    // from the older copy is saved over it.
+    await expect.poll(async () => (await ytLog(page)).commands, { timeout: 10_000 }).toContain("seek:2400");
+    await expect(page.getByTestId("resume-note")).toHaveText(/Resuming at 40:00/);
+    expect((await onServer(page, SLOW.id)).map((saved) => saved.positionSeconds)).toEqual([2400]);
+    expect((await waiting(page, SLOW.id)).filter((saved) => saved.positionSeconds < 2400)).toEqual([]);
+  });
+});
+
+test("signing out takes the account's places off the device, but a place not yet sent waits for it", async ({
+  page,
+}) => {
+  // Left by an account signed out while the app was closed.
+  await seedStorage(page, { "aao.watchProgress.v1.local:gone@example.com": [] }, "gone");
+  await fakeYouTube(page);
+  await page.goto(`/sermon/${SERMON}`);
+  // Only the account signed in keeps a copy.
+  await expect.poll(() => copies(page)).toEqual([COPY_KEY]);
+  await page.getByRole("button", { name: "Watch sermon", exact: true }).click();
+  await expect(page.getByTestId("playback-status")).toHaveText("Playing");
+  await expect
+    .poll(async () => Number(await position(page).getAttribute("aria-valuenow")))
+    .toBeGreaterThanOrEqual(20);
+  await goOffline(page);
+  await page.getByTestId("now-playing-toggle").click();
+  await expect.poll(async () => (await waiting(page)).length).toBe(1);
+
+  await page.goto("/account");
+  await page.getByTestId("sign-out").click();
+  await expect(page.getByTestId("toast")).toContainText("Signed out");
+  await expect.poll(() => copies(page)).toEqual([]);
+  // The place it hadn't sent stays under the account, for when it's back.
+  expect(await waiting(page)).toHaveLength(1);
 });

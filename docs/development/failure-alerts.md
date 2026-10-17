@@ -9,7 +9,7 @@ Each report is a Sentry issue titled `Handled failure: <kind>`, at warning level
 | `failure` | Sent when | `failure.step` | `failure.code` | `failure.status` |
 | --- | --- | --- | --- | --- |
 | `search_unavailable` | The search or quotes function answered with an error, or search's answer was unreadable. **An OpenAI outage or an empty OpenAI balance shows up here.** | `search` or `quotes` | The function's error code (`unavailable`), or `bad_response` | e.g. `503`, `404` |
-| `search_over_quota` | Search or quotes refused because its rate limit is used up: one caller's 20 per 5 minutes, or everyone's 300 searches or 30 quotes an hour. | `search` or `quotes` | `rate_limited` | `429` |
+| `search_over_quota` | Search or quotes refused because a rate limit is used up: everyone's 3000 searches or 600 quotes an hour (**an outage for everyone**), or one caller's own allowance per 5 minutes (30 searches signed in or 120 per guest internet address; 30 quotes either way). Defaults from `supabase/functions/_shared/limits.ts`. | `search` or `quotes` | `rate_limited_everyone` or `rate_limited_caller` | `429` |
 | `catalogue_sync` | The sermon library's server answered with an error, or with no sermons. | | `http` or `empty` | e.g. `500` |
 | `sign_in` | Signing in failed for a reason that isn't the person's to fix: a provider Supabase won't accept, Supabase's email or request limits, or an error the app doesn't recognise. | `apple`, `google`, `send` (email code or reset), `verify`, `resend`, `submit` (password), `confirm`, `link` (email link) | `provider_unavailable`, `rate_limited`, `unknown`, `not_configured` | |
 | `progress_save` | The server refused to save a watch position, or to read the account's positions. The position is kept on the phone and retried. | `send` or `read` | | e.g. `401`, `403`, `500` |
@@ -40,6 +40,7 @@ Reports are sent only from **release builds** that have `EXPO_PUBLIC_SENTRY_DSN`
 2. **When:** *An event is captured* (sometimes labelled *A new event is captured*).
 3. **If** (all of these):
    - *The event's tags match* `failure` **is in** `search_unavailable, search_over_quota, catalogue_sync, sign_in, progress_save`. Use *is set* instead if your Sentry doesn't offer *is in*.
+   - *The event's tags match* `failure.code` **is not equal to** `rate_limited_caller`. One caller over its own limit (a church's guest Wi-Fi, say) isn't a service failing; its issue still collects the reports, so check it now and then and raise that limit if it keeps coming up. Events with no `failure.code` still match.
    - *The issue is seen more than* `3` *times in* `1 hour`. This means several phones, or one phone over more than an hour, so a single blip doesn't page anyone.
 4. **Then:** *Send a notification to* your email, or Slack if it's connected.
 5. **Action interval:** *at most once every* `60 minutes`.

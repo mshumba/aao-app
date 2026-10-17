@@ -159,10 +159,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   // Read when saving, so saves never re-create the player's callbacks.
   const accountRef = useRef({ user, ...progress });
   // The load still waiting on the account's progress for its saved place
-  // (catchUp), as a ticket only that load holds. Anything that settles the
-  // place first drops it: the viewer seeking, skipping or starting over,
-  // closing, another load, or another viewer signing in.
-  const lateResume = useRef<object | null>(null);
+  // (catchUp), as a ticket only that load holds, with the place it started
+  // from. Anything that settles the place first drops it: the viewer
+  // seeking, skipping or starting over, closing, another load, or another
+  // viewer signing in.
+  const lateResume = useRef<{ from: number } | null>(null);
   useEffect(() => {
     if (accountRef.current.user?.id !== user?.id) lateResume.current = null;
     accountRef.current = { user, ...progress };
@@ -347,19 +348,21 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   }, [clearBlockedCheck, persist, setPhase]);
 
   /**
-   * The account's progress arrived after this sermon started loading (a
-   * Watch straight after signing in). Jump to the saved place, unless the
-   * viewer has already moved on from the start or chose a place meanwhile
-   * (even the start itself), or this load has been replaced.
+   * The account's progress arrived from the server after this sermon started
+   * loading: from the start (a Watch straight after signing in), or from
+   * this device's older copy of the place (see load). Jump to the saved
+   * place, unless that's where it started, the viewer has already watched
+   * on from there or chose a place meanwhile (even the start itself), or
+   * this load has been replaced.
    */
   const catchUp = useCallback(
-    (ticket: object, id: string, items: WatchProgress[]) => {
+    (ticket: { from: number }, id: string, items: WatchProgress[]) => {
       if (lateResume.current !== ticket) return;
       lateResume.current = null;
       const loaded = current.current;
       if (!loaded || loaded.id !== id) return;
       const from = resumePoint(items.find((item) => item.sermonId === id) ?? null);
-      if (!from || position.current >= MIN_RESUME) return;
+      if (from === ticket.from || position.current - ticket.from >= MIN_RESUME) return;
       resumeNote.current = from;
       setResumedFrom(from);
       position.current = from;
@@ -385,17 +388,21 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         begin(next, Math.floor(at));
         return;
       }
-      // A signed-in viewer picks up where they left off.
+      // A signed-in viewer picks up where they left off. Until the account's
+      // progress has been read from the server, that's where this device
+      // last knew (all an offline launch has), and the server's place, if
+      // another device saved a newer one, follows (catchUp).
       const viewer = accountRef.current;
       let from = 0;
-      if (viewer.user && viewer.progressReady)
+      if (viewer.user) {
         from = resumePoint(viewer.progressFor(next.id));
-      else if (viewer.user) {
-        const ticket = {};
-        lateResume.current = ticket;
-        viewer
-          .whenProgressReady()
-          .then((items) => items && catchUp(ticket, next.id, items));
+        if (!viewer.progressReady) {
+          const ticket = { from };
+          lateResume.current = ticket;
+          viewer
+            .whenProgressReady()
+            .then((items) => items && catchUp(ticket, next.id, items));
+        }
       }
       resumeNote.current = from;
       setResumedFrom(from);

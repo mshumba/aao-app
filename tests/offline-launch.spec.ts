@@ -1,10 +1,13 @@
 import { expect, test } from "@playwright/test";
 import { createClient, processLock, type Session } from "@supabase/supabase-js";
+import { deleteSignedIn } from "../src/auth/appleTokens";
 import {
+  SESSION_WAIT_MS,
   fetchWithDeadline,
   liveSession,
   restoreSession,
   run,
+  signOutHere,
   watchSession,
 } from "../src/auth/supabaseSession";
 import { AuthError } from "../src/auth/types";
@@ -21,8 +24,8 @@ import { AuthError } from "../src/auth/types";
 /** SESSION_KEY in src/auth/sessionStorage.ts, which needs a device to load. */
 const KEY = "aao.session";
 const HOUR = 60 * 60 * 1000;
-/** RESTORE_WAIT_MS in src/auth/supabaseBackend.ts. */
-const CAP = 1500;
+/** How long the launch waits for Supabase before going by the saved session. */
+const CAP = SESSION_WAIT_MS;
 
 // supabase-js reads the time from Date.now; each test can move it on.
 const realNow = Date.now;
@@ -66,13 +69,15 @@ function session(id: string, issued = Date.now()) {
   };
 }
 
-type Network = "online" | "offline" | "hangs";
+type Network = "online" | "offline" | "down" | "hangs";
 
 /**
  * One phone, as the app sets its client up, opened with the session it
  * saved `ago` earlier. `answer` is the stand-in server; the network can be
- * online, offline (requests fail at once) or hang (requests never answer
- * until they're cancelled).
+ * online, offline (requests fail at once), down (offline in real time: the
+ * clock isn't moved on, so supabase-js goes on retrying a renewal for about
+ * 25 seconds, as on a phone) or hang (requests never answer until they're
+ * cancelled).
  */
 function phone(ago: number, answer: (path: string) => Response, deadlineMs = 15_000) {
   const saved = new Map<string, string>();
@@ -91,6 +96,7 @@ function phone(ago: number, answer: (path: string) => Response, deadlineMs = 15_
       shift += 30_000;
       throw new TypeError("Network request failed");
     }
+    if (net.mode === "down") throw new TypeError("Network request failed");
     if (net.mode === "hangs")
       return new Promise<Response>((_, reject) =>
         init?.signal?.addEventListener("abort", () => {
@@ -120,12 +126,23 @@ function phone(ago: number, answer: (path: string) => Response, deadlineMs = 15_
     const raw = saved.get(KEY);
     return raw ? JSON.parse(raw) : null;
   };
+  /** The app's forgetSession, for this phone's storage. */
+  const forget = async () => void saved.delete(KEY);
   /** What the app is told about sign-ins (supabaseBackend's subscribe), in order. */
   const told: (string | null)[] = [];
   const events: string[] = [];
   client.auth.onAuthStateChange((event) => void events.push(event));
   watchSession(client.auth, readSaved, (s: Session | null) => void told.push(s?.user.id ?? null));
-  return { client, saved, asked, net, readSaved, told, events };
+  return { client, saved, asked, net, readSaved, forget, told, events };
+}
+
+/**
+ * The renewal supabase-js is retrying gives up at its next try, as it would
+ * after its 30 seconds, and it has finished starting.
+ */
+async function renewalGivesUp(device: ReturnType<typeof phone>) {
+  device.net.mode = "offline";
+  await device.client.auth.initialize();
 }
 
 /** Waits for supabase-js to have reported how it started, and the app to have heard. */
@@ -241,7 +258,7 @@ test.describe("account data", () => {
 
     // Offline, with the access token expired: no request goes out with the
     // public key in its place; the app hears "offline" and tries later.
-    const failure = await liveSession(device.client.auth, "member").catch((error) => error);
+    const failure = await liveSession(device.client.auth, device.readSaved, "member").catch((error) => error);
     expect(failure).toBeInstanceOf(AuthError);
     expect((failure as AuthError).code).toBe("network");
     expect(device.asked.filter((path) => path.startsWith("/rest/"))).toEqual([]);
@@ -250,17 +267,17 @@ test.describe("account data", () => {
 
   test("is only sent with the account's own session", async () => {
     const device = phone(10 * 60_000, server);
-    await expect(liveSession(device.client.auth, "member")).resolves.toMatchObject({
+    await expect(liveSession(device.client.auth, device.readSaved, "member")).resolves.toMatchObject({
       user: { id: "member" },
     });
-    const failure = await liveSession(device.client.auth, "someone-else").catch((error) => error);
+    const failure = await liveSession(device.client.auth, device.readSaved, "someone-else").catch((error) => error);
     expect((failure as AuthError).code).toBe("invalid_credentials");
     device.client.auth.stopAutoRefresh();
   });
 
   test("a save on a connection that hangs fails at the deadline, as offline", async () => {
     const device = phone(10 * 60_000, server, 300);
-    await liveSession(device.client.auth, "member");
+    await liveSession(device.client.auth, device.readSaved, "member");
     device.net.mode = "hangs";
     const begun = performance.now();
     // (Supabase tries a read three more times, 1, 2 and 4 s apart, so a
@@ -285,6 +302,64 @@ test.describe("account data", () => {
     ).catch((error) => error);
     expect(failure).toBeInstanceOf(AuthError);
     expect((failure as AuthError).status).toBe(403);
+    device.client.auth.stopAutoRefresh();
+  });
+
+  test("deleting the account offline says so, and asks nothing of the server", async () => {
+    const device = phone(2 * HOUR, server);
+    device.net.mode = "offline";
+    await restoreSession(device.client.auth, device.readSaved, CAP);
+    await started(device);
+    device.asked.length = 0;
+
+    // "You seem to be offline", not "Something went wrong".
+    const failure = await deleteSignedIn(device.client, null, device.readSaved).catch((error) => error);
+    expect(failure).toBeInstanceOf(AuthError);
+    expect((failure as AuthError).code).toBe("network");
+    expect(device.asked.filter((path) => !path.startsWith("/token"))).toEqual([]);
+    expect(device.saved.has(KEY)).toBe(true);
+    device.client.auth.stopAutoRefresh();
+  });
+});
+
+test.describe("while supabase-js is still retrying the launch's renewal", () => {
+  test("account data fails as offline in moments, not half a minute later", async () => {
+    const device = phone(2 * HOUR, server);
+    device.net.mode = "down";
+    await restoreSession(device.client.auth, device.readSaved, CAP);
+    device.asked.length = 0;
+
+    const begun = performance.now();
+    const failure = await liveSession(device.client.auth, device.readSaved, "member").catch((error) => error);
+    expect(performance.now() - begun).toBeLessThan(CAP + 500);
+    expect(failure).toBeInstanceOf(AuthError);
+    expect((failure as AuthError).code).toBe("network");
+    expect(device.asked.filter((path) => path.startsWith("/rest/"))).toEqual([]);
+    await renewalGivesUp(device);
+    device.client.auth.stopAutoRefresh();
+  });
+
+  test("signing out takes moments, and the session stays gone once the connection returns", async () => {
+    const device = phone(2 * HOUR, server);
+    device.net.mode = "down";
+    const restored = await restoreSession(device.client.auth, device.readSaved, CAP);
+    expect(restored?.user.id).toBe("member");
+
+    const begun = performance.now();
+    await signOutHere(device.client.auth, device.forget, device.readSaved);
+    expect(performance.now() - begun).toBeLessThan(CAP + 500);
+    expect(device.saved.has(KEY)).toBe(false);
+
+    // The connection returns, and the renewal that was being retried
+    // succeeds: it isn't kept, and Supabase reports the sign-out.
+    device.net.mode = "online";
+    await device.client.auth.initialize();
+    await expect.poll(() => device.events).toContain("SIGNED_OUT");
+    await expect.poll(() => device.told.at(-1)).toBeNull();
+    expect(device.told).not.toContain("member");
+    expect(device.saved.has(KEY)).toBe(false);
+    const { data } = await device.client.auth.getSession();
+    expect(data.session).toBeNull();
     device.client.auth.stopAutoRefresh();
   });
 });
