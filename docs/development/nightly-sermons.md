@@ -24,7 +24,7 @@ Store these two secrets **only in this Environment**, not as repository or organ
 
 ## First activation and routine use
 
-1. Keep the schedule flag absent or `false`. After the workflow reaches `main` and the protected Environment has its settings, open **Actions → Nightly sermon discovery → Run workflow**, select `main`, and keep **dry_run=true** and **allow_backlog=false**.
+1. Keep the schedule flag absent or `false`. After the workflow reaches `main` and the protected Environment has its settings, open **Actions → Nightly sermon discovery → Run workflow**, select `main`, and keep **dry_run=true** and **allow_backlog=false** (the workflow's defaults).
 2. Review candidate public YouTube IDs, durations, excluded/short/unavailable counts, and any errors. A dry run writes no series or sermons and reports the complete candidate list even when more than 25 are eligible. Resolve unexpected candidates through the exclusion list below.
 3. Run manually on `main` with **dry_run=false** to apply the reviewed import. More than 25 candidates fails before writes unless **allow_backlog=true** is explicitly selected for a reviewed backlog. Each run scans again, so inspect its final output too. A backlog exception does not bypass filters, exclusions, scan limits, or deadlines.
 4. After that explicit manual apply succeeds, the owner may set the **repository** variable `NIGHTLY_SERMON_IMPORT_ENABLED=true`. Scheduled runs then apply with the 25-candidate cap; they never enable `allow_backlog`. Set the flag back to `false` to stop future scheduled imports. It does not cancel a job already running.
