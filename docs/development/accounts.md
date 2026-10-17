@@ -18,6 +18,7 @@ Screens talk to `useAccount()` and `useGate()`. They never import supabase-js.
 | `src/auth/ui.tsx` | Shared kit for the sign-in and onboarding screens (`FlowScreen`, `AuthField`, `CodeInput`, `ProviderButtons`, …) |
 | `src/auth/messages.ts` | One user-facing message per `AuthError` code |
 | `src/auth/supabaseSession.ts` | The Supabase parts that run in Node tests: errors in the app's terms, the session to launch with, sign-out, links back with a code |
+| `src/auth/watchQueue.ts` | Watch positions not yet on the server: kept on the device, sent latest-first per sermon, retried |
 | `src/auth/sessionStorage.ts` | Keychain/Keystore storage for the native session |
 | `src/lib/storage.ts` | JSON helpers over AsyncStorage and the app's storage keys |
 
@@ -127,8 +128,9 @@ A profile read that fails is kept apart from an empty profile (`profileError`): 
 | Stand-in accounts | `aao.local.session.v1` and `aao.local.data.v1.<userId>`, on the device only |
 | Profile and saved sermons | Supabase `profiles` (display name, topics, onboarding time) and `saved_sermons`, each limited to its owner by row level security |
 | Watch progress | Supabase `watch_progress`: one row per account and sermon (position, length, finished, last saved), limited to its owner by row level security. Saved by the player for signed-in viewers only; guests' places aren't kept. See [architecture](architecture.md#watch-progress). |
+| Watch progress on the device | AsyncStorage: `aao.watchProgress.v1.<userId>` (the list as last shown, for an offline launch) and `aao.watchQueue.v1.<userId>` (positions not yet saved on the server) |
 
-Sign-out is local (`scope: "local"`), so it works offline. It removes the session and any unsaved Apple name; shared-link passes stay on the device. The account's topics were never on it. Passwords and codes must never be logged or stored by the app (see [contributing](contributing.md)).
+Sign-out is local (`scope: "local"`), so it works offline. It removes the session and any unsaved Apple name. Shared-link passes stay on the device. So do the account's watch-progress copies, kept under its user ID like path progress, so a position not yet sent goes out when that account signs in again; no other account sees them. The account's topics were never on it. Passwords and codes must never be logged or stored by the app (see [contributing](contributing.md)).
 
 ## Local test values
 
@@ -148,7 +150,7 @@ With the stand-in (`mode === "local"`), nothing leaves the device, and the sign-
 
 ## Account deletion
 
-**Account → Delete account** (`/account/delete`) asks once, then calls `delete_account()`. That database function deletes the caller's own `auth.users` row, the `profiles`, `saved_sermons` and `watch_progress` rows go with it (foreign keys `on delete cascade`), and the app signs out. Only signed-in users can call it, and only for themselves.
+**Account → Delete account** (`/account/delete`) asks once, then calls `delete_account()`. That database function deletes the caller's own `auth.users` row, the `profiles`, `saved_sermons` and `watch_progress` rows go with it (foreign keys `on delete cascade`), and the app signs out and removes the account's watch-progress copies from the device. Only signed-in users can call it, and only for themselves.
 
 Known follow-up: Apple asks apps that offer Sign in with Apple to revoke the user's Apple tokens on deletion (Apple's REST revoke endpoint). That needs a server-side function holding a Sign in with Apple key, plus the authorization code captured at sign-in. Neither exists yet.
 
