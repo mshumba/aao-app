@@ -12,10 +12,11 @@ import {
 import { AppState } from "react-native";
 import { authMode, supabaseConfig } from "../auth/config";
 import { sampleSnapshot, sermonsFrom, type Sermon } from "../data/sermons";
+import { reportFailure } from "../lib/monitoring";
 import { keys } from "../lib/storage";
 import type { Snapshot } from "./records";
 import { createRemote } from "./remote";
-import { loadCatalogue, type CatalogueSource, type Store } from "./sync";
+import { CatalogueError, loadCatalogue, type CatalogueSource, type Store } from "./sync";
 
 /**
  * The full library from Supabase, kept on the device and brought up to date
@@ -84,7 +85,7 @@ export function CatalogueProvider({ children }: PropsWithChildren) {
   const sync = useCallback(async () => {
     if (catalogueMode !== "remote" || syncing.current) return;
     syncing.current = true;
-    const { online } = await loadCatalogue({
+    const { online, error } = await loadCatalogue({
       remote: createRemote(supabaseConfig),
       store,
       sample: sampleSnapshot,
@@ -101,6 +102,10 @@ export function CatalogueProvider({ children }: PropsWithChildren) {
     });
     syncing.current = false;
     if (online) lastSync.current = Date.now();
+    // The server answered wrongly (not a phone that's offline): the owner
+    // hears about it.
+    if (error instanceof CatalogueError)
+      reportFailure("catalogue_sync", { code: error.reason, status: error.status });
     setState((was) =>
       was.hydrated && was.settled && was.offline === !online
         ? was

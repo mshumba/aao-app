@@ -47,6 +47,22 @@ export type Store = {
 export const FULL_SYNC_EVERY = 7 * 24 * 60 * 60 * 1000;
 
 /**
+ * The library's server answered, but not with the library: an error status
+ * ("http"), or no sermons at all ("empty"). Unlike a phone that is offline,
+ * this says something is wrong with the service.
+ */
+export class CatalogueError extends Error {
+  reason: "http" | "empty";
+  status?: number;
+  constructor(message: string, reason: "http" | "empty", status?: number) {
+    super(message);
+    this.name = "CatalogueError";
+    this.reason = reason;
+    this.status = status;
+  }
+}
+
+/**
  * Brings a snapshot up to date and saves it. Throws when the network fails.
  * `onNewest` gets the newest sermons of a whole fetch before the rest; that
  * part is never saved (and has no syncedAt, so a later sync starts over).
@@ -68,7 +84,7 @@ export async function syncSnapshot(
     );
     next = { ...all, fullAt: now };
     // A project without the catalogue loaded: no better than no network.
-    if (!next.sermons.length) throw new Error("The sermon catalogue is empty");
+    if (!next.sermons.length) throw new CatalogueError("The sermon catalogue is empty", "empty");
   } else {
     const changes = await remote.fetchChanges(current.syncedAt);
     if (!changes.sermons.length && !changes.series.length) return current;
@@ -86,7 +102,8 @@ export async function syncSnapshot(
  * bundled sample when nothing real could be shown.
  * `current` is a copy already showing, for a later sync in the same session.
  * `onRead` is called once the device's copy has been read (or found missing),
- * before the network. Resolves with whether the sync reached Supabase.
+ * before the network. Resolves with whether the sync reached Supabase, and
+ * why not when it didn't.
  */
 export async function loadCatalogue({
   remote,
@@ -104,7 +121,7 @@ export async function loadCatalogue({
   report: (snapshot: Snapshot, source: CatalogueSource) => void;
   current?: Snapshot | null;
   onRead?: () => void;
-}): Promise<{ online: boolean }> {
+}): Promise<{ online: boolean; error?: unknown }> {
   const cached = current ?? decodeSnapshot(await store.read().catch(() => null));
   if (cached && !current) report(cached, "cache");
   onRead?.();
@@ -122,10 +139,10 @@ export async function loadCatalogue({
     done = true;
     report(fresh, "remote");
     return { online: true };
-  } catch {
+  } catch (error) {
     done = true;
     // Real sermons already showing (the newest) stay; the sample never replaces them.
     if (!shown) report(sample, "sample");
-    return { online: false };
+    return { online: false, error };
   }
 }

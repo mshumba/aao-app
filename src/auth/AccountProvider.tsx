@@ -11,6 +11,7 @@ import {
 } from "react";
 import { AppState, Platform } from "react-native";
 import { CategoryId, categories } from "../data/categories";
+import { reportFailure } from "../lib/monitoring";
 import { keys, readJSON, removeKey, writeJSON } from "../lib/storage";
 import { authMode, enabledMethods } from "./config";
 import { createLocalBackend } from "./localBackend";
@@ -204,6 +205,16 @@ type ProgressSource = {
 /** A position the service refused for good (it can't be stored): dropped rather than retried. */
 function refusedForGood(error: unknown) {
   return error instanceof AuthError && (error.status === 400 || error.status === 409 || error.status === 422);
+}
+
+/**
+ * Saving a position, or reading the account's list, failed with an answer
+ * from the service (not offline): the owner hears about it, without
+ * anything about the viewer (src/lib/failureReports.ts).
+ */
+function reportProgressFailure(error: unknown, step: "send" | "read") {
+  if (error instanceof AuthError && error.status && error.status >= 400)
+    reportFailure("progress_save", { status: error.status, step });
 }
 
 const NO_PROGRESS: WatchProgress[] = [];
@@ -482,10 +493,12 @@ export function AccountProvider({ children }: { children: ReactNode }) {
         read: (id, items) => showProgress(id, items),
         // Nothing to show yet, and the server can't be read: loads waiting
         // for the list get none (they ask again later).
-        unread: (id) => {
+        unread: (id, error) => {
           const entry = progressLoad.current;
           if (entry?.userId === id && !entry.items) entry.waiters.splice(0).forEach((done) => done(null));
+          reportProgressFailure(error, "read");
         },
+        failed: (_id, error) => reportProgressFailure(error, "send"),
       },
     );
     watchQueue.current = queue;

@@ -64,6 +64,7 @@ For a signed-in viewer, `PlayerProvider` keeps their place in each sermon throug
 - **Retries:** a failed save is tried again after 2, 4, 8 … seconds (at most a minute apart), and at once when the app comes back to the foreground or the browser comes back online. Phones have no connection event without a new native module, so there the retry or the return to the app notices.
 - **Saved later elsewhere:** a position that had to wait is checked against the server's list first. If another device saved the sermon later (by more than two minutes, so a phone clock a little behind can't misjudge its own place), the waiting one is dropped.
 - **Offline launch:** the account's list as last shown is kept on the device too. It shows at once, Continue watching included, until the server's list arrives.
+- **Failure reports:** a save the server refuses is reported to Sentry ([failure alerts](failure-alerts.md)). A phone that is offline isn't.
 
 The queue's rules are tested in Node (`tests/watch-queue.spec.ts`), and the app's offline behaviour in `tests/offline-progress.spec.ts`. Within the last 30 seconds (or the last 2% of a long sermon) a sermon counts as finished. The rules live in `src/player/progress.ts`.
 
