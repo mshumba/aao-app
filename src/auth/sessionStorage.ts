@@ -68,6 +68,23 @@ export const secureSessionStorage = {
 };
 
 /**
+ * The session Supabase saved on this device, read without it, for a launch
+ * that can't wait for Supabase to renew it (restoreSession in
+ * supabaseSession.ts). Null when there's none or it can't be read.
+ */
+export async function readSavedSession(): Promise<unknown> {
+  try {
+    const raw =
+      Platform.OS === "web"
+        ? (globalThis.localStorage?.getItem(SESSION_KEY) ?? null)
+        : await secureSessionStorage.getItem(SESSION_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Removes the saved session without Supabase, for the sign-out it can't
  * finish itself (see signOutHere). On the web it keeps the session in the
  * browser's localStorage, its default.

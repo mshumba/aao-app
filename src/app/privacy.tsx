@@ -94,8 +94,13 @@ export default function Privacy() {
           secure storage, or your browser’s storage on the web), the topics you
           chose, your recent searches, whether you’ve seen the welcome
           screens, which blessings you’ve already seen, and which
-          sermons you opened from a shared link. Signing out removes the
-          session; the rest stays until you change it or remove the app.
+          sermons you opened from a shared link. While you’re signed in, it
+          also keeps a copy of your place in each sermon, so it can show it
+          without a connection. Signing out removes the session and that
+          copy. A place you reached without a connection that hasn’t been
+          saved to your account yet stays on the device until you sign in
+          here again, when it’s saved. The rest stays until you change it or
+          remove the app.
         </P>
       </Section>
 
@@ -210,7 +215,7 @@ export default function Privacy() {
       </Section>
 
       <T style={[s.meta, { marginTop: space.xxl }]}>
-        Last updated 15 October 2026
+        Last updated 17 October 2026
       </T>
     </Page>
   );

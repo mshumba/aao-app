@@ -686,10 +686,13 @@ export function Header({
   title,
   back = false,
   close = false,
+  disabled = false,
 }: {
   title?: string;
   back?: boolean;
   close?: boolean;
+  /** Back or Close can't be pressed (while something it would abandon runs). */
+  disabled?: boolean;
 }) {
   const go = useGo();
   const home = !back && !close;
@@ -704,7 +707,7 @@ export function Header({
         </View>
       ) : (
         <>
-          <RoundBack close={close} onPress={go.back} />
+          <RoundBack close={close} disabled={disabled} onPress={go.back} />
           <View style={{ flex: 1 }}>
             {title ? (
               <Heading level={1} numberOfLines={1} style={s.headerTitle}>
@@ -721,11 +724,13 @@ export function Header({
 /** Back or Close: a 40pt white circle with a hairline, 48pt to touch. */
 export function RoundBack({
   close = false,
+  disabled,
   onPress,
   label,
   testID,
 }: {
   close?: boolean;
+  disabled?: boolean;
   onPress: () => void;
   label?: string;
   testID?: string;
@@ -735,6 +740,7 @@ export function RoundBack({
       testID={testID}
       accessibilityRole="button"
       accessibilityLabel={label ?? (close ? "Close" : "Back")}
+      disabled={disabled}
       onPress={onPress}
       hitSlop={4}
       style={s.roundBack}

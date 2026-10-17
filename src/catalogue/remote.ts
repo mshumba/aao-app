@@ -1,6 +1,6 @@
 import type { TopicTags } from "../data/sermons";
 import { SERMON_COLUMNS, type Changes, type SeriesRecord, type SermonRecord } from "./records";
-import type { Remote } from "./sync";
+import { CatalogueError, type Remote } from "./sync";
 
 /**
  * Reads the catalogue, and every sermon's topics, from Supabase's REST API
@@ -36,7 +36,8 @@ export function createRemote(config: { url: string; key: string }): Remote & { f
         headers: { apikey: config.key, Accept: "application/json", ...extra },
         signal: controller.signal,
       });
-      if (!response.ok) throw new Error(`Catalogue request failed (${response.status})`);
+      if (!response.ok)
+        throw new CatalogueError(`Catalogue request failed (${response.status})`, "http", response.status);
       return { rows: (await response.json()) as Row[], range: response.headers.get("content-range") };
     } finally {
       clearTimeout(timer);

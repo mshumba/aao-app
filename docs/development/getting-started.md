@@ -2,9 +2,9 @@
 
 ## Prerequisites
 
-The locked project uses Expo **57.0.26**, React Native **0.86.3**, React **19.2.3** and WebView **13.16.1**. Node **24.20.0** is the tested version. Use an existing Node version manager with `nvm use` if available; `.nvmrc` does not install one. Run `node --version` and `npm --version`, then `npm ci`. Keep the lockfile and avoid ad-hoc dependency upgrades. [Expo’s SDK table](https://docs.expo.dev/versions/latest/) is the compatibility reference.
+The locked project uses Expo **57.0.30** (Expo Router **57.0.28**), React Native **0.86.3**, React **19.2.3** and WebView **13.16.1**. Node **24.20.0** is the tested version. Use an existing Node version manager with `nvm use` if available; `.nvmrc` does not install one. Run `node --version` and `npm --version`, then `npm ci`. Keep the lockfile and avoid ad-hoc dependency upgrades. [Expo’s SDK table](https://docs.expo.dev/versions/latest/) is the compatibility reference.
 
-Media thumbnails and the player need internet access. With a Supabase project in `.env`, the sermon library loads from it (the device keeps a copy); in on-device mode (`EXPO_PUBLIC_AUTH_MODE=local`, or no Supabase project) the app uses four bundled sermons. Search is local over whichever list is loaded.
+Media thumbnails and the player need internet access. With a Supabase project in `.env`, the sermon library loads from it (the device keeps a copy); in on-device mode (`EXPO_PUBLIC_AUTH_MODE=local`, or no Supabase project) the app uses four bundled sermons. Search's title matches as you type are local over whichever list is loaded; a submitted search goes to the `search` Edge Function, and needs, paths and moments come from Supabase. In on-device mode those come from the deterministic fixtures in `src/learning/fixtures.ts`, so nothing leaves the device.
 
 ## Environment
 
@@ -41,11 +41,11 @@ Every variable, and how the service is chosen, is in [accounts](accounts.md#whic
 | `npm run doctor` | Pinned Expo Doctor compatibility/configuration checks |
 | `npm run test:catalog` | Catalog integrity, title parsing, sync and search assertions |
 | `npm run catalogue:import -- <manifest.json>` | Load the channel catalogue into Supabase ([details](../../supabase/README.md#7-load-the-sermon-catalogue)) |
-| `npm test` | Catalog plus deterministic browser regressions |
+| `npm test` | Catalog, Node tests of the account, sync and queue rules, and deterministic browser regressions |
 | `npm run export:all` | Web assets and iOS/Android JavaScript/Hermes bundles in `dist/` |
 | `npm run icons` | Redraws the app icon, adaptive icon, splash mark and favicon in `assets/` from `assets/icon-source/render.mjs` |
 | `npm run ios:simulator` | EAS build of the development client for the iOS Simulator |
-| `npm run build:testflight` | EAS production build for iPhone, uploaded to TestFlight ([releasing](releasing.md#testflight)) |
+| `npm run build:testflight` | EAS production build for iPhone. Its upload to TestFlight needs an App Store Connect API key that EAS can't make for this account ([releasing](releasing.md#build-and-upload)) |
 | `npm run update:preview` | Publishes an EAS Update to `preview` builds |
 
 The `eas` scripts need EAS CLI (`npm install -g eas-cli`, then `eas login`) and change things on the Expo account; see [releasing](releasing.md) before running them.
@@ -54,10 +54,12 @@ The `eas` scripts need EAS CLI (`npm install -g eas-cli`, then `eas login`) and 
 
 ## Try the app
 
+These steps use the on-device stand-in and the four bundled sermons (no `.env`, or `EXPO_PUBLIC_AUTH_MODE=local`).
+
 1. The first visit (or a private browser window) opens the welcome. **Explore first** browses as a guest; **Get started** picks topics, offers a free account and asks your name.
-2. Browse as a guest. **Search** tab → Browse by topic → Purpose & Calling: its sermons, best match first.
+2. Browse as a guest. Open the **Search** tab → **Browse by topic** → Purpose & Calling (its sermons, best match first), or the **Paths** tab and a path.
 3. **Search** tab: type `shift`, open a result, then Back. Switch tabs and return: the query is as you left it.
-4. Try Hearing God to see an empty topic in the bundled sample and recover to the topics.
+4. Try Hearing God under **Browse by topic** to see an empty topic in the bundled sample, then **Browse other topics**.
 5. As a guest, tap **Watch sermon** on a sermon: a sheet asks for a free account, with Apple and Google first. Tap **Use email instead**, enter any address, then the code `123456` (or tap Apple or Google, which sign in at once with the stand-in). The sheet closes and the sermon starts. **Save** works the same way.
 6. Watching: the app's controls sit under the video. Press Back: the video docks above the tabs and keeps playing across tabs. Tap the dock to reopen Now Playing; close it with ✕. Backgrounding the app pauses it. Native behavior needs the device checks below.
 7. **Account** tab: change your name or topics, open **Saved sermons**, sign out, and sign back in. **Delete account** asks once, then deletes the account.
@@ -67,7 +69,7 @@ The `eas` scripts need EAS CLI (`npm install -g eas-cli`, then `eas login`) and 
 
 Use a **development build**, not Expo Go. `expo-dev-client` is installed, so `npm start` serves a development build by default (`--go` switches to Expo Go). Expo Go can't play the sermons (YouTube error 153), and in Expo Go Sign in with Apple signs in as Expo Go's own app (`host.exp.Exponent`), which Supabase only accepts if that ID is added to the Apple provider's **Client IDs**.
 
-Use the fresh QR/LAN URL printed by Metro, not a saved machine IP. A local native build needs full Xcode for iOS or an Android SDK/JDK/emulator for Android. No TestFlight build or store submission has been made.
+Use the fresh QR/LAN URL printed by Metro, not a saved machine IP. A local native build needs full Xcode for iOS or an Android SDK/JDK/emulator for Android.
 
 ### iOS Simulator (development build)
 
@@ -98,9 +100,9 @@ Before calling native playback ready, test iOS and Android: provider identity/er
 
 The project is linked to the Expo account `mshumba` as `@mshumba/aao-app` (`extra.eas.projectId` in `app.json`). Teammates follow the shared team testing guide.
 
-- **Web:** https://aao-app.expo.app (EAS Hosting). Redeploy after changes: `npx expo export --platform web && npx eas-cli@latest deploy --prod`.
+- **Web:** while the app is in private testing, the public addresses (https://aao-app.expo.app on EAS Hosting, and the Cloudflare Pages production site) show a branded holding page with the privacy policy and terms (`web/holding`, published by `scripts/deploy-holding.sh`). The app itself goes to an unlisted (not access-controlled) Cloudflare Pages preview branch, `https://<preview branch>.aao-web.pages.dev`: `scripts/deploy-web.sh <empty output folder> <preview branch>`, which reads only the `EXPO_PUBLIC_*` values in `.env` and refuses the production branch. Anyone with the address can open it, sign-in and search included, so use a long random branch name of lowercase letters and digits, and never commit, post or log it. For real privacy, put Cloudflare Access in front of the `aao-web` project's preview deployments. `eas deploy --prod` publishes to aao-app.expo.app, so an app export sent there would replace the holding page.
 - **Android:** internal-distribution APK from the `preview` profile in `eas.json`: `npx eas-cli@latest build --platform android --profile preview`. Each build gets a new install link on expo.dev. Expo generated and stores the Android signing key. The package changed from `com.aao.prototype` to `com.mshumba.aao` in October 2026: the next APK installs as a separate app (remove the old one), and EAS keeps signing keys per package, so that build sets up a new key. Preview builds take EAS Updates from the `preview` channel (`npm run update:preview`).
-- **iPhone:** TestFlight, bundle ID `com.mshumba.aao`. The Apple Developer Program is joined and the repository is ready ([releasing](releasing.md#testflight)); no TestFlight build has been uploaded yet. Personal-team installs from Xcode expire after 7 days.
+- **iPhone:** TestFlight, bundle ID `com.mshumba.aao`. The Apple Developer Program is joined and builds are on TestFlight ([releasing](releasing.md#testflight)); build 3 and later sign in with Google's own sheet ([accounts](accounts.md#sign-in-methods)). Personal-team installs from Xcode expire after 7 days.
 - **Expo Go:** not set up. Since May 2026 it opens shared updates only for members of the owning Expo organization, and it can't play the sermons (error 153).
 
 ## Troubleshooting

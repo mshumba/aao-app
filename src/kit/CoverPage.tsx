@@ -1,4 +1,4 @@
-import { memo, useCallback, useState, type ReactNode } from "react";
+import { memo, useState, useSyncExternalStore, type ReactNode } from "react";
 import { StyleSheet, View, useWindowDimensions, type LayoutChangeEvent } from "react-native";
 import Animated, {
   Extrapolation,
@@ -38,23 +38,106 @@ const BAND_WHOLE = 8;
 
 // ---- The pinned header ----------------------------------------------------------------
 
+/** Where a cover's words are, from the page's top: they start at `top`, the title ends at `bottom`. */
+export type CoverWords = { top: number; bottom: number };
+
+type CoverMeasures = {
+  view: number;
+  content: number;
+  wordsTop: number;
+  wordsHeight: number;
+  /** Where the title ends in the words, when more follows it. */
+  titleEnd: number | null;
+};
+
 /**
- * The page's scroll, on the UI thread, for the pinned header, and the room
- * a short page needs at its foot.
+ * A cover page's measurements: its scroll view's height, its content's, and
+ * where the cover's words are. Taken at layout only, never while scrolling,
+ * and kept out of the page's state: a measurement redraws only what reads
+ * it (the pinned header and the buttons, and the room at the page's foot),
+ * never the page and the lists it holds.
+ *
+ * `onLayout` goes on the scroll view and `onContentLayout` on a view
+ * holding the rest of its content; `onWordsLayout` on the cover's words
+ * (the kicker and title) and, when more follows the title in them,
+ * `onTitleLayout` on the title. Until they're laid out, `estimate` stands in.
+ */
+export class CoverLayout {
+  private measured: CoverMeasures;
+  private readonly listeners = new Set<() => void>();
+
+  constructor(estimate: CoverWords) {
+    this.measured = {
+      view: 0,
+      content: 0,
+      wordsTop: estimate.top,
+      wordsHeight: estimate.bottom - estimate.top,
+      titleEnd: null,
+    };
+  }
+
+  subscribe = (listener: () => void) => {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  };
+
+  private set(next: Partial<CoverMeasures>) {
+    const was = this.measured;
+    this.measured = { ...was, ...next };
+    if ((Object.keys(next) as (keyof typeof next)[]).some((key) => was[key] !== this.measured[key]))
+      this.listeners.forEach((listener) => listener());
+  }
+
+  onLayout = (e: LayoutChangeEvent) => this.set({ view: Math.round(e.nativeEvent.layout.height) });
+  onContentLayout = (e: LayoutChangeEvent) => this.set({ content: Math.round(e.nativeEvent.layout.height) });
+  onWordsLayout = (e: LayoutChangeEvent) =>
+    this.set({ wordsTop: e.nativeEvent.layout.y, wordsHeight: e.nativeEvent.layout.height });
+  onTitleLayout = (e: LayoutChangeEvent) =>
+    this.set({ titleEnd: e.nativeEvent.layout.y + e.nativeEvent.layout.height });
+
+  /** The scroll at which the cover's title has gone up under the buttons (`top`: the status bar's inset). */
+  under(top: number) {
+    const { wordsTop, wordsHeight, titleEnd } = this.measured;
+    return wordsTop + (titleEnd ?? wordsHeight) - (top + BAND);
+  }
+
+  /**
+   * The room a short page needs at its foot (see useCoverScroll), given
+   * its content's bottom padding.
+   */
+  room(top: number, padding: number) {
+    const { view, content, wordsTop } = this.measured;
+    if (!view || !content) return 0;
+    // Where the words reach the buttons' foot, and where the page's scroll ends.
+    const from = wordsTop - (top + BUTTONS_END);
+    const under = this.under(top);
+    const end = content + padding - view;
+    return end > from && end < under + BAND_WHOLE ? Math.ceil(under + BAND_WHOLE - end) : 0;
+  }
+}
+
+/** One measurement from a cover's layout, read by the component that needs it alone. */
+function useCoverMeasure(layout: CoverLayout, read: (layout: CoverLayout) => number) {
+  return useSyncExternalStore(layout.subscribe, () => read(layout));
+}
+
+/**
+ * The page's scroll, on the UI thread, for the pinned header, and the
+ * page's measurements (CoverLayout), starting from where the cover's words
+ * are thought to be (`estimate`, read once).
  *
  * The scroll counts only within the content's own range: iOS's bounce past
  * either end never does, so a flick at the foot of a page that stops short
- * of `under` can't flash the header in and out.
+ * of the title having gone can't flash the header in and out.
  *
- * A page that can scroll its cover's words (`from`: where their top
- * reaches the buttons' foot) up under the buttons, but not on until the title
- * has gone (`under`), would come to rest with Back over its title and no
- * header. It gets just enough room at its foot (`room`, added to the
- * content's bottom padding) for the header to show whole. `padding` is that
- * bottom padding without the room; `onLayout` goes on the scroll view and
- * `onContentLayout` on a view holding the rest of its content.
+ * A page that can scroll its cover's words up under the buttons, but not on
+ * until the title has gone, would come to rest with Back over its title and
+ * no header. It gets just enough room at its foot for the header to show
+ * whole: CoverRoom, after the content the layout measures.
  */
-export function useCoverScroll({ from, under, padding }: { from: number; under: number; padding: number }) {
+export function useCoverScroll(estimate: () => CoverWords) {
   const scrollY = useSharedValue(0);
   const onScroll = useAnimatedScrollHandler({
     onScroll: (e) => {
@@ -65,19 +148,27 @@ export function useCoverScroll({ from, under, padding }: { from: number; under: 
       scrollY.set(Math.min(Math.max(e.contentOffset.y, 0), end));
     },
   });
-  // Measured at layout only, never while scrolling.
-  const [view, setView] = useState(0);
-  const [content, setContent] = useState(0);
-  const onLayout = useCallback((e: LayoutChangeEvent) => setView(Math.round(e.nativeEvent.layout.height)), []);
-  const onContentLayout = useCallback(
-    (e: LayoutChangeEvent) => setContent(Math.round(e.nativeEvent.layout.height)),
-    [],
-  );
-  const end = content + padding - view;
-  const room =
-    view > 0 && content > 0 && end > from && end < under + BAND_WHOLE ? Math.ceil(under + BAND_WHOLE - end) : 0;
-  return { scrollY, onScroll, onLayout, onContentLayout, room };
+  const [layout] = useState(() => new CoverLayout(estimate()));
+  return { scrollY, onScroll, layout };
 }
+
+/**
+ * The room at a short page's foot (CoverLayout.room), under the content
+ * the layout measures; nothing on a page that needs none. `padding` is the
+ * content's bottom padding, which the room comes on top of.
+ */
+export const CoverRoom = memo(function CoverRoom({
+  layout,
+  top,
+  padding,
+}: {
+  layout: CoverLayout;
+  top: number;
+  padding: number;
+}) {
+  const room = useCoverMeasure(layout, (l) => l.room(top, padding));
+  return room ? <View style={{ height: room }} /> : null;
+});
 
 /**
  * Whether the pinned header shows: true once the page has scrolled `under`
@@ -106,14 +197,15 @@ function useBandShown(scrollY: SharedValue<number>, under: number) {
 export const CoverBand = memo(function CoverBand({
   title,
   top,
-  under,
+  layout,
   scrollY,
 }: {
   title: string;
   top: number;
-  under: number;
+  layout: CoverLayout;
   scrollY: SharedValue<number>;
 }) {
+  const under = useCoverMeasure(layout, (l) => l.under(top));
   const fade = useAnimatedStyle(() => ({
     opacity: interpolate(scrollY.get(), [under - 16, under + BAND_WHOLE], [0, 1], Extrapolation.CLAMP),
   }));
@@ -141,20 +233,20 @@ export const CoverBand = memo(function CoverBand({
  */
 export const CoverNav = memo(function CoverNav({
   top,
-  under,
+  layout,
   scrollY,
   onBack,
   backTestID,
   share,
 }: {
   top: number;
-  under: number;
+  layout: CoverLayout;
   scrollY: SharedValue<number>;
   onBack: () => void;
   backTestID?: string;
   share?: { label: string; onPress: () => void; testID?: string };
 }) {
-  const banded = useBandShown(scrollY, under);
+  const banded = useBandShown(scrollY, useCoverMeasure(layout, (l) => l.under(top)));
   const tone = banded ? "surface" : "glass";
   return (
     <>
@@ -220,29 +312,28 @@ export const CoverPage = memo(function CoverPage({
   const top = Math.max(insets.top, 12);
 
   // Where the title's last line ends on the page: the words' place on the
-  // cover, then the title's in them.
-  const [wordsY, setWordsY] = useState(() => top + 60 + 124 * scale + 18);
-  const [titleEnd, setTitleEnd] = useState(60);
-  const from = wordsY - (top + BUTTONS_END);
-  const under = wordsY + titleEnd - (top + BAND);
+  // cover (about this, until they're laid out), then the title's in them.
+  const { scrollY, onScroll, layout } = useCoverScroll(() => {
+    const y = top + 60 + 124 * scale + 18;
+    return { top: y, bottom: y + 60 };
+  });
   const padding = (footer ? ctaSpace : 48 + insets.bottom) + dock;
-  const { scrollY, onScroll, onLayout, onContentLayout, room } = useCoverScroll({ from, under, padding });
   // Never one word alone on the title's last line.
   const shown = keepLastWord(title, italic);
 
   return (
     <View style={styles.screen} testID={testID}>
       {/* Drawn above the page, and first in order, so Back is read first. */}
-      <CoverBand title={title} top={top} under={under} scrollY={scrollY} />
-      <CoverNav top={top} under={under} scrollY={scrollY} onBack={go.back} />
+      <CoverBand title={title} top={top} layout={layout} scrollY={scrollY} />
+      <CoverNav top={top} layout={layout} scrollY={scrollY} onBack={go.back} />
       <Animated.ScrollView
         onScroll={onScroll}
-        onLayout={onLayout}
+        onLayout={layout.onLayout}
         scrollEventThrottle={16}
         style={dockScrollPadding(dock)}
-        contentContainerStyle={{ paddingBottom: padding + room }}
+        contentContainerStyle={{ paddingBottom: padding }}
       >
-        <View onLayout={onContentLayout}>
+        <View onLayout={layout.onContentLayout}>
           <View style={[styles.cover, { paddingTop: top + 60 }]} {...web({ dataSet: { dark: "true" } })}>
             <Wash kind="pathCover" />
             {fan.length ? (
@@ -255,7 +346,7 @@ export const CoverPage = memo(function CoverPage({
                 dimBack
               />
             ) : null}
-            <View style={styles.words} onLayout={(e) => setWordsY(e.nativeEvent.layout.y)}>
+            <View style={styles.words} onLayout={layout.onWordsLayout}>
               {kicker ? (
                 <Kicker tone="onMedia" style={styles.center}>
                   {kicker}
@@ -269,7 +360,7 @@ export const CoverPage = memo(function CoverPage({
                 {...web({ "aria-level": 1 })}
                 style={[type.coverTitle, styles.title, title.length > LONG_TITLE && styles.titleLong]}
                 maxFontSizeMultiplier={textCap.display}
-                onLayout={(e) => setTitleEnd(e.nativeEvent.layout.y + e.nativeEvent.layout.height)}
+                onLayout={layout.onTitleLayout}
               />
               {lead ? <T style={styles.lead}>{lead}</T> : null}
             </View>
@@ -278,6 +369,7 @@ export const CoverPage = memo(function CoverPage({
             <View style={styles.column}>{children}</View>
           </View>
         </View>
+        <CoverRoom layout={layout} top={top} padding={padding} />
       </Animated.ScrollView>
       {footer ? <View style={[styles.footer, { bottom: dock, height: ctaSpace - 24 + 44 }]}>{footer}</View> : null}
     </View>

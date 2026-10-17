@@ -27,6 +27,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { useGo, usePageTitle } from "../navigation";
 import { useToast } from "../toast";
 import { splitItalic } from "../kit/italic";
+import { reportFailure } from "../lib/monitoring";
 import { font, radius, space, textCap, type } from "../theme";
 import {
   Heading,
@@ -46,12 +47,33 @@ import {
 import { useAccount } from "./AccountProvider";
 import { useCloseAuthRoutes, useFinishFlow } from "./gate";
 import { setAuthReturn } from "./intent";
-import { authMessage } from "./messages";
-import type { AuthResult, CodePurpose } from "./types";
+import { authMessage, errorCode } from "./messages";
+import type { AuthErrorCode, AuthResult, CodePurpose } from "./types";
 
 /* ------------------------------------------------------------------------ */
 /* Busy / error state for one form                                          */
 /* ------------------------------------------------------------------------ */
+
+// The steps of signing in or up, by the key each screen runs them with.
+const SIGN_IN_STEPS = new Set(["apple", "google", "send", "verify", "resend", "submit", "confirm"]);
+// Failures that aren't the viewer's to fix (a wrong code or password is):
+// a provider the service won't accept, its limits (an hourly cap on
+// emails), or an answer the app doesn't know.
+const SERVICE_FAILURES = new Set<AuthErrorCode>(["provider_unavailable", "rate_limited", "unknown", "not_configured"]);
+
+/**
+ * Tells the owner when signing in failed for a reason that isn't the
+ * viewer's to fix: which step and the error's code only, never the address.
+ */
+export function reportSignInFailure(step: string, failure: unknown) {
+  const code = errorCode(failure);
+  if (SERVICE_FAILURES.has(code))
+    reportFailure("sign_in", {
+      step,
+      code,
+      status: (failure as { status?: number } | null)?.status,
+    });
+}
 
 /**
  * Runs one account request at a time: tracks busy, keeps the latest error
@@ -70,6 +92,7 @@ export function useAuthTask() {
       try {
         return await work();
       } catch (failure) {
+        if (SIGN_IN_STEPS.has(key)) reportSignInFailure(key, failure);
         const message = authMessage(failure);
         setError(message);
         AccessibilityInfo.announceForAccessibility(message);

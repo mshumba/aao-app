@@ -8,7 +8,8 @@ import { LearningError, type SearchResponse } from "./types";
  * theirs from the quotes function; until it answers their ids are in
  * `pendingQuotes` (show the static placeholder), then the quote appears in
  * `data` (MomentCard crossfades it in). The last 12 results are kept for the
- * session, so going back is instant.
+ * session, so going back is instant; a stand-in answer (standIn) isn't, so
+ * the next visit tries again.
  *
  * Each search is a numbered request. A newer query, or none (the field
  * cleared), aborts the one before; and an answer that arrives anyway for a
@@ -29,6 +30,14 @@ type SearchState = {
 const NONE: ReadonlySet<string> = new Set();
 const IDLE: SearchState = { status: "idle", data: null, error: null, pendingQuotes: NONE };
 const LOADING: SearchState = { status: "loading", data: null, error: null, pendingQuotes: NONE };
+
+/**
+ * An answer from when search couldn't search by meaning (`fallback`), or a
+ * care answer with nothing in it (the database was down): not kept.
+ */
+function standIn(data: SearchResponse): boolean {
+  return !!data.fallback || (data.care === true && !data.moments.length && !data.sermons.length);
+}
 
 const memory = new Map<string, SearchResponse>();
 function remember(key: string, data: SearchResponse) {
@@ -57,7 +66,7 @@ export function useSearch(query: string | null | undefined) {
     (known ? Promise.resolve(known) : search(q, controller.signal))
       .then((data) => {
         if (stale()) return;
-        remember(key, data);
+        if (!standIn(data)) remember(key, data);
         const missing = data.moments.filter((m) => m.quote == null).map((m) => m.id);
         setState({
           slot,
@@ -80,7 +89,7 @@ export function useSearch(query: string | null | undefined) {
                   : m;
               }),
             };
-            remember(key, next);
+            if (!standIn(next)) remember(key, next);
             setState({ slot, status: "success", data: next, error: null, pendingQuotes: NONE });
           })
           .catch(() => {

@@ -12,6 +12,7 @@ import {
 } from "../../auth/intent";
 import { authMessage, errorCode } from "../../auth/messages";
 import { UNAVAILABLE_TITLE } from "../../auth/screens/shared";
+import { reportSignInFailure } from "../../auth/ui";
 import { exitTo, firstParam, useGo, usePageTitle } from "../../navigation";
 import { space, type } from "../../theme";
 import { useToast } from "../../toast";
@@ -71,6 +72,7 @@ export default function AuthCallback() {
       (result) =>
         setLink(result.status === "signedIn" && result.recovery ? "recovery" : "sign-in"),
       (error) => {
+        reportSignInFailure("link", error);
         if (done.current) return;
         // A link, not a typed code: say so, and how to get a new one.
         setFailure(errorCode(error) === "expired_code" ? EXPIRED_LINK : authMessage(error));

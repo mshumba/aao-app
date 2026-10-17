@@ -1,15 +1,25 @@
 // POST /functions/v1/search {"q": "I keep going back to the same sin"}
 //
-// Need-based search over the sermon passages (see migrations need_search and
-// search_polish, and supabase/functions/README.md). In order:
+// Need-based search over the sermon passages (see migrations need_search,
+// search_polish and search_safety, and supabase/functions/README.md). In order:
 //   1. checks: CORS/origin, the publishable key on apikey, q of 1-200 characters;
-//   2. search_start(), one database call: the 24-hour response cache (hits are
-//      free and don't count towards the limit), else the rate limits (20
-//      searches per 5 minutes per signed-in user, else per IP; 300 an hour for
-//      everyone together). The published needs and guided paths load meanwhile;
+//   2. the distress check (_shared/distress.ts), before anything else: "care"
+//      (they plainly say they want to die or to harm themselves), "maybe" (a
+//      wording of despair) or neither;
+//   3. search_open(), one database call: the 24-hour response cache (keyed on
+//      the question and the distress list's version; hits are free), else a
+//      need chip whose embeddings are stored (free: no OpenAI), else the rate
+//      limits (_shared/limits.ts: the caller's own allowance, then everyone's).
+//      Someone in distress is never refused: their search counts only against
+//      an allowance for the model's reading, and past it they get the care
+//      answer without the model (the same for every question, so cached once
+//      under CARE_DEFAULT_KEY). A cached answer without care is never served
+//      to them. The published needs and guided paths load meanwhile;
 //   3a. a need chip (q is a published need's label or short name): its fixed
-//      teaching phrase and its label are embedded together and searched; theme,
-//      related needs and path come from the database. No chat model.
+//      teaching phrase and its label are searched with their stored embeddings
+//      (embedded once, the first time, and kept until the need's wording
+//      changes); theme, related needs and path come from the database. No chat
+//      model;
 //   3b. anything else: a small chat model reads the question (theme, a teaching
 //      phrasing, 3 related needs, a guided path, care) while the question itself
 //      is embedded and searched; the teaching phrasing is embedded and searched
@@ -17,25 +27,36 @@
 //   4. the lists are fused (reciprocal rank; weak rows found only by the
 //      question as typed go last), twins collapsed, at most 2 moments per
 //      sermon. match_passages() already joins the sermon and any cached quote.
-// Someone who says they want to die (care) never gets the list for the question
-// as typed, even when the model is unavailable: a fixed comfort phrasing is
-// searched instead. If the chat model fails otherwise, search answers from the
+// Failing closed: someone whose words say "care" never gets the list for the
+// question as typed: a fixed comfort phrasing (CARE_QUERY, its embedding
+// stored) is searched instead. A "maybe" search is care too when the model
+// can't read it (it failed, timed out, or the limits stopped it).
+// When OpenAI fails: a chip answers with the need's curated moments (public
+// .moments), someone in distress with the comfort list or else the curated
+// moments of the comforting needs, anything else with a 503 (the app shows
+// its own sermon-title matches then). None of these is cached. If the chat
+// model alone fails (and there is no distress), search answers from the
 // question alone (theme = the question, no related needs, no path) and isn't
 // cached.
+// POST {"warm": true} with the project's secret key as the bearer token stores
+// the embeddings of every published need and of the comfort phrasing ahead of
+// time, so no chip tap ever needs OpenAI.
 
-import { callerKey } from "../_shared/auth.ts";
-import { admin, dbTimeout, envInt, withRetry } from "../_shared/db.ts";
-import { gate, json, later, readJson } from "../_shared/http.ts";
-import { embedHedged, vectorLiteral } from "../_shared/openai.ts";
+import { caller } from "../_shared/auth.ts";
+import { DISTRESS_LIST_VERSION, type DistressReading } from "../_shared/distress.ts";
+import { admin, dbTimeout, type Limit, secretKeys, withRetry } from "../_shared/db.ts";
+import { gate, json, later, readJson, sameText } from "../_shared/http.ts";
+import { careLimits, scopeOf, searchLimits } from "../_shared/limits.ts";
+import { embed, EMBEDDING_DIMENSIONS, EMBEDDING_MODEL, embedHedged, vectorLiteral } from "../_shared/openai.ts";
 import {
   CARE_QUERY,
   CARE_RELATED,
   CARE_THEME,
   fallbackTheme,
-  inDistress,
   type NeedInfo,
   normalise,
   type PathInfo,
+  readDistress,
   understand,
   type Understood,
 } from "../_shared/prompts.ts";
@@ -47,8 +68,6 @@ const MAX_SERMONS = 10;
 // caption-time lookup; 16 per list (up to 32 after fusing) is plenty for 14
 // moments at 2 per sermon.
 const MATCH_COUNT = 16;
-const RATE_MAX = 20;
-const RATE_WINDOW_S = 300;
 const CACHE_SECONDS = 24 * 60 * 60;
 // v2 (judge pass): related needs from public.needs, stricter paths, weak
 // question-only matches ranked after the teaching matches.
@@ -56,7 +75,17 @@ const CACHE_SECONDS = 24 * 60 * 60;
 // someone in distress gets only the comforting teaching list and no path.
 // v4 (search polish): need chips from needs.query, care and path.status in the
 // response, hidden passages, typed searches keyed by a hash of the question.
-const CACHE_PREFIX = "search:v4:";
+// v5 (search safety): the distress list's version in the key, so an answer
+// given under an older list isn't served once the list changes.
+const CACHE_PREFIX = `search:v5:d${DISTRESS_LIST_VERSION}:`;
+/**
+ * The care answer without the model (someone in distress past the limits) is
+ * the same whatever they typed, so it is cached once, under this key: each such
+ * search then costs one cache read, never a comfort-list search of its own.
+ */
+const CARE_DEFAULT_KEY = `${CACHE_PREFIX}care-default`;
+/** Stored embeddings are used only when made the way passages were embedded. */
+const VECTOR_MODEL = `${EMBEDDING_MODEL}@${EMBEDDING_DIMENSIONS}`;
 const RRF_K = 60;
 // A row found only by the question as typed (not by the teaching phrasing)
 // whose score is below this is usually a passage that shares the question's
@@ -124,6 +153,11 @@ type SearchResponse = {
   moments: Moment[];
   sermons: (Sermon & { moments: number })[];
   total: { moments: number; sermons: number };
+  /**
+   * "curated": nothing could be searched by meaning (OpenAI failed or, for a
+   * chip, the limits stopped it), so the needs' hand-picked moments stand in.
+   */
+  fallback?: "curated";
   cached: boolean;
   tookMs: number;
 };
@@ -134,7 +168,7 @@ const round = (x: number, places: number) => Math.round(x * 10 ** places) / 10 *
 type OnRetry = (what: string) => void;
 
 // ---- Guided paths and published needs ---------------------------------------------
-// Loaded on every request, alongside search_start(): the runtime starts a fresh
+// Loaded on every request, alongside search_open(): the runtime starts a fresh
 // worker for nearly every request, so a cache in the worker would rarely help.
 
 async function loadNeeds(onRetry: OnRetry): Promise<NeedInfo[]> {
@@ -219,29 +253,64 @@ async function cacheKey(norm: string): Promise<string> {
   return CACHE_PREFIX + hex;
 }
 
-type Start =
-  | { cached: SearchResponse; quotes: Record<string, { quote: string; at: number }> }
-  | { ok: true }
-  | { ok: false; retry_after: number };
+type Stored = { id: string; query_embedding: string; label_embedding: string };
 
-async function start(key: string, who: string, onRetry: OnRetry): Promise<Start> {
+type Opened =
+  | { cached: SearchResponse; quotes: Record<string, { quote: string; at: number }> }
+  // `need`: a chip whose embeddings are stored (not counted). `care_vector`:
+  // the comfort phrasing's stored embedding, when it was asked for.
+  | { ok: true; need?: Stored; care_vector?: string | null }
+  // `limit`: which limit said no, counting from 1.
+  | { ok: false; retry_after: number; limit: number; care_vector?: string | null };
+
+/**
+ * search_open(): the cache, then a chip with stored embeddings, then the
+ * limits in order (see migration search_safety). `norm` is null for someone
+ * in distress (never a chip); `careInput` asks for the comfort phrasing's
+ * stored embedding too.
+ */
+async function open(
+  key: string,
+  norm: string | null,
+  limits: Limit[],
+  careInput: string | null,
+  onRetry: OnRetry,
+): Promise<Opened> {
   const { data, error } = await withRetry(
     () =>
       admin()
-        .rpc("search_start", {
+        .rpc("search_open", {
           cache_key: key,
+          query_norm: norm,
+          vector_model: VECTOR_MODEL,
+          care_input: careInput,
           max_age_seconds: CACHE_SECONDS,
-          // A ceiling for everyone together, after the caller's own limit, so
-          // OpenAI spend stays bounded.
-          rate_keys: [who, "search:all"],
-          rate_max: [RATE_MAX, envInt("SEARCH_GLOBAL_PER_HOUR", 300)],
-          rate_windows: [RATE_WINDOW_S, 3600],
+          rate_keys: limits.map((l) => l.key),
+          rate_max: limits.map((l) => l.max),
+          rate_windows: limits.map((l) => l.windowSeconds),
         })
         .abortSignal(dbTimeout(4000)),
-    () => onRetry("start"),
+    () => onRetry("open"),
   );
-  if (error || !data) throw new Error(`search_start: ${error?.code ?? ""} ${error?.message ?? "no answer"}`);
-  return data as Start;
+  if (error || !data) throw new Error(`search_open: ${error?.code ?? ""} ${error?.message ?? "no answer"}`);
+  return data as Opened;
+}
+
+/** A cached answer under 24 hours old, by its key; null when there is none (or the read failed). */
+async function readCache(key: string, onRetry: OnRetry): Promise<SearchResponse | null> {
+  const fresh = new Date(Date.now() - CACHE_SECONDS * 1000).toISOString();
+  const { data, error } = await withRetry(
+    () =>
+      admin()
+        .from("search_cache")
+        .select("response")
+        .eq("key", key)
+        .gte("created_at", fresh)
+        .abortSignal(dbTimeout(3000)),
+    () => onRetry("cache"),
+  );
+  const found = error ? null : (data as { response: unknown }[] | null)?.[0]?.response;
+  return found && typeof found === "object" ? (found as SearchResponse) : null;
 }
 
 async function writeCache(key: string, response: SearchResponse): Promise<void> {
@@ -254,17 +323,141 @@ async function writeCache(key: string, response: SearchResponse): Promise<void> 
   if (error) throw new Error(`cache write: ${error.code ?? error.message}`);
 }
 
-async function match(vector: number[], text: string, onRetry: OnRetry): Promise<MatchRow[]> {
+/** `vector` in pgvector's text form (vectorLiteral(), or a stored embedding as text). */
+async function match(vector: string, text: string, onRetry: OnRetry): Promise<MatchRow[]> {
   const { data, error } = await withRetry(
     () =>
       admin()
-        .rpc("match_passages", { query_embedding: vectorLiteral(vector), query_text: text, match_count: MATCH_COUNT })
+        .rpc("match_passages", { query_embedding: vector, query_text: text, match_count: MATCH_COUNT })
         .select(MATCH_COLUMNS)
         .abortSignal(dbTimeout(6000)),
     () => onRetry("match"),
   );
   if (error) throw new Error(`match_passages: ${error.code ?? ""} ${error.message}`);
   return (data ?? []) as unknown as MatchRow[];
+}
+
+// ---- Stored embeddings ----------------------------------------------------------------
+// A chip's two phrases and the comfort phrasing are embedded once and kept
+// (need_vectors, search_vectors), so a chip tap, and the comfort list for
+// someone in distress, need no OpenAI call. A need's row counts only while its
+// label, short name and query are what was embedded (search_open checks).
+
+async function storeNeedVectors(need: NeedInfo, vectors: [string, string]): Promise<void> {
+  const row = {
+    need_id: need.id,
+    label: need.label,
+    short: need.short,
+    query: need.query,
+    label_norm: normalise(need.label),
+    short_norm: normalise(need.short),
+    model: VECTOR_MODEL,
+    query_embedding: vectors[0],
+    label_embedding: vectors[1],
+    updated_at: new Date().toISOString(),
+  };
+  const { error } = await withRetry(() =>
+    admin().from("need_vectors").upsert(row, { onConflict: "need_id" }).abortSignal(dbTimeout(4000))
+  );
+  if (error) throw new Error(`need_vectors: ${error.code ?? error.message}`);
+}
+
+async function storeVector(key: string, input: string, vector: string): Promise<void> {
+  const row = { key, input, model: VECTOR_MODEL, embedding: vector, updated_at: new Date().toISOString() };
+  const { error } = await withRetry(() =>
+    admin().from("search_vectors").upsert(row, { onConflict: "key" }).abortSignal(dbTimeout(4000))
+  );
+  if (error) throw new Error(`search_vectors: ${error.code ?? error.message}`);
+}
+
+async function storedVector(key: string, input: string, onRetry: OnRetry): Promise<string | null> {
+  const { data } = await withRetry(
+    () =>
+      admin()
+        .from("search_vectors")
+        .select("embedding")
+        .eq("key", key)
+        .eq("input", input)
+        .eq("model", VECTOR_MODEL)
+        .abortSignal(dbTimeout(3000)),
+    () => onRetry("vector"),
+  );
+  const found = (data as { embedding: unknown }[] | null)?.[0]?.embedding;
+  return typeof found === "string" ? found : null;
+}
+
+// ---- When nothing can be searched by meaning ------------------------------------------
+
+type SermonRow = Pick<
+  MatchRow,
+  | "youtube_id"
+  | "title"
+  | "headline"
+  | "published_at"
+  | "preached_on"
+  | "duration_seconds"
+  | "thumbnail_url"
+  | "speaker"
+>;
+
+type CuratedRow = {
+  passage_id: number;
+  youtube_id: string;
+  need_id: string;
+  at_s: number;
+  end_s: number;
+  quote: string;
+  score: number | null;
+  sermons: Omit<SermonRow, "youtube_id"> | Omit<SermonRow, "youtube_id">[] | null;
+};
+
+/**
+ * The curated moments (public.moments) of these needs, best first, the
+ * first need's first; at most 2 per sermon, never a hidden passage. Their
+ * quotes are hand-checked verbatim, so the app shows them as they are.
+ */
+async function curated(needIds: string[], onRetry: OnRetry): Promise<Moment[]> {
+  const { data, error } = await withRetry(
+    () =>
+      admin()
+        .from("moments")
+        .select(
+          "passage_id,youtube_id,need_id,at_s,end_s,quote,score," +
+            "sermons(title,headline,published_at,preached_on,duration_seconds,thumbnail_url,speaker)," +
+            "passages!inner(hidden_from_search)",
+        )
+        .in("need_id", needIds)
+        .eq("passages.hidden_from_search", false)
+        .order("score", { ascending: false, nullsFirst: false })
+        .limit(60)
+        .abortSignal(dbTimeout(4000)),
+    () => onRetry("moments"),
+  );
+  if (error) throw new Error(`moments: ${error.code ?? ""} ${error.message}`);
+  const rows = (data ?? []) as unknown as CuratedRow[];
+  rows.sort((a, b) => needIds.indexOf(a.need_id) - needIds.indexOf(b.need_id));
+  const shown: Moment[] = [];
+  const perSermon = new Map<string, number>();
+  const seen = new Set<number>();
+  for (const r of rows) {
+    if (shown.length === MAX_MOMENTS) break;
+    const s = Array.isArray(r.sermons) ? r.sermons[0] : r.sermons;
+    const n = perSermon.get(r.youtube_id) ?? 0;
+    if (!s || seen.has(r.passage_id) || n >= PER_SERMON) continue;
+    seen.add(r.passage_id);
+    perSermon.set(r.youtube_id, n + 1);
+    shown.push({
+      id: String(r.passage_id),
+      youtubeId: r.youtube_id,
+      at: round(Number(r.at_s), 2),
+      end: round(Number(r.end_s), 2),
+      quote: r.quote,
+      excerpt: r.quote.toLowerCase().replace(/[^\p{L}\p{N}' ]+/gu, " ").replace(/\s+/g, " ").trim(),
+      score: round(Number(r.score ?? 0), 3),
+      sermon: sermonOf({ ...s, youtube_id: r.youtube_id }),
+    });
+  }
+  return shown;
 }
 
 // ---- Fusing the searches ---------------------------------------------------------------
@@ -311,7 +504,7 @@ function fuse(lists: MatchList[]): Candidate[] {
 
 const overlaps = (a: MatchRow, b: MatchRow) => a.start_s < b.end_s - 1 && b.start_s < a.end_s - 1;
 
-function sermonOf(r: MatchRow): Sermon {
+function sermonOf(r: SermonRow): Sermon {
   return {
     youtubeId: r.youtube_id,
     title: r.title,
@@ -416,7 +609,13 @@ type Run = {
   onRetry: OnRetry;
 };
 
-type Found = { reading: Reading; lists: MatchList[]; complete: boolean };
+type Found = {
+  reading: Reading;
+  lists: MatchList[];
+  complete: boolean;
+  /** Needs whose curated moments stand in when nothing could be searched. */
+  curated: string[];
+};
 
 const errorText = (e: unknown) => String((e as Error)?.message ?? e);
 
@@ -424,20 +623,72 @@ const errorText = (e: unknown) => String((e as Error)?.message ?? e);
 async function embedAndMatch(text: string, step: string, run: Run): Promise<MatchRow[]> {
   const r = await embedHedged([text]);
   run.usage.embed += r.tokens;
-  const rows = await match(r.vectors[0], text, run.onRetry);
+  const rows = await match(vectorLiteral(r.vectors[0]), text, run.onRetry);
   run.ms[step] = run.since();
   return rows;
 }
 
-/** A need chip: its fixed teaching phrase and its label, embedded in one call and searched. No chat model. */
-async function needSearch(need: NeedInfo, needs: NeedInfo[], paths: PathInfo[], run: Run): Promise<Found> {
+/**
+ * The comfort phrasing (CARE_QUERY) searched: with its stored embedding when
+ * there is one (`stored`; undefined: look it up), else embedded now and
+ * stored for next time.
+ */
+async function careRows(run: Run, stored: string | null | undefined): Promise<MatchRow[]> {
+  let vector = stored === undefined ? await storedVector("care", CARE_QUERY, run.onRetry) : stored;
+  if (!vector) {
+    const r = await embedHedged([CARE_QUERY]);
+    run.usage.embed += r.tokens;
+    vector = vectorLiteral(r.vectors[0]);
+    later(storeVector("care", CARE_QUERY, vector));
+  } else run.log.care_vector = "stored";
+  const rows = await match(vector, CARE_QUERY, run.onRetry);
+  run.ms.match_care = run.since();
+  return rows;
+}
+
+/** What a need chip is understood as: its theme, its related needs and the path for it. */
+function needReading(need: NeedInfo, needs: NeedInfo[], paths: PathInfo[]): Reading {
+  return {
+    theme: need.theme,
+    related: shortsOf(need.related, needs),
+    path: paths.find((p) => p.needs.includes(need.id)) ?? null,
+    care: false,
+  };
+}
+
+/**
+ * A need chip: its fixed teaching phrase and its label, searched with their
+ * stored embeddings, or embedded in one call (and stored) the first time. No
+ * chat model. When they can't be embedded, the need's curated moments stand in.
+ */
+async function needSearch(
+  need: NeedInfo,
+  needs: NeedInfo[],
+  paths: PathInfo[],
+  run: Run,
+  stored: Stored | undefined,
+): Promise<Found> {
   const query = need.query as string;
-  const vectors = await embedHedged([query, need.label]);
-  run.usage.embed += vectors.tokens;
+  const reading = needReading(need, needs, paths);
+  let vectors: [string, string];
+  if (stored) {
+    vectors = [stored.query_embedding, stored.label_embedding];
+    run.log.vectors = "stored";
+  } else {
+    try {
+      const r = await embedHedged([query, need.label]);
+      run.usage.embed += r.tokens;
+      vectors = [vectorLiteral(r.vectors[0]), vectorLiteral(r.vectors[1])];
+      later(storeNeedVectors(need, vectors));
+    } catch (error) {
+      run.log.embed_error = errorText(error);
+      return { reading, lists: [], complete: false, curated: [need.id] };
+    }
+  }
   run.ms.embed = run.since();
   const [teach, label] = await Promise.allSettled([
-    match(vectors.vectors[0], query, run.onRetry),
-    match(vectors.vectors[1], need.label, run.onRetry),
+    match(vectors[0], query, run.onRetry),
+    match(vectors[1], need.label, run.onRetry),
   ]);
   run.ms.match = run.since();
   const lists: MatchList[] = [];
@@ -445,21 +696,39 @@ async function needSearch(need: NeedInfo, needs: NeedInfo[], paths: PathInfo[], 
   else run.log.raw_error = errorText(label.reason);
   if (teach.status === "fulfilled") lists.push({ kind: "teaching", rows: teach.value });
   else run.log.teach_error = errorText(teach.reason);
+  return { reading, lists, complete: lists.length === 2, curated: [need.id] };
+}
+
+/** The care answer without the chat model: the comfort list, theme and related needs. */
+async function careWithoutModel(needs: NeedInfo[], run: Run, careVector: string | null | undefined): Promise<Found> {
+  const lists: MatchList[] = [];
+  try {
+    lists.push({ kind: "teaching", rows: await careRows(run, careVector) });
+  } catch (error) {
+    run.log.care_error = errorText(error);
+  }
   return {
-    reading: {
-      theme: need.theme,
-      related: shortsOf(need.related, needs),
-      path: paths.find((p) => p.needs.includes(need.id)) ?? null,
-      care: false,
-    },
+    reading: { theme: CARE_THEME, related: shortsOf(CARE_RELATED, needs), path: null, care: true },
     lists,
-    complete: lists.length === 2,
+    complete: false,
+    curated: CARE_RELATED,
   };
 }
 
-/** Anything typed: the chat model reads it while the question (or, in distress, CARE_QUERY) is searched. */
-async function freeSearch(q: string, needs: NeedInfo[], paths: PathInfo[], run: Run): Promise<Found> {
-  const careAsTyped = inDistress(q);
+/**
+ * Anything typed: the chat model reads it while the question (or, in
+ * distress, the comfort phrasing) is searched. A "maybe" search the model
+ * couldn't read is care.
+ */
+async function freeSearch(
+  q: string,
+  distress: DistressReading,
+  needs: NeedInfo[],
+  paths: PathInfo[],
+  run: Run,
+  careVector: string | null | undefined,
+): Promise<Found> {
+  const careAsTyped = distress === "care";
   // Set from the streaming callback, so typed without narrowing to null.
   let teachP = null as Promise<MatchRow[]> | null;
   const searchTeaching = (teachingQuery: string) => {
@@ -484,7 +753,7 @@ async function freeSearch(q: string, needs: NeedInfo[], paths: PathInfo[], run: 
   // Someone in distress never gets the question as typed searched: it finds
   // passages that name depression or death, which in this archive often speak
   // of it harshly ("a believer cannot be depressed").
-  const firstP = embedAndMatch(careAsTyped ? CARE_QUERY : q, careAsTyped ? "match_care" : "match_q", run);
+  const firstP = careAsTyped ? careRows(run, careVector) : embedAndMatch(q, "match_q", run);
   firstP.catch(() => {});
 
   const understood = await understoodP;
@@ -493,20 +762,25 @@ async function freeSearch(q: string, needs: NeedInfo[], paths: PathInfo[], run: 
   if (first.status === "rejected") run.log.raw_error = errorText(first.reason);
   if (teach.status === "rejected") run.log.teach_error = errorText(teach.reason);
   const teachRows = teach.status === "fulfilled" ? teach.value : null;
-  const care = careAsTyped || understood?.care === true;
+  // Failing closed: words that may mean distress, and no reading from the model.
+  const closed = distress === "maybe" && understood === null;
+  if (closed) run.log.care_closed = true;
+  const care = careAsTyped || understood?.care === true || closed;
 
   const lists: MatchList[] = [];
   let complete = understood !== null && teachRows !== null;
   if (care) {
-    if (teachRows) lists.push({ kind: "teaching", rows: teachRows });
+    // The model's own phrasing for someone it saw in distress (not one it
+    // streamed before failing, which may not be about comfort).
+    if (teachRows && understood) lists.push({ kind: "teaching", rows: teachRows });
     if (careAsTyped) {
       if (first.status === "fulfilled") lists.push({ kind: "teaching", rows: first.value });
       else complete = false;
-    } else if (!teachRows) {
-      // The model saw distress the pattern didn't, but its phrasing failed:
-      // search the comfort phrasing rather than the question as typed.
+    } else if (!lists.length) {
+      // Distress the pattern didn't settle and no comforting phrasing from the
+      // model: search the comfort phrasing rather than the question as typed.
       try {
-        lists.push({ kind: "teaching", rows: await embedAndMatch(CARE_QUERY, "match_care", run) });
+        lists.push({ kind: "teaching", rows: await careRows(run, careVector) });
       } catch (error) {
         run.log.care_error = errorText(error);
       }
@@ -527,7 +801,72 @@ async function freeSearch(q: string, needs: NeedInfo[], paths: PathInfo[], run: 
     : care
     ? { theme: CARE_THEME, related: shortsOf(CARE_RELATED, needs), path: null, care }
     : { theme: fallbackTheme(q), related: [], path: null, care };
-  return { reading, lists, complete };
+  return { reading, lists, complete, curated: care ? CARE_RELATED : [] };
+}
+
+/** A response from moments that weren't searched (curated), or none. */
+function fromFallback(query: string, reading: Reading, moments: Moment[]): Omit<SearchResponse, "cached" | "tookMs"> {
+  const count = new Map<string, number>();
+  for (const m of moments) count.set(m.youtubeId, (count.get(m.youtubeId) ?? 0) + 1);
+  const sermons: (Sermon & { moments: number })[] = [];
+  for (const m of moments) {
+    if (sermons.some((x) => x.youtubeId === m.youtubeId)) continue;
+    sermons.push({ ...m.sermon, moments: count.get(m.youtubeId) ?? 1 });
+  }
+  const p = reading.path;
+  return {
+    query,
+    understood: { theme: reading.theme, related: reading.related },
+    path: p ? { id: p.id, name: p.name, italic: p.italic, days: p.days, status: p.status } : null,
+    care: reading.care,
+    moments,
+    sermons: sermons.slice(0, MAX_SERMONS),
+    total: { moments: moments.length, sermons: Math.min(sermons.length, MAX_SERMONS) },
+    ...(moments.length ? { fallback: "curated" as const } : {}),
+  };
+}
+
+// ---- Storing embeddings ahead of time -------------------------------------------------
+
+/** The bearer token is one of the project's secret keys (an operator, never the app). */
+function fromOperator(req: Request): boolean {
+  const token = req.headers.get("authorization")?.match(/^Bearer\s+(\S+)$/i)?.[1];
+  return !!token && secretKeys().some((key) => sameText(token, key));
+}
+
+/**
+ * {"warm": true}: embeds every published need whose stored embeddings are
+ * missing or out of date, and the comfort phrasing, in one OpenAI call, and
+ * stores them. Run after deploying, and after changing a need's wording
+ * (search also stores a chip's embeddings itself the first time it is used).
+ */
+async function warm(req: Request): Promise<Response> {
+  if (!fromOperator(req)) return json(req, 401, { error: "unauthorized" });
+  const noted = () => {};
+  const needs = (await loadNeeds(noted)).filter((n) => n.query);
+  const { data, error } = await admin().from("need_vectors").select("need_id,label,short,query,model");
+  if (error) return json(req, 503, { error: "unavailable" });
+  type Row = { need_id: string; label: string; short: string; query: string; model: string };
+  const current = new Set(
+    ((data ?? []) as Row[])
+      .filter((v) => {
+        const n = needs.find((x) => x.id === v.need_id);
+        return n && v.model === VECTOR_MODEL && v.label === n.label && v.short === n.short && v.query === n.query;
+      })
+      .map((v) => v.need_id),
+  );
+  const todo = needs.filter((n) => !current.has(n.id));
+  const careStored = (await storedVector("care", CARE_QUERY, noted)) !== null;
+  const inputs = [...todo.flatMap((n) => [n.query as string, n.label]), ...(careStored ? [] : [CARE_QUERY])];
+  if (inputs.length) {
+    const { vectors } = await embed(inputs, 20000);
+    const text = vectors.map(vectorLiteral);
+    await Promise.all(todo.map((n, i) => storeNeedVectors(n, [text[2 * i], text[2 * i + 1]])));
+    if (!careStored) await storeVector("care", CARE_QUERY, text[text.length - 1]);
+  }
+  const answer = { needs: needs.length, embedded: todo.length, care: careStored ? "stored" : "embedded" };
+  console.log(JSON.stringify({ fn: "search", warm: true, ...answer }));
+  return json(req, 200, answer);
 }
 
 // ---- Handler ---------------------------------------------------------------------------
@@ -538,56 +877,54 @@ Deno.serve(async (req) => {
   if (blocked) return blocked;
 
   const body = await readJson(req, 4096);
+  if (body?.warm === true) {
+    try {
+      return await warm(req);
+    } catch (error) {
+      console.error(JSON.stringify({ fn: "search", warm: true, error: errorText(error) }));
+      return json(req, 503, { error: "unavailable" });
+    }
+  }
   const q = typeof body?.q === "string" ? body.q.replace(/\s+/g, " ").trim() : "";
   // deno-lint-ignore no-control-regex
   if (!q || q.length > 200 || /[\u0000-\u001f\u007f]/.test(q)) return json(req, 400, { error: "bad_query" });
   const norm = normalise(q);
   if (!norm) return json(req, 400, { error: "bad_query" });
+  // Before anything else, so the limits never stand between someone in
+  // distress and help.
+  const distress = readDistress(q);
 
   const log: Record<string, unknown> = { fn: "search" };
+  if (distress) log.distress = distress;
   const retries: string[] = [];
   const onRetry: OnRetry = (what) => retries.push(what);
   const since = () => Math.round(performance.now() - t0);
-  try {
-    const whoP = callerKey(req, "search");
-    const needsP = loadNeeds(onRetry).catch(() => [] as NeedInfo[]);
-    const pathsP = loadPaths(onRetry).catch(() => [] as PathInfo[]);
-    const key = await cacheKey(norm);
-    const begun = await start(key, await whoP, onRetry);
-    if ("cached" in begun) {
-      // Quotes found since the answer was cached are added on the way out.
-      const moments = (begun.cached.moments ?? []).map((m) => {
-        const found = begun.quotes?.[m.id];
-        return found && !m.quote ? { ...m, quote: found.quote, at: round(Number(found.at), 2) } : m;
-      });
-      const tookMs = since();
-      console.log(JSON.stringify({ ...log, cached: true, ms: tookMs, ...(retries.length ? { retries } : {}) }));
-      return json(req, 200, { ...begun.cached, query: q, moments, cached: true, tookMs });
-    }
-    if (!begun.ok) {
-      console.log(JSON.stringify({ ...log, limited: true }));
-      return json(req, 429, { error: "rate_limited", retryAfter: begun.retry_after }, {
-        "Retry-After": String(begun.retry_after),
-      });
-    }
-    log.ms_start = since();
+  const run: Run = { log, usage: { chat_in: 0, chat_out: 0, embed: 0, model: "" }, ms: {}, since, onRetry };
 
-    const [needs, paths] = await Promise.all([needsP, pathsP]);
-    const need = inDistress(q) ? null : needFor(norm, needs);
-    if (need) log.need = need.id;
-    const run: Run = { log, usage: { chat_in: 0, chat_out: 0, embed: 0, model: "" }, ms: {}, since, onRetry };
-    const found = need ? await needSearch(need, needs, paths, run) : await freeSearch(q, needs, paths, run);
+  /** The answer for what was found, or a fallback when nothing could be searched. */
+  const respond = async (found: Found, key: string | null): Promise<Response> => {
     if (found.reading.care) log.care = true;
-
-    if (!found.lists.length && !found.reading.care) {
-      console.error(JSON.stringify({ ...log, failed: true, ms: since(), retries }));
-      return json(req, 503, { error: "unavailable" });
+    let result: Omit<SearchResponse, "cached" | "tookMs">;
+    if (found.lists.length) {
+      result = build(q, found.reading, found.lists);
+      if (found.complete && key) later(writeCache(key, { ...result, cached: false, tookMs: 0 }));
+    } else {
+      const moments = found.curated.length
+        ? await curated(found.curated, onRetry).catch((error) => {
+          log.curated_error = errorText(error);
+          return [] as Moment[];
+        })
+        : [];
+      // Someone in distress gets an answer even with nothing to show, so the
+      // app can still offer help. Anyone else gets a 503.
+      if (!moments.length && !found.reading.care) {
+        console.error(JSON.stringify({ ...log, failed: true, ms: since(), steps: run.ms, retries }));
+        return json(req, 503, { error: "unavailable" });
+      }
+      result = fromFallback(q, found.reading, moments);
+      if (result.fallback) log.fallback = result.fallback;
     }
-    // Someone in distress gets an answer even with nothing to show, so the app
-    // can still offer help.
-    const result = build(q, found.reading, found.lists);
     const tookMs = since();
-    if (found.complete) later(writeCache(key, { ...result, cached: false, tookMs: 0 }));
     console.log(JSON.stringify({
       ...log,
       cached: false,
@@ -600,8 +937,108 @@ Deno.serve(async (req) => {
       ...(retries.length ? { retries } : {}),
     }));
     return json(req, 200, { ...result, cached: false, tookMs });
+  };
+
+  /**
+   * The care answer without the model, from its one cache entry
+   * (CARE_DEFAULT_KEY), else searched and stored there once the comfort list
+   * has been found.
+   */
+  const careDefault = async (needsP: Promise<NeedInfo[]>, careVector: string | null | undefined) => {
+    const known = await readCache(CARE_DEFAULT_KEY, onRetry);
+    if (known?.care === true) {
+      const tookMs = since();
+      console.log(JSON.stringify({ ...log, cached: true, ms: tookMs, ...(retries.length ? { retries } : {}) }));
+      return json(req, 200, { ...known, query: q, cached: true, tookMs });
+    }
+    const found = await careWithoutModel(await needsP, run, careVector);
+    // `complete` only for this entry: the question's own key keeps waiting for the model's reading.
+    return await respond({ ...found, complete: found.lists.some((l) => l.rows.length > 0) }, CARE_DEFAULT_KEY);
+  };
+
+  try {
+    const needsP = loadNeeds(onRetry).catch(() => [] as NeedInfo[]);
+    const pathsP = loadPaths(onRetry).catch(() => [] as PathInfo[]);
+    const key = await cacheKey(norm);
+    // Someone in distress: only the allowance for the model's reading, never
+    // a refusal (the caller isn't needed).
+    const who = distress === "care" ? null : await caller(req, "search");
+    if (who?.ip) log.ip = who.ip;
+    const limits = who ? searchLimits(who) : careLimits();
+    const begun = await open(key, distress === "care" ? null : norm, limits, distress ? CARE_QUERY : null, onRetry);
+
+    if ("cached" in begun) {
+      // Re-checked: a cached answer without care is never served to someone
+      // whose words say it (one cached before the list knew their wording).
+      if (distress === "care" && !begun.cached.care) {
+        log.recheck = true;
+        return await careDefault(needsP, undefined);
+      }
+      // Quotes found since the answer was cached are added on the way out.
+      const moments = (begun.cached.moments ?? []).map((m) => {
+        const found = begun.quotes?.[m.id];
+        return found && !m.quote ? { ...m, quote: found.quote, at: round(Number(found.at), 2) } : m;
+      });
+      const tookMs = since();
+      console.log(JSON.stringify({ ...log, cached: true, ms: tookMs, ...(retries.length ? { retries } : {}) }));
+      return json(req, 200, { ...begun.cached, query: q, moments, cached: true, tookMs });
+    }
+    log.ms_start = since();
+
+    if (!begun.ok) {
+      // Past the limits the model can't read the search. Someone in distress,
+      // or whose words may mean it, gets the care answer without it (failing
+      // closed); a chip gets its curated moments; anything else is told
+      // search is busy.
+      if (distress) {
+        log.limited = "care";
+        return await careDefault(needsP, begun.care_vector);
+      }
+      const needs = await needsP;
+      const need = needFor(norm, needs);
+      if (need) {
+        log.need = need.id;
+        log.limited = "chip";
+        return await respond(
+          { reading: needReading(need, needs, await pathsP), lists: [], complete: false, curated: [need.id] },
+          null,
+        );
+      }
+      const scope = scopeOf(limits, begun.limit);
+      console.log(JSON.stringify({ ...log, limited: scope }));
+      return json(req, 429, { error: "rate_limited", retryAfter: begun.retry_after, scope }, {
+        "Retry-After": String(begun.retry_after),
+      });
+    }
+
+    const [needs, paths] = await Promise.all([needsP, pathsP]);
+    const stored = begun.need;
+    const need = distress === "care"
+      ? null
+      : (stored && needs.find((n) => n.id === stored.id && n.query)) || needFor(norm, needs);
+    if (stored && !need) {
+      // A chip search_open let through uncounted, but the needs didn't load:
+      // its curated moments (or a 503), never an uncounted search with the model.
+      log.need = stored.id;
+      const reading = { theme: fallbackTheme(q), related: [], path: null, care: false };
+      return await respond({ reading, lists: [], complete: false, curated: [stored.id] }, null);
+    }
+    if (need) log.need = need.id;
+    const found = need
+      ? await needSearch(need, needs, paths, run, stored?.id === need.id ? stored : undefined)
+      : await freeSearch(q, distress, needs, paths, run, begun.care_vector);
+    return await respond(found, key);
   } catch (error) {
     console.error(JSON.stringify({ ...log, error: errorText(error), ms: since(), retries }));
+    // Even with the database down, someone in distress gets an answer: the
+    // app shows the care card above it.
+    if (distress) {
+      return json(req, 200, {
+        ...fromFallback(q, { theme: CARE_THEME, related: [], path: null, care: true }, []),
+        cached: false,
+        tookMs: since(),
+      });
+    }
     return json(req, 503, { error: "unavailable" });
   }
 });

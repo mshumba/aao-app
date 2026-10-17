@@ -17,15 +17,14 @@
 // but ignored: a passage's quote is cached once and shown for every search,
 // so it is chosen without the search text and no caller can steer it.
 
-import { callerKey } from "../_shared/auth.ts";
-import { admin, dbTimeout, envInt, rateLimit } from "../_shared/db.ts";
+import { caller } from "../_shared/auth.ts";
+import { admin, dbTimeout, rateLimit } from "../_shared/db.ts";
 import { gate, json, readJson } from "../_shared/http.ts";
+import { quotesLimits, scopeOf } from "../_shared/limits.ts";
 import { buildQuote, playFrom } from "../_shared/verbatim.ts";
 import { pickQuotes } from "./pick.ts";
 
 const MAX_IDS = 14;
-const RATE_MAX = 20;
-const RATE_WINDOW_S = 300;
 
 type Quote = { quote: string; at: number } | null;
 
@@ -92,25 +91,30 @@ Deno.serve(async (req) => {
     log.cached = ids.length - missing.length;
 
     if (missing.length) {
+      // Only passages search can show (match_passages' own filter): no other
+      // id ever reaches the model.
       const found = await db
         .from("passages")
         .select("id,text,words,start_s,end_s,seg_words,seg_times")
         .in("id", missing)
+        .is("dup_of", null)
+        .eq("hidden_from_search", false)
+        .gte("words", 120)
         .abortSignal(dbTimeout(5000));
       if (found.error) throw new Error(`passages: ${found.error.code ?? found.error.message}`);
       const passages = (found.data ?? []) as PassageRow[];
       for (const id of missing) out[id] = null; // unknown ids stay null
 
-      // Only calls that will reach the model count towards the limits.
+      // Only calls that will reach the model count towards the limits: the
+      // caller's own allowance, then a ceiling for everyone together, so
+      // OpenAI spend stays bounded (_shared/limits.ts).
       if (passages.length) {
-        const rate = await rateLimit([
-          { key: await callerKey(req, "quotes"), max: RATE_MAX, windowSeconds: RATE_WINDOW_S },
-          // A ceiling for everyone together, so OpenAI spend stays bounded.
-          { key: "quotes:all", max: envInt("QUOTES_GLOBAL_PER_HOUR", 30), windowSeconds: 3600 },
-        ]);
+        const limits = quotesLimits(await caller(req, "quotes"));
+        const rate = await rateLimit(limits);
         if (!rate.ok) {
-          console.log(JSON.stringify({ ...log, limited: true }));
-          return json(req, 429, { error: "rate_limited", retryAfter: rate.retryAfter }, {
+          const scope = scopeOf(limits, rate.refused);
+          console.log(JSON.stringify({ ...log, limited: scope }));
+          return json(req, 429, { error: "rate_limited", retryAfter: rate.retryAfter, scope }, {
             "Retry-After": String(rate.retryAfter),
           });
         }

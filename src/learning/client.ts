@@ -1,3 +1,4 @@
+import { reportFailure } from "../lib/monitoring";
 import { fakeQuotes, fakeSearch } from "./fixtures";
 import { request } from "./request";
 import { authHeaders, functionsBase, learningMode } from "./session";
@@ -23,22 +24,33 @@ const QUOTES_TIMEOUT = 25_000;
  */
 const regionHeaders = { "x-region": "us-east-1" };
 
-/** Turns a failed request into a typed error the screens can explain. */
-async function failure(response: Response): Promise<LearningError> {
-  let body: { error?: string; retryAfter?: number } = {};
+/**
+ * Turns a failed request into a typed error the screens can explain, and
+ * tells the owner when the function itself failed or ran out of its
+ * allowance (`name`: search or quotes). Never what was searched.
+ */
+async function failure(name: string, response: Response): Promise<LearningError> {
+  let body: { error?: string; retryAfter?: number; scope?: string } = {};
   try {
     body = await response.json();
   } catch {
     // Not JSON (a gateway page): judged by status alone.
   }
+  const details = { step: name, status: response.status, code: body.error };
   if (response.status === 429 || body.error === "rate_limited") {
+    // "everyone": the allowance everyone shares is used up, not this caller's.
+    const scope = body.scope === "everyone" ? "everyone" : "caller";
+    // Told apart by code: everyone's running out is an outage, while one
+    // caller's (a church's guest Wi-Fi, say) is a limit to look at.
+    reportFailure("search_over_quota", { ...details, code: `rate_limited_${scope}` });
     const header = Number(response.headers.get("retry-after"));
     const retryAfter = body.retryAfter ?? (Number.isFinite(header) && header > 0 ? header : 30);
-    return new LearningError("rate_limited", "Too many searches", retryAfter);
+    return new LearningError("rate_limited", "Over the search limit", retryAfter, scope);
   }
   if (response.status === 400 || body.error === "bad_query")
     return new LearningError("bad_query", "That question can't be searched");
   // 404 (not deployed yet), 503 and anything else: calm "unavailable".
+  reportFailure("search_unavailable", details);
   return new LearningError("unavailable", `Search is unavailable (${response.status})`);
 }
 
@@ -62,7 +74,7 @@ async function post<T>(name: string, body: unknown, timeoutMs: number, signal?: 
         timeoutMs,
       },
       async (response) => {
-        if (!response.ok) throw await failure(response);
+        if (!response.ok) throw await failure(name, response);
         return (await response.json()) as T;
       },
     );
@@ -73,7 +85,7 @@ async function post<T>(name: string, body: unknown, timeoutMs: number, signal?: 
 
 /**
  * Moments (and sermons, and a path) that speak to a question, 1-200
- * characters. Throws LearningError: offline, rate_limited (with retryAfter),
+ * characters. Throws LearningError: offline, rate_limited (with retryAfter and scope),
  * unavailable, bad_query, or aborted when `signal` fires. `care` is always a
  * boolean here (false from a search that predates it).
  */
@@ -82,7 +94,10 @@ export async function search(q: string, signal?: AbortSignal): Promise<SearchRes
   if (!query || query.length > 200) throw new LearningError("bad_query");
   if (learningMode === "local") return fakeSearch(query, signal);
   const data = await post<SearchResponse>("search", { q: query }, SEARCH_TIMEOUT, signal);
-  if (!data || !Array.isArray(data.moments)) throw new LearningError("unavailable", "Unexpected response");
+  if (!data || !Array.isArray(data.moments)) {
+    reportFailure("search_unavailable", { step: "search", code: "bad_response" });
+    throw new LearningError("unavailable", "Unexpected response");
+  }
   return {
     ...data,
     understood: data.understood ?? { theme: query, related: [] },

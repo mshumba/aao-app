@@ -18,8 +18,12 @@ Open **SQL Editor** and run each file in `migrations/` once, in order of their n
 - `saved_sermons`: the viewer's saved sermon IDs.
 - `watch_progress` (`20261014000200_watch_progress.sql`): where the viewer stopped in each sermon, for resuming and Home's Continue watching.
 - `delete_account()`: lets a signed-in viewer delete their own account (required by App Store guideline 5.1.1(v)); profile, saved and watch-progress rows are removed with it.
+- `apple_tokens` (`20261017001000_apple_tokens.sql`): Sign in with Apple refresh tokens, so deleting an account can revoke them. Only the `apple-tokens` Edge Function (service role) can read it. See [Apple token revocation](../docs/development/apple-token-revocation.md).
+- The learning data behind Search and Paths: transcript `passages`, `needs`, `moments`, `paths` and their days, and `blessings`, plus the search caches and limits ([Edge Functions](functions/README.md)).
+- `topics` and `sermon_topics` (`20261016000300_topics.sql`, re-tuned by `20261016000500_topics_reader.sql`): 8 AI-picked topics and each sermon's main topic, where an AI reader and the embedding match agree. The rows come from `seed/topics.sql`, and `scripts/tag-topics.py` tags new sermons. The app reads both: the topics with needs and paths, and each sermon's topic with the library.
+- `library_reader` (`20261016000400_library_reader.sql`): a read-only role for helper agents that reads the content tables and nothing of viewers'. It's created without a login; turn one on with a password set outside git, or leave it off.
 
-Row level security is on for every table: each viewer can only read and change their own rows. The sermon catalogue has its own migration; see [step 7](#7-load-the-sermon-catalogue).
+Row level security is on for every table: each viewer can only read and change their own rows, and the app can't write the content tables. The sermon catalogue has its own migration; see [step 7](#7-load-the-sermon-catalogue).
 
 (With the Supabase CLI instead: `supabase link --project-ref <ref>` then `supabase db push`.)
 
@@ -30,7 +34,8 @@ Row level security is on for every table: each viewer can only read and change t
 - **Site URL**: `https://aao-app.expo.app`
 - **Redirect URLs** (add each):
   - `aao://auth/callback` (the installed app)
-  - `https://aao-app.expo.app/auth/callback` (the web preview)
+  - `https://aao-app.expo.app/auth/callback` (the public web address, which shows a holding page while the app is in private testing)
+  - `https://*.aao-web.pages.dev/**` (the unlisted Cloudflare Pages previews made by `scripts/deploy-web.sh`; branch names are lowercase letters and digits only, so `*` covers them. Supabase matches the whole address, so `*.aao-web.pages.dev` alone never matches a callback.)
   - `http://localhost:8081/auth/callback` (local web development)
   - `exp://**` (Expo Go during development, optional)
 
@@ -78,6 +83,7 @@ Needs the paid Apple Developer Program.
 
 Expo Go signs in with Apple as its own app (`host.exp.Exponent`), which isn't in **Client IDs**, so the app hides the Apple button in Expo Go (`src/auth/config.ts`); testers there use Google or email. Development, TestFlight and App Store builds show it.
 3. Apple on the **web** preview is optional and off by default. To offer it, create a Services ID with return URL `https://<project-ref>.supabase.co/auth/v1/callback` and a Sign in with Apple key, enter the Services ID and generated secret in the same Supabase screen (Apple requires a new secret every 6 months), then add `apple-web` to `EXPO_PUBLIC_AUTH_METHODS`.
+4. **Revoking Apple's tokens when an account is deleted** (guideline 5.1.1(v), needed before App Review): a Sign in with Apple key, four Edge Function secrets and the `apple-tokens` function. Follow [Apple token revocation](../docs/development/apple-token-revocation.md).
 
 ## 5. Google
 
@@ -89,10 +95,12 @@ Free. About 10 minutes.
 4. **Data Access** → **Add or remove scopes**: tick `openid`, `.../auth/userinfo.email`, `.../auth/userinfo.profile`. Save.
 5. **Audience**: while the app is in **Testing**, only listed test users can sign in. Add your own and testers' Google accounts, or click **Publish app** (no review is needed for these basic scopes).
 6. **Clients** → **Create client** → **Web application**, name `Supabase`. Under **Authorized redirect URIs** add `https://<project-ref>.supabase.co/auth/v1/callback` (Supabase shows this exact URL in its Google provider panel). **Create**, then copy the **Client ID** and **Client secret**.
-7. Supabase → **Authentication → Sign In / Providers → Google**: enable it, paste the client ID into **Client IDs** and the secret into **Client Secret**, leave **Skip nonce checks** off, **Save**.
-8. Make sure `aao://auth/callback` is in Supabase's redirect URLs (step 3 above), then add `google` to `EXPO_PUBLIC_AUTH_METHODS`.
+7. **Clients** → **Create client** → **iOS**, bundle ID `com.mshumba.aao`. Copy its **Client ID**. Its reversed form (`com.googleusercontent.apps.…`) is the `iosUrlScheme` of the `@react-native-google-signin/google-signin` plugin in `app.json`; a new client means a new native build.
+8. Supabase → **Authentication → Sign In / Providers → Google**: enable it, put the web and iOS client IDs in **Client IDs** (comma-separated) and the web client's secret in **Client Secret**, turn **Skip nonce checks** on, **Save**. Nonce checks are skipped because the free Google sign-in library can't pass Supabase a nonce on iOS (Google's SDK makes its own).
+9. Set `EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID` and `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID` in `.env` and every EAS environment. Make sure `aao://auth/callback` is in Supabase's redirect URLs (step 3 above), then add `google` to `EXPO_PUBLIC_AUTH_METHODS`.
+10. Android (optional): create an **Android** client with the package name `com.mshumba.aao` and the SHA-1 of the build's signing certificate. Only once it exists, set `EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID`; the app never sends it to Google, but its presence turns on Google's own sheet on Android.
 
-The app opens Google in a secure in-app browser sheet (`expo-web-browser`) on iPhone and a normal redirect on the web, so no native Google SDK or iOS client ID is required. Google's screen will say "continue to <project-ref>.supabase.co"; a Supabase custom domain (paid add-on) or native Google sign-in can change that later.
+iPhone builds that include the native Google module (TestFlight build 3 and later) sign in with Google's own sheet and hand its ID token to Supabase. Android does the same once its client ID is set and Google Play services are available. Builds without the module (TestFlight build 2, Expo Go), Android otherwise, and the web use Supabase's web flow: a secure in-app browser sheet (`expo-web-browser`) on phones and a normal redirect on the web. Google's screen in the web flow says "continue to <project-ref>.supabase.co"; a Supabase custom domain (paid add-on) can change that. Details: [accounts](../docs/development/accounts.md#sign-in-methods).
 
 ## 6. Check it
 
@@ -106,7 +114,7 @@ For App Review, create a dedicated review account (email + password) and put its
 
 ## 7. Load the sermon catalogue
 
-For ongoing additions from the approved public YouTube channel, use [nightly sermon discovery](../docs/development/nightly-sermons.md). It inserts missing metadata only, defaults to dry-run, and uses a protected `catalogue-import` GitHub Environment restricted to the `main` branch. Review a manual dry run and explicitly apply it before opting into the schedule. The older manifest import below is a separate maintenance tool with different write behavior; it is not the nightly job or its recovery procedure.
+For ongoing additions from the approved public YouTube channel (`UCh6Sn6v_mdhwWTEpNvo5A4A`), use [nightly sermon discovery](../docs/development/nightly-sermons.md) (`.github/workflows/nightly-sermons.yml`). It inserts missing metadata only, defaults to dry-run, stops before writing when more than 25 sermons would be inserted unless a reviewed backlog is allowed, and keeps its secrets in a protected `catalogue-import` GitHub Environment restricted to the `main` branch. It runs only on `main`: nothing is scheduled until the workflow is merged there and the repository variable `NIGHTLY_SERMON_IMPORT_ENABLED` is `true`. Review a manual dry run and explicitly apply it before opting into the schedule. The older manifest import below is a separate maintenance tool with different write behavior; it is not the nightly job or its recovery procedure.
 
 `migrations/20261014200000_sermon_catalogue.sql` creates the library the app reads: `sermons` (one row per long-form video on the Apostle Arome Osayi channel, keyed by `youtube_id`) and `series` (multi-part teachings and multi-day gatherings). Everyone, guests included, can read both; anonymous and signed-in app clients cannot write them. The server-only importer uses a privileged key. Run the migration like the accounts migration.
 

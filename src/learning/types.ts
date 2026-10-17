@@ -164,6 +164,12 @@ export type SearchResponse = {
   /** At most 10, with how many matching moments each holds. */
   sermons: (SearchSermon & { moments: number })[];
   total: { moments: number; sermons: number };
+  /**
+   * "curated": nothing could be searched by meaning (OpenAI failed), so the
+   * needs' hand-picked moments stand in. From the search function of
+   * 17 October 2026.
+   */
+  fallback?: "curated";
   cached: boolean;
   tookMs: number;
 };
@@ -176,7 +182,11 @@ export type QuoteResult = { quote: string; at: number } | null;
 export type LearningErrorCode =
   /** No connection, or the request timed out. */
   | "offline"
-  /** Too many searches; `retryAfter` seconds until the next is allowed. */
+  /**
+   * Over a limit; `retryAfter` seconds until the next is allowed, and `scope`
+   * whose: "everyone" (search is busy for everyone) or "caller" (this
+   * account or connection).
+   */
   | "rate_limited"
   /** The service isn't deployed or is down: show the calm unavailable state. */
   | "unavailable"
@@ -188,11 +198,13 @@ export type LearningErrorCode =
 export class LearningError extends Error {
   code: LearningErrorCode;
   retryAfter?: number;
-  constructor(code: LearningErrorCode, message?: string, retryAfter?: number) {
+  scope?: "everyone" | "caller";
+  constructor(code: LearningErrorCode, message?: string, retryAfter?: number, scope?: "everyone" | "caller") {
     super(message ?? code);
     this.name = "LearningError";
     this.code = code;
     this.retryAfter = retryAfter;
+    this.scope = scope;
   }
 }
 

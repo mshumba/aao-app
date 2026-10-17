@@ -1,12 +1,6 @@
-import { createContext, memo, useContext, useEffect, useMemo, type ReactNode } from "react";
+import { createContext, memo, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { type StyleProp, type ViewStyle } from "react-native";
-import Animated, {
-  Easing,
-  useAnimatedStyle,
-  useSharedValue,
-  withTiming,
-  type SharedValue,
-} from "react-native-reanimated";
+import Animated, { cubicBezier, type CSSAnimationKeyframes } from "react-native-reanimated";
 
 /**
  * Results arriving: the whole set rises in once (250ms, strong ease-out),
@@ -14,10 +8,18 @@ import Animated, {
  *
  * The list is virtualized, so rows don't animate themselves on mount (a row
  * scrolled away and back would play it again). Every row of one result set
- * reads a single clock instead: a row drawn while it runs takes its place in
- * the one movement, and a row drawn after it ends is simply there. A row
- * belongs to the set named by `id`; until that set's clock starts it stays
- * hidden, so nothing flashes before the movement begins.
+ * keeps to a single clock instead, started as the set arrives: a row drawn
+ * while it runs takes its place in the one movement, and a row drawn after
+ * it ends is simply there.
+ *
+ * The movement is a CSS animation on the UI thread, ending on the row's
+ * plain style: nothing is handed back to React as it settles, unlike a
+ * settled animated style, which Reanimated redraws a second or so later
+ * (every row of the set, on iOS). A row works out its part in the movement
+ * once, as it's drawn for its set. A CSS animation that has played never
+ * plays again for the same keyframes, so a row the last set had too (a
+ * heading, the related needs, the path) is drawn afresh for the new one,
+ * and rises with the rest instead of changing in place.
  *
  * Under Reduce Motion only the opacity changes.
  */
@@ -26,35 +28,51 @@ const DURATION = 250;
 const STAGGER = 50;
 /** Moment cards that stagger; later ones come with the fourth. */
 const STAGGERED = 4;
-const TOTAL = DURATION + STAGGER * (STAGGERED - 1);
 const RISE = 10;
-const ease = Easing.bezierFn(0.23, 1, 0.32, 1);
+const ease = cubicBezier(0.23, 1, 0.32, 1);
+const rise = {
+  from: { opacity: 0, transform: [{ translateY: RISE }] },
+  to: { opacity: 1, transform: [{ translateY: 0 }] },
+} satisfies CSSAnimationKeyframes;
+const fade = { from: { opacity: 0 }, to: { opacity: 1 } } satisfies CSSAnimationKeyframes;
 
-type Clock = {
-  /** The set whose clock is running (or has run). */
-  landed: SharedValue<string>;
-  /** Milliseconds since that set arrived, up to TOTAL. */
-  clock: SharedValue<number>;
-  id: string;
-  reduced: boolean;
-};
+/**
+ * When the set's movement started, outside React state: a row reads it as
+ * it's drawn, and starting it redraws nothing.
+ */
+class Clock {
+  private id = "";
+  private at = 0;
 
-const RevealContext = createContext<Clock | null>(null);
+  start(id: string) {
+    this.id = id;
+    this.at = performance.now();
+  }
+
+  /** How long set `id` has been moving: none until its first rows are on the screen. */
+  elapsed(id: string) {
+    return id === this.id ? performance.now() - this.at : 0;
+  }
+}
+
+/** The set the rows belong to (empty for none), and its clock. */
+type ResultSet = { id: string; reduced: boolean; clock: Clock };
+
+const RevealContext = createContext<ResultSet | null>(null);
 
 /**
  * Starts the clock when a new result set (`id`, empty for none) arrives.
- * Pass the value to RevealProvider around the list.
+ * `id` names the set of the rows on screen, so it changes in the same draw
+ * as they do. Starting it for "" too makes the clock forget a set once
+ * nothing is shown, so that set rises again when it comes back. Pass the
+ * value to RevealProvider around the list.
  */
-export function useResultsReveal(id: string, reduced: boolean): Clock {
-  const landed = useSharedValue("");
-  const clock = useSharedValue(TOTAL);
+export function useResultsReveal(id: string, reduced: boolean): ResultSet {
+  const [clock] = useState(() => new Clock());
   useEffect(() => {
-    if (!id) return;
-    landed.set(id);
-    clock.set(0);
-    clock.set(withTiming(TOTAL, { duration: TOTAL, easing: Easing.linear }));
-  }, [id, landed, clock]);
-  return useMemo(() => ({ landed, clock, id, reduced }), [landed, clock, id, reduced]);
+    clock.start(id);
+  }, [id, clock]);
+  return useMemo(() => ({ id, reduced, clock }), [id, reduced, clock]);
 }
 
 export const RevealProvider = RevealContext.Provider;
@@ -74,12 +92,22 @@ export const Reveal = memo(function Reveal({
 }) {
   const reveal = useContext(RevealContext);
   if (!reveal) throw new Error("Reveal needs a RevealProvider");
-  const { landed, clock, id, reduced } = reveal;
+  const { id, reduced, clock } = reveal;
   const delay = Math.min(order, STAGGERED - 1) * STAGGER;
-  const animated = useAnimatedStyle(() => {
-    const ms = landed.get() === id ? clock.get() : 0;
-    const t = ease(Math.min(1, Math.max(0, (ms - delay) / DURATION)));
-    return { opacity: t, transform: [{ translateY: reduced ? 0 : (1 - t) * RISE }] };
-  });
-  return <Animated.View style={[style, animated]}>{children}</Animated.View>;
+  // The row's part in its set's movement: from its start (a row drawn as
+  // the set arrives), part way through (a row drawn while it runs), or
+  // none (after it). Held while it plays, so a redraw never restarts it.
+  const motion = useMemo(() => {
+    const start = delay - clock.elapsed(id);
+    if (start <= -DURATION) return null;
+    return {
+      animationName: reduced ? fade : rise,
+      animationDuration: DURATION,
+      animationDelay: start,
+      animationTimingFunction: ease,
+      animationFillMode: "backwards",
+    } as const;
+  }, [id, reduced, clock, delay]);
+  // Keyed by its set, so a new set always starts a new animation.
+  return <Animated.View key={id} style={[style, motion]}>{children}</Animated.View>;
 });

@@ -30,6 +30,18 @@ export async function removeKey(key: string) {
   }
 }
 
+/** Removes every key starting with `prefix` except `keep`. */
+export async function removeKeysExcept(prefix: string, keep: string | null) {
+  try {
+    const stale = (await AsyncStorage.getAllKeys()).filter(
+      (key) => key.startsWith(prefix) && key !== keep,
+    );
+    if (stale.length) await AsyncStorage.multiRemove(stale);
+  } catch {
+    // Nothing to clean up.
+  }
+}
+
 /** Every key the app owns starts with this, so sign-out can clear them. */
 export const keys = {
   onboarding: "aao.onboarding.v1",
@@ -40,6 +52,11 @@ export const keys = {
   guestWatch: "aao.guestWatch.v1",
   localSession: "aao.local.session.v1",
   localData: (userId: string) => `aao.local.data.v1.${userId}`,
+  // The signed-in account's watch progress as last shown, for an offline
+  // launch (removed once it's signed out), and an account's positions not
+  // yet saved on the server (auth/watchQueue.ts).
+  watchProgress: (userId: string) => `aao.watchProgress.v1.${userId}`,
+  watchQueue: (userId: string) => `aao.watchQueue.v1.${userId}`,
   // The sermon library's on-device copy (catalogue/records.ts).
   catalogue: "aao.catalogue.v1",
   // Every sermon's topics (catalogue/CatalogueProvider.tsx).

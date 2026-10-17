@@ -67,7 +67,7 @@ import {
   SuggestRow,
   TopicCards,
 } from "./parts";
-import { careText, inDistress } from "./care";
+import { careText, inDistress, maybeDistress } from "./care";
 import { CareCalm, CareCard } from "./CareCard";
 import { FAN_MAX, SearchLoader, loaderText, warmArt, type LoaderStep } from "./Loader";
 import { AlsoRow, ResultCard } from "./ResultCard";
@@ -128,7 +128,7 @@ type Row =
   | { key: string; kind: "moment"; moment: SearchMoment; pending: boolean; saved: boolean; continued: boolean; lead: boolean }
   | { key: string; kind: "also"; moment: SearchMoment; first: boolean }
   | { key: string; kind: "state"; state: "offline" | "rate_limited" | "unavailable" | "empty"; q: string }
-  | { key: string; kind: "care"; retry: boolean }
+  | { key: string; kind: "care" }
   | { key: string; kind: "note"; text: string };
 
 /** A row of a result set rises in with the rest (`reveal` staggers a moment card). */
@@ -380,9 +380,11 @@ function SearchView({ initialQuery, unknownTopic }: { initialQuery: string; unkn
   const theme = understood && same(understood, asked) ? asked : understood;
 
   // Someone who may be in distress: search says so, or their words plainly
-  // do (in case search can't answer, or answers without saying).
+  // do (in case search can't answer, or answers without saying), or search
+  // couldn't answer words that may mean it (failing closed).
   const distress = mode === "results" && inDistress(asked);
-  const care = distress || data?.care === true;
+  const care =
+    distress || data?.care === true || (mode === "results" && result.status === "error" && maybeDistress(asked));
 
   // ---- While search works ----------------------------------------------------------------
 
@@ -439,7 +441,7 @@ function SearchView({ initialQuery, unknownTopic }: { initialQuery: string; unkn
             : sermonsFound
               ? `${sermonCount(sermonsFound)} found`
               : care
-                ? careText.empty
+                ? careText.failed
                 : `Nothing found for ${asked} yet`
           : result.status === "error"
             ? care
@@ -466,15 +468,6 @@ function SearchView({ initialQuery, unknownTopic }: { initialQuery: string; unkn
     );
     return () => clearTimeout(timer);
   }, [status, result.status]);
-
-  // ---- Results arriving ------------------------------------------------------------------
-
-  // Each new result set rises in once, with a selection tick.
-  const landed = data ? `${asked.toLocaleLowerCase()}#${tries}` : "";
-  const reveal = useResultsReveal(landed, reduced);
-  useEffect(() => {
-    if (landed && Platform.OS !== "web") Haptics.selectionAsync().catch(() => {});
-  }, [landed]);
 
   // ---- The list --------------------------------------------------------------------------
 
@@ -591,7 +584,7 @@ function SearchView({ initialQuery, unknownTopic }: { initialQuery: string; unkn
     if (result.status === "error") {
       // Someone in distress gets one calm line, never other needs or titles.
       if (care) {
-        out.push({ key: "care", kind: "care", retry: true });
+        out.push({ key: "care", kind: "care" });
         return out;
       }
       const code = errorCode(result.error);
@@ -657,15 +650,31 @@ function SearchView({ initialQuery, unknownTopic }: { initialQuery: string; unkn
       });
       found.forEach((sermon, i) => out.push({ key: `f-${sermon.youtubeId}`, kind: "found", sermon, first: i === 0 }));
     }
+    // A care answer always holds the comfort list; one with nothing in it means
+    // search was down, so it says so and offers Try again.
     if (!data.moments.length && !found.length && !listed.size)
-      out.push(care ? { key: "care", kind: "care", retry: false } : { key: "state", kind: "state", state: "empty", q: asked });
+      out.push(care ? { key: "care", kind: "care" } : { key: "state", kind: "state", state: "empty", q: asked });
     // The result set rises in as one.
     return out.map((item) => (item.reveal === undefined ? { ...item, reveal: 0 } : item));
   }, [mode, typed, trimmed, titles, showTitles, limit, needs, allNeeds, recent.recent, emptyPaths, result.status, result.error, result.pendingQuotes, data, care, pathCard, asked, isSaved, needFor, titleKeys, needKeys]);
   // The list draws a step behind the field: a keystroke shows in the field
   // at once, and the rows follow in the background, so typing never waits
   // on them (and the list is left alone while they would come out the same).
-  const rows = useDeferredValue(items);
+  // Which result set they are comes with them, so a set's rows are only ever
+  // drawn as that set: going back to a kept answer swaps one set for another
+  // in a single step.
+  const landed = data ? `${asked.toLocaleLowerCase()}#${tries}` : "";
+  const latestRows = useMemo(() => ({ items, landed }), [items, landed]);
+  const drawn = useDeferredValue(latestRows);
+  const rows = drawn.items;
+
+  // ---- Results arriving ------------------------------------------------------------------
+
+  // Each new result set rises in once, with a selection tick.
+  const reveal = useResultsReveal(drawn.landed, reduced);
+  useEffect(() => {
+    if (drawn.landed && Platform.OS !== "web") Haptics.selectionAsync().catch(() => {});
+  }, [drawn.landed]);
 
   // ---- Rows ------------------------------------------------------------------------------
 
@@ -1146,7 +1155,7 @@ function rowFor(item: Item, actions: RowActions) {
     case "note":
       return <Note>{item.text}</Note>;
     case "care":
-      return <CareCalm onRetry={item.retry ? actions.retry : undefined} />;
+      return <CareCalm onRetry={actions.retry} />;
     case "state":
       return (
         <SearchProblem
@@ -1179,13 +1188,21 @@ function errorTitle(error: LearningError | null) {
     case "offline":
       return "Search needs a connection";
     case "rate_limited":
-      return "Too many searches at once";
+      return busyTitle(error);
     default:
       return "Search isn’t answering";
   }
 }
 
-/** The calm states: offline, too many searches, unavailable, or nothing found. */
+/**
+ * Over a limit, never put as the person's doing: the allowance everyone
+ * shares, or this account's or connection's (a church's Wi-Fi is one).
+ */
+function busyTitle(error: LearningError | null) {
+  return error?.scope === "everyone" ? "Search is busy for everyone right now" : "Search needs a moment";
+}
+
+/** The calm states: offline, busy, unavailable, or nothing found. */
 function SearchProblem({
   state,
   q,
@@ -1216,11 +1233,13 @@ function SearchProblem({
       <CalmState
         testID="search-busy"
         icon="hourglass-outline"
-        title="Too many searches at once"
+        title={busyTitle(error)}
         body={
-          error?.retryAfter && error.retryAfter > 90
-            ? "Try again in a few minutes."
-            : "Try again in a minute."
+          error?.scope === "everyone"
+            ? "Try again in a few minutes. Sermon titles still match as you type."
+            : error?.retryAfter && error.retryAfter > 90
+              ? "Try again in a few minutes."
+              : "Try again in a minute."
         }
         action={{ label: "Try again", onPress: onRetry }}
       />

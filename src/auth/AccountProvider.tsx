@@ -10,7 +10,8 @@ import {
   type ReactNode,
 } from "react";
 import { AppState, Platform } from "react-native";
-import { keys, readJSON, removeKey, writeJSON } from "../lib/storage";
+import { reportFailure } from "../lib/monitoring";
+import { keys, readJSON, removeKey, removeKeysExcept, writeJSON } from "../lib/storage";
 import { authMode, enabledMethods } from "./config";
 import { createLocalBackend } from "./localBackend";
 import { createSavedWrites } from "./savedWrites";
@@ -27,6 +28,7 @@ import {
   ProgressUpdate,
   WatchProgress,
 } from "./types";
+import { createWatchQueue, type WaitingSave, type WatchQueue } from "./watchQueue";
 
 /** The account service is chosen once, at launch. */
 function createBackend(): AuthBackend | null {
@@ -131,22 +133,32 @@ type Saved = {
 
 /** The account's watch progress (useWatchProgress). */
 type Progress = {
-  /** The account's watch progress, most recently watched first. Empty for guests. */
+  /**
+   * The account's watch progress, most recently watched first. Empty for
+   * guests. Until progressReady, it's this device's copy from an earlier
+   * launch (so an offline launch has it), if there is one.
+   */
   progress: WatchProgress[];
   /** Changes only with the progress. */
   progressFor: (sermonId: string) => WatchProgress | null;
-  /** The account's progress has loaded, so `progressFor` can be trusted. */
+  /**
+   * The account's progress has been read from the server in this launch, so
+   * `progressFor` can be trusted. Until then, another device may have saved
+   * a newer place than this device's copy.
+   */
   progressReady: boolean;
   /**
-   * The account's progress once it has loaded (at once if it has), or null
-   * for a guest or when it can't be loaded. Tries again after a failure.
+   * The account's progress once it has been read from the server (at once
+   * if it has), or null for a guest or once the account has changed. A read
+   * that fails is tried again, and this waits for it.
    */
   whenProgressReady: () => Promise<WatchProgress[] | null>;
   /**
    * Records where the viewer is in a sermon. Applies at once and is written
    * in the background; never throws or waits. Does nothing for guests, or
-   * until the account's progress has loaded, so a new device can't overwrite
-   * a place saved on another one.
+   * until the account's progress has been read from the server, so a place
+   * from a new device, or from this device's older copy, can't overwrite a
+   * newer one saved on another device.
    */
   saveProgress: (update: ProgressUpdate) => void;
 };
@@ -174,8 +186,10 @@ const WELCOMED_ACCOUNTS = "aao.welcomedAccounts.v1";
  * account's context: it changes while a sermon plays (a save every 15
  * seconds), and only what shows that sermon's progress should re-render then
  * (useWatchProgress for the whole list, useProgressOf for some sermons).
+ * `provisional`: this device's copy from an earlier launch, shown until the
+ * server's list has been read.
  */
-type ProgressData = { userId: string; items: WatchProgress[] } | null;
+type ProgressData = { userId: string; items: WatchProgress[]; provisional?: boolean } | null;
 
 function createProgressStore() {
   let data: ProgressData = null;
@@ -203,6 +217,21 @@ type ProgressSource = {
   saveProgress: Progress["saveProgress"];
 };
 
+/** A position the service refused for good (it can't be stored): dropped rather than retried. */
+function refusedForGood(error: unknown) {
+  return error instanceof AuthError && (error.status === 400 || error.status === 409 || error.status === 422);
+}
+
+/**
+ * Saving a position, or reading the account's list, failed with an answer
+ * from the service (not offline): the owner hears about it, without
+ * anything about the viewer (src/lib/failureReports.ts).
+ */
+function reportProgressFailure(error: unknown, step: "send" | "read") {
+  if (error instanceof AuthError && error.status && error.status >= 400)
+    reportFailure("progress_save", { status: error.status, step });
+}
+
 const NO_PROGRESS: WatchProgress[] = [];
 const indexes = new WeakMap<WatchProgress[], Map<string, WatchProgress>>();
 
@@ -225,12 +254,41 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   // Watch progress, kept apart from the profile because it changes while
   // a sermon plays (see createProgressStore).
   const [progressStore] = useState(createProgressStore);
-  // The latest load of an account's progress; `items` is set once it succeeds.
+  // The signed-in account's progress: `items` once the server's list has
+  // been read (with this launch's saves since), and the loads waiting for
+  // it (whenProgressReady). This device's copy only shows until then.
   const progressLoad = useRef<{
     userId: string;
-    promise: Promise<WatchProgress[] | null>;
     items?: WatchProgress[];
+    waiters: ((items: WatchProgress[] | null) => void)[];
   } | null>(null);
+  /**
+   * `userId`'s entry, made when first needed: by the effect below, or by a
+   * load that asks first (the player's effects run before this provider's,
+   * so it can ask for an account that has only just signed in).
+   */
+  const progressEntry = useCallback((userId: string) => {
+    if (progressLoad.current?.userId !== userId) {
+      // Loads waiting for the previous account get no list.
+      progressLoad.current?.waiters.splice(0).forEach((done) => done(null));
+      progressLoad.current = { userId, waiters: [] };
+    }
+    return progressLoad.current;
+  }, []);
+  /** Shows `userId`'s progress, keeps a copy on the device and answers the loads waiting for it. */
+  const showProgress = useCallback(
+    (userId: string, items: WatchProgress[]) => {
+      const entry = progressLoad.current;
+      // A slow answer for an account that has since signed out must not
+      // replace what the account signed in now is showing.
+      if (entry?.userId !== userId) return;
+      entry.items = items;
+      progressStore.set({ userId, items });
+      writeJSON(keys.watchProgress(userId), items.slice(0, 100));
+      entry.waiters.splice(0).forEach((done) => done(items));
+    },
+    [progressStore],
+  );
   const [onboarding, setOnboarding] = useState<Onboarding | null>(null);
   const [passes, setPasses] = useState<string[]>([]);
   const [guestWatch, setGuestWatch] = useState<GuestWatch>("shared");
@@ -264,6 +322,9 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   const signingIn = useRef(false);
   // The account created in this launch, until Home has welcomed it.
   const [joined, setJoined] = useState<string | null>(null);
+  // The service has just reported the signed-in account again (its session
+  // renewed, say): what couldn't be loaded is asked for again (see below).
+  const reported = useRef<(userId: string) => void>(() => {});
 
   // Restore the session and this device's onboarding state together, so
   // the first route decision sees both.
@@ -300,7 +361,9 @@ export function AccountProvider({ children }: { children: ReactNode }) {
       })
       .catch(() => {});
     const unsubscribe = backend?.subscribe((next) => {
-      if (active) setUser(next);
+      if (!active) return;
+      setUser(next);
+      if (next) reported.current(next.id);
     });
     return () => {
       active = false;
@@ -424,71 +487,113 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   const saved = useMemo(() => mine?.saved ?? [], [mine]);
   const savedError = !!mine?.savedError;
 
-  const loadProgress = useCallback((id: string) => {
-    if (!backend) return Promise.resolve(null);
-    const entry: NonNullable<typeof progressLoad.current> = {
-      userId: id,
-      promise: backend.listProgress(id).then(
-        (items) => {
-          entry.items = items;
-          // A slow answer for an account that has since signed out must not
-          // replace what the account signed in now is showing.
-          if (progressLoad.current === entry) progressStore.set({ userId: id, items });
-          return items;
-        },
-        // Kept unloaded: nothing is saved over what can't be seen.
-        () => null,
-      ),
-    };
-    progressLoad.current = entry;
-    return entry.promise;
-  }, [progressStore]);
+  // Watch positions go to the server one at a time, the latest for each
+  // sermon only, and wait on the device until they're there, retrying with
+  // backoff (watchQueue.ts). Made before the effects below use it (effects
+  // run in order).
+  const watchQueue = useRef<WatchQueue | null>(null);
   useEffect(() => {
-    if (userId) loadProgress(userId);
-  }, [userId, loadProgress]);
+    const queue = createWatchQueue(
+      {
+        send: (id, update) => need().saveProgress(id, update),
+        read: (id) => need().listProgress(id),
+        isPermanent: refusedForGood,
+      },
+      {
+        load: (id) => readJSON<WaitingSave[]>(keys.watchQueue(id), []),
+        save: (id, waiting) =>
+          waiting.length ? writeJSON(keys.watchQueue(id), waiting) : removeKey(keys.watchQueue(id)),
+      },
+      {
+        read: (id, items) => showProgress(id, items),
+        // Loads waiting for the list wait on: the queue reads it again.
+        unread: (_id, error) => reportProgressFailure(error, "read"),
+        failed: (_id, error) => reportProgressFailure(error, "send"),
+      },
+    );
+    watchQueue.current = queue;
+    return () => {
+      queue.dispose();
+      if (watchQueue.current === queue) watchQueue.current = null;
+    };
+  }, [showProgress]);
+
+  // A new account: its list as this device last showed it, at once (an
+  // offline launch shows it too), then the server's. The device's copy is
+  // provisional: another device may have saved a newer place since, so
+  // nothing is saved over it, and a sermon started from it moves to the
+  // server's place when that arrives (PlayerProvider's catchUp). Positions
+  // still waiting from an earlier launch are laid over both, and sent once
+  // the server's list says they're still the newest.
+  useEffect(() => {
+    if (userId) progressEntry(userId);
+    else {
+      progressLoad.current?.waiters.splice(0).forEach((done) => done(null));
+      progressLoad.current = null;
+    }
+    const queue = watchQueue.current;
+    if (!queue) return;
+    const ready = queue.use(userId);
+    if (!userId) return;
+    let active = true;
+    Promise.all([ready, readJSON<WatchProgress[] | null>(keys.watchProgress(userId), null)]).then(
+      ([, cached]) => {
+        if (!active) return;
+        if (Array.isArray(cached) && !progressLoad.current?.items)
+          progressStore.set({ userId, items: queue.overlay(cached), provisional: true });
+        queue.wake();
+      },
+    );
+    return () => {
+      active = false;
+    };
+  }, [userId, progressEntry, progressStore]);
+
+  // The device's copy of watch progress is only for the account signed in
+  // here: signing out, or being signed out (the account deleted elsewhere,
+  // the session refused), removes it, at launch too. Positions not yet sent
+  // stay, under the account's ID, until it signs in here again.
+  useEffect(() => {
+    if (restored) removeKeysExcept(keys.watchProgress(""), userId ? keys.watchProgress(userId) : null);
+  }, [restored, userId]);
+
+  // Coming back to the app, or the connection returning (web), sends what's
+  // waiting at once, or reads the list if it couldn't be read yet.
+  useEffect(() => {
+    if (!userId) return;
+    const wake = () => watchQueue.current?.wake();
+    const subscription = AppState.addEventListener("change", (next) => {
+      if (next === "active") wake();
+    });
+    const web = Platform.OS === "web" && typeof window !== "undefined";
+    if (web) window.addEventListener("online", wake);
+    return () => {
+      subscription.remove();
+      if (web) window.removeEventListener("online", wake);
+    };
+  }, [userId]);
+
   const whenProgressReady = useCallback(async () => {
     if (!userId) return null;
-    const entry = progressLoad.current;
-    if (entry?.userId === userId) {
-      const items = entry.items ?? (await entry.promise);
-      if (items) return items;
-    }
-    // Not asked for this account yet, or the last try failed: try again.
-    return loadProgress(userId);
-  }, [loadProgress, userId]);
-
-  // Writes go out one at a time, and only the latest position for each
-  // sermon is sent, so a burst of saves (pause, dock, close) is one request
-  // and an older position can never land after a newer one.
-  const outbox = useRef({
-    pending: new Map<string, { userId: string; update: ProgressUpdate }>(),
-    busy: false,
-  });
-  const flushProgress = useCallback(async () => {
-    const box = outbox.current;
-    if (box.busy || !backend) return;
-    box.busy = true;
-    while (box.pending.size) {
-      const [key, job] = box.pending.entries().next().value!;
-      box.pending.delete(key);
-      // A failed save is dropped; the next one carries a newer position.
-      await backend.saveProgress(job.userId, job.update).catch(() => {});
-    }
-    box.busy = false;
-  }, []);
+    const entry = progressEntry(userId);
+    if (entry.items) return entry.items;
+    // Not known yet: wait for the server's answer (null if it can't be
+    // read), asking again now.
+    return new Promise<WatchProgress[] | null>((resolve) => {
+      entry.waiters.push(resolve);
+      watchQueue.current?.wake();
+    });
+  }, [progressEntry, userId]);
 
   const saveProgress = useCallback(
     (update: ProgressUpdate) => {
-      if (!userId || !backend) return;
-      const loaded = progressLoad.current;
-      if (loaded?.userId !== userId || !loaded.items) return;
+      const entry = progressLoad.current;
+      if (!userId || !backend || entry?.userId !== userId || !entry.items) return;
       const item: WatchProgress = { ...update, updatedAt: new Date().toISOString() };
-      loaded.items = [item, ...loaded.items.filter((p) => p.sermonId !== update.sermonId)];
-      progressStore.set({ userId, items: loaded.items });
-      outbox.current.pending.set(`${userId}|${update.sermonId}`, { userId, update });
-      flushProgress();
+      showProgress(userId, [item, ...entry.items.filter((p) => p.sermonId !== update.sermonId)]);
+      watchQueue.current?.add(userId, update, item.updatedAt);
     },
-    [flushProgress, progressStore, userId],
+    [showProgress, userId],
   );
 
   /** Reads the profile again; true once it has loaded and is saved. */
@@ -615,6 +720,18 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     );
   }, [change, fetchSaved, userId]);
 
+  // The service reported the signed-in account again: its session was
+  // renewed, so the connection is back (phones get no "online" event, and
+  // the retries above may have run out). What failed to load is read again.
+  useEffect(() => {
+    reported.current = (id) => {
+      if (id !== userId) return;
+      if (needsSync) refreshProfile(id);
+      if (savedError) reloadSaved();
+      watchQueue.current?.wake();
+    };
+  }, [userId, needsSync, savedError, refreshProfile, reloadSaved]);
+
   const grantPass = useCallback((sermonId: string) => {
     setPasses((current) => {
       if (current.includes(sermonId)) return current;
@@ -695,12 +812,20 @@ export function AccountProvider({ children }: { children: ReactNode }) {
       updatePassword: (password) => need().updatePassword(password),
       signOut: async () => {
         await need().signOut();
-        // Nothing of the account stays on the device.
+        // Signed out now, though offline the service can say so later.
+        // Signing out removes the account's name and its copy of watch
+        // progress from the device; positions not yet sent stay for when it
+        // signs in here again.
+        setUser(null);
         holdName(null);
       },
       deleteAccount: async () => {
+        const id = user?.id;
         await need().deleteAccount();
+        setUser(null);
         holdName(null);
+        // Its positions not yet sent went with it.
+        if (id) removeKey(keys.watchQueue(id));
         // Topics chosen on this device were part of the account; forget them.
         persistOnboarding({ welcomed: true, interests: [] });
       },
@@ -784,7 +909,7 @@ export function useWatchProgress(): Progress {
     return {
       progress: items,
       progressFor: (id) => index.get(id) ?? null,
-      progressReady: !!userId && data?.userId === userId,
+      progressReady: !!userId && data?.userId === userId && !data.provisional,
       whenProgressReady,
       saveProgress,
     };

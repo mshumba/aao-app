@@ -52,25 +52,21 @@ export const CareCard = memo(function CareCard() {
 });
 
 /**
- * Someone in distress whose search couldn't answer (with a way to try
- * again) or found nothing: one calm line, never sermon titles, other needs
- * or their own words in its place.
+ * Someone in distress whose search couldn't answer, or answered with nothing
+ * (it was down): one calm line and a way to try again, never sermon titles,
+ * other needs or their own words in its place.
  */
-export function CareCalm({ onRetry }: { onRetry?: () => void }) {
+export function CareCalm({ onRetry }: { onRetry: () => void }) {
   return (
     <View testID="care-calm" style={styles.calm}>
-      <T style={styles.calmTitle}>{onRetry ? careText.failed : careText.empty}</T>
-      <T style={styles.calmBody}>
-        {onRetry ? "Try again in a moment. The helpline above is there now." : "The helpline above is there now."}
-      </T>
-      {onRetry ? (
-        <Tap accessibilityRole="button" accessibilityLabel="Try again" onPress={onRetry} feedback="dim" style={styles.retry}>
-          <Icon name="refresh" size={16} color={c.accent} />
-          <T style={styles.retryText} maxFontSizeMultiplier={textCap.chip}>
-            Try again
-          </T>
-        </Tap>
-      ) : null}
+      <T style={styles.calmTitle}>{careText.failed}</T>
+      <T style={styles.calmBody}>Try again in a moment. The helpline above is there now.</T>
+      <Tap accessibilityRole="button" accessibilityLabel="Try again" onPress={onRetry} feedback="dim" style={styles.retry}>
+        <Icon name="refresh" size={16} color={c.accent} />
+        <T style={styles.retryText} maxFontSizeMultiplier={textCap.chip}>
+          Try again
+        </T>
+      </Tap>
     </View>
   );
 }

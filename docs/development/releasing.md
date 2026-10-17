@@ -4,7 +4,7 @@
 
 The source repository is [mshumba/aao-app](https://github.com/mshumba/aao-app), published with the owner’s authorization. Check [Actions](https://github.com/mshumba/aao-app/actions/workflows/ci.yml) for the exact commit status. Private planning files are excluded from the public source snapshot.
 
-The app is linked to the Expo project `@mshumba/aao-app` (`extra.eas.projectId` in `app.json`) on Expo's free plan. Team testing uses the web link on EAS Hosting and Android APKs from the `preview` profile (see [getting started](getting-started.md#team-testing-expo-free-plan)). The repository is configured for TestFlight and EAS Update, but no iOS build, store submission or update has been made from this configuration yet. The Apple Developer Program has been joined; the bundle ID is `com.mshumba.aao` and the App Store Connect name "AAO App" (the home-screen name stays "AAO").
+The app is linked to the Expo project `@mshumba/aao-app` (`extra.eas.projectId` in `app.json`) on Expo's free plan. Team testing uses an unlisted web preview on Cloudflare Pages (the public web addresses show a holding page) and Android APKs from the `preview` profile (see [getting started](getting-started.md#team-testing-expo-free-plan)). iPhone builds go to TestFlight from this configuration (see [TestFlight](#testflight)); build 3 and later include native Google sign-in ([accounts](accounts.md#sign-in-methods)). JavaScript-only fixes reach them as EAS Updates on the `production` channel ([over-the-air updates](#over-the-air-updates-eas-update)). The Apple Developer Program has been joined; the bundle ID is `com.mshumba.aao` and the App Store Connect name "AAO App" (the home-screen name stays "AAO").
 
 ## GitHub CI
 
@@ -30,8 +30,8 @@ The app is linked to the Expo project `@mshumba/aao-app` (`extra.eas.projectId` 
 These need a person with the accounts; they can't be done from the repository.
 
 1. **Join the Apple Developer Program** ($99 a year) with an Apple Account that has two-factor authentication. Done. (An individual membership shows your legal name as the seller; an organization membership needs a legal entity and a D-U-N-S number.)
-2. **Choose the production bundle ID and store name.** Done: `com.mshumba.aao` in `ios.bundleIdentifier` and `android.package` in `app.json`, replacing `com.aao.prototype`, and the App Store Connect name "AAO App" (the record itself is created by the first submit). The bundle ID can't be changed once that record exists.
-3. **Set up Supabase** following [`supabase/README.md`](../../supabase/README.md): run the migration, enable the providers (Apple with `com.mshumba.aao` in **Client IDs**, Google, email with the code templates) and set up custom SMTP before inviting testers.
+2. **Choose the production bundle ID and store name.** Done: `com.mshumba.aao` in `ios.bundleIdentifier` and `android.package` in `app.json`, replacing `com.aao.prototype`, and the App Store Connect name "AAO App". The App Store Connect record was created on the website, because EAS can't create it with an API key; its Apple ID is `ascAppId` in `eas.json`. The bundle ID can't be changed now that the record exists.
+3. **Set up Supabase** following [`supabase/README.md`](../../supabase/README.md): run the migrations, enable the providers (Apple with `com.mshumba.aao` in **Client IDs**, Google, email with the code templates) and set up custom SMTP before inviting testers. Before App Review, set up [Apple token revocation](apple-token-revocation.md): a Sign in with Apple key, four Edge Function secrets and the `apple-tokens` function (guideline 5.1.1(v)).
 4. **Publish a privacy policy at a public URL**, and a support URL. App Store Connect asks for both.
 5. **Create a review account** (email and password) for TestFlight's Beta App Review and App Review.
 6. **Decide the guest gate for review**: see [accounts](accounts.md#app-store-notes).
@@ -52,18 +52,26 @@ eas env:create --scope project --environment production --visibility plaintext \
 npm run build:testflight
 ```
 
-Only `EXPO_PUBLIC_*` values belong in EAS environment variables for the app, and they end up in the bundle. `EXPO_PUBLIC_AUTH_METHODS` and `EXPO_PUBLIC_WEB_URL` are optional ([accounts](accounts.md#which-account-service-runs)). Nothing secret goes in `eas.json`.
+Only `EXPO_PUBLIC_*` values belong in EAS environment variables for the app, and they end up in the bundle. `EXPO_PUBLIC_AUTH_METHODS` and `EXPO_PUBLIC_WEB_URL` are optional ([accounts](accounts.md#which-account-service-runs)). `EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID` and `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID` turn on Google's own sheet on iPhone; set `EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID` only once the Android OAuth client with the build's SHA-1 exists. Without them Google uses the web flow. Nothing secret goes in `eas.json`.
 
-`npm run build:testflight` runs `eas build -p ios --profile production --auto-submit`. The first time, EAS asks you to sign in to your Apple account (with a 2FA code). It creates the distribution certificate and provisioning profile, turns on Sign in with Apple for the App ID, and offers to set up remote build numbers. The submit step then creates the App Store Connect app record and an App Store Connect API key for later uploads. `npx testflight` does build, submit and internal-group setup in one interactive step instead.
+`npm run build:testflight` runs `eas build -p ios --profile production --auto-submit`. The first time, EAS asks you to sign in to your Apple account (with a 2FA code). It creates the distribution certificate and provisioning profile, turns on Sign in with Apple for the App ID, and offers to set up remote build numbers.
 
-After the first upload, add the IDs to `eas.json` so later submits don't ask:
+The upload to the App Store Connect app named by `ascAppId` needs an App Store Connect API key, and EAS can't generate one for this account: Apple refuses with "The API key in use does not allow this request". When EAS offers to generate a key, answer no. Until a key is stored in the project's EAS credentials, the build finishes and its submit step fails, so upload the finished build with a key made by hand:
+
+1. App Store Connect → Users and Access → Integrations: create a team key with the App Manager role and download its `.p8` file (Apple offers it once). Keep it outside the repository.
+2. For this run only, add `ascApiKeyPath`, `ascApiKeyId` and `ascApiKeyIssuerId` beside `ascAppId` in `eas.json`. Never commit them: the repository is public.
+3. `eas submit -p ios --id <build id> --profile production --non-interactive`, with the build's ID from its page on expo.dev or `eas build:list`.
+4. Take the three fields out of `eas.json` again.
+
+`eas.json` names the app, so submits don't ask for it (`ascAppId` is the numeric Apple ID from App Store Connect → App Information). `appleTeamId`, the 10-character team ID, isn't set; it can go beside it:
 
 ```json
 "submit": {
   "production": {
     "ios": {
-      "ascAppId": "<numeric Apple ID from App Store Connect → App Information>",
-      "appleTeamId": "<10-character team ID>"
+      "appName": "AAO App",
+      "language": "en-US",
+      "ascAppId": "6823010745"
     }
   }
 }
@@ -104,7 +112,7 @@ Expo's free plan (October 2026; check [expo.dev/pricing](https://expo.dev/pricin
 
 - **A bad update:** `eas update:rollback` either republishes an earlier update or returns the channel to the JavaScript embedded in the build (`eas update:republish` and `eas update:roll-back-to-embedded` do each directly). Then check on a device. See [Expo's rollback guide](https://docs.expo.dev/eas-update/rollbacks/). Reverting a Git commit by itself doesn't change installed apps.
 - **A bad TestFlight build:** expire it in App Store Connect (TestFlight → the build → Expire), so testers go back to an earlier build that hasn't expired, then upload a fixed build. A native defect can't be fixed with an update for a different runtime.
-- **Web:** keep versioned exports and redeploy a tested one (`npx eas-cli@latest deploy --prod` from that export). Check caches and navigation after rolling back.
+- **Web:** `scripts/deploy-web.sh` builds and publishes the checked-out commit to an unlisted preview branch, so to roll a preview back, check out a tested commit and run it again. The public addresses only get the holding page (`scripts/deploy-holding.sh`). Check caches and navigation after rolling back.
 - **Local regression:** stop the new Metro process, check out a known-good reviewed commit on a clean branch (keep uncommitted work), run `npm ci`, then restart and retest. Avoid destructive resets.
 
 ## Release gates
