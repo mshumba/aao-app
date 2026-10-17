@@ -22,6 +22,11 @@ export type Store = {
   remove(id: number, refreshToken: string): Promise<void>;
   /** Records a failed revocation (apple_tokens_failed): why, and when to try again. */
   failed(id: number, reason: string): Promise<void>;
+  /**
+   * Keeps a token whose account is already gone, as a first failed try, so
+   * `sweep` revokes it like the tokens deleted accounts leave.
+   */
+  orphan(clientId: string, refreshToken: string, reason: string): Promise<void>;
   /** Up to `max` tokens of deleted accounts that are due another try (apple_tokens_due). */
   due(max: number): Promise<TokenRow[]>;
   /** The Apple user IDs linked to the account, or null when the account no longer exists. */
@@ -55,7 +60,8 @@ export type StoreResult = { ok: true } | { ok: false; error: StoreError; reason?
  * refresh token, checks the token belongs to an Apple ID linked to this
  * account, and keeps it. A code for anyone else's Apple ID is refused and
  * nothing is kept. If the account was deleted while the code was on its way
- * (deleting straight after signing in), the new token is revoked at once.
+ * (deleting straight after signing in), the new token is revoked at once, or
+ * kept without an account for `sweep` when Apple can't be reached.
  */
 export async function storeCode(apple: Apple | null, store: Store, userId: string, code: string): Promise<StoreResult> {
   if (!apple) return { ok: false, error: "not_configured" };
@@ -76,6 +82,7 @@ export async function storeCode(apple: Apple | null, store: Store, userId: strin
     () => "revoked",
     reasonFor,
   );
+  if (reason !== "revoked") await store.orphan(apple.clientId, exchanged.refreshToken, reason).catch(() => {});
   return { ok: false, error: "account_gone", reason };
 }
 

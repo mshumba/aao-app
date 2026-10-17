@@ -7,6 +7,8 @@ export type AuthUser = {
   email: string | null;
   /** How this session signed in (an account may have other ways in). */
   provider: Provider;
+  /** An Apple ID is linked to the account, however this session signed in. */
+  appleLinked: boolean;
 };
 
 export type Profile = {

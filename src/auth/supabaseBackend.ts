@@ -10,7 +10,7 @@ import * as Linking from "expo-linking";
 import * as WebBrowser from "expo-web-browser";
 import { AppState, Platform, TurboModuleRegistry } from "react-native";
 import { CategoryId } from "../data/categories";
-import { deleteInOrder, linkedToApple, revokeAppleTokens, sendAppleCode } from "./appleTokens";
+import { deleteSignedIn, linkedToApple, sendAppleCode } from "./appleTokens";
 import { googleClientIds, isNativeApple, supabaseConfig } from "./config";
 import { SESSION_KEY, forgetSession, secureSessionStorage } from "./sessionStorage";
 import { signInMethod } from "./signInMethod";
@@ -57,7 +57,12 @@ export function authRedirect() {
 function toUser(session: Session | null): AuthUser | null {
   if (!session?.user) return null;
   const { user } = session;
-  return { id: user.id, email: user.email ?? null, provider: signInMethod(session) };
+  return {
+    id: user.id,
+    email: user.email ?? null,
+    provider: signInMethod(session),
+    appleLinked: linkedToApple(session),
+  };
 }
 
 // How long a save or unsave may take before it's given up.
@@ -329,14 +334,9 @@ export function createSupabaseBackend(): AuthBackend {
     },
     signOut: () => signOutHere(client.auth, forgetSession),
     async deleteAccount() {
-      const { data } = await client.auth.getSession();
       // Apple's token is revoked first (App Store guideline 5.1.1(v)); if
       // Apple can't be reached the server retries it after the account goes.
-      await deleteInOrder({
-        storing: appleCodeSent,
-        revokeApple: linkedToApple(data.session) ? () => revokeAppleTokens(client.functions) : null,
-        deleteAccount: () => run(() => client.rpc("delete_account")),
-      });
+      await deleteSignedIn(client, appleCodeSent);
       // The account is gone either way; this clears the device.
       await signOutHere(client.auth, forgetSession).catch(() => {});
     },

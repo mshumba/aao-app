@@ -121,6 +121,8 @@ test.describe("signed in", () => {
     await expect(
       page.getByRole("heading", { level: 1, name: "Delete your account?" }),
     ).toBeVisible();
+    // No Apple ID linked, so no word about one.
+    await expect(page.getByText(/stop using Apple ID with AAO/)).toHaveCount(0);
     await page.getByRole("button", { name: "Keep my account" }).click();
     await expect(shown(page.getByText(MEMBER.email))).toBeVisible();
 
@@ -129,6 +131,8 @@ test.describe("signed in", () => {
     await page.waitForTimeout(450);
     await page.getByTestId("delete-account-row").click();
     await page.getByTestId("confirm-delete").click();
+    // There's no leaving while it deletes.
+    await expect(shown(page.getByRole("button", { name: "Back", exact: true }))).toBeDisabled();
     await expect(page.getByTestId("toast")).toContainText("deleted");
     await tab(page, "Account").click();
     await expect(
@@ -274,6 +278,28 @@ test.describe("guest", () => {
     await expect(page.getByTestId("toast")).toContainText("signed in");
     await tab(page, "Account").click();
     await expect(shown(page.getByText("Signed in with Apple"))).toBeVisible();
+  });
+
+  test("deleting an account with Apple linked says how to stop using the Apple ID, however it signed in", async ({
+    page,
+  }) => {
+    await page.goto("/account");
+    await page.getByRole("button", { name: "Sign in", exact: true }).click();
+    await page.getByTestId("continue-apple").click();
+    await expect(page.getByTestId("toast")).toContainText("signed in");
+    await page.goto("/account");
+    await page.getByTestId("sign-out").click();
+    await expect(page.getByTestId("toast")).toContainText("Signed out");
+    // The same account, with a password this time.
+    await openSignIn(page);
+    await page.getByTestId("password-email").fill("apple.viewer@example.com");
+    await page.getByTestId("password-input").fill("a-long-password");
+    await page.getByTestId("password-submit").click();
+    await expect(page.getByTestId("toast")).toContainText("signed in");
+    await page.goto("/account");
+    await expect(shown(page.getByText("Signed in with email"))).toBeVisible();
+    await page.goto("/account/delete");
+    await expect(shown(page.getByText(/stop using Apple ID with AAO/))).toBeVisible();
   });
 
   test("an account whose email was never confirmed can get a new code", async ({
