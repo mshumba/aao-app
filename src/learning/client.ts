@@ -25,7 +25,7 @@ const regionHeaders = { "x-region": "us-east-1" };
 
 /** Turns a failed request into a typed error the screens can explain. */
 async function failure(response: Response): Promise<LearningError> {
-  let body: { error?: string; retryAfter?: number } = {};
+  let body: { error?: string; retryAfter?: number; scope?: string } = {};
   try {
     body = await response.json();
   } catch {
@@ -34,7 +34,9 @@ async function failure(response: Response): Promise<LearningError> {
   if (response.status === 429 || body.error === "rate_limited") {
     const header = Number(response.headers.get("retry-after"));
     const retryAfter = body.retryAfter ?? (Number.isFinite(header) && header > 0 ? header : 30);
-    return new LearningError("rate_limited", "Too many searches", retryAfter);
+    // "everyone": the allowance everyone shares is used up, not this caller's.
+    const scope = body.scope === "everyone" ? "everyone" : "caller";
+    return new LearningError("rate_limited", "Over the search limit", retryAfter, scope);
   }
   if (response.status === 400 || body.error === "bad_query")
     return new LearningError("bad_query", "That question can't be searched");
@@ -73,7 +75,7 @@ async function post<T>(name: string, body: unknown, timeoutMs: number, signal?: 
 
 /**
  * Moments (and sermons, and a path) that speak to a question, 1-200
- * characters. Throws LearningError: offline, rate_limited (with retryAfter),
+ * characters. Throws LearningError: offline, rate_limited (with retryAfter and scope),
  * unavailable, bad_query, or aborted when `signal` fires. `care` is always a
  * boolean here (false from a search that predates it).
  */
@@ -83,6 +85,9 @@ export async function search(q: string, signal?: AbortSignal): Promise<SearchRes
   if (learningMode === "local") return fakeSearch(query, signal);
   const data = await post<SearchResponse>("search", { q: query }, SEARCH_TIMEOUT, signal);
   if (!data || !Array.isArray(data.moments)) throw new LearningError("unavailable", "Unexpected response");
+  // Only sermon titles matched (finding moments by meaning failed): the
+  // screen's "isn't answering" state says so, beside its own title matches.
+  if (data.fallback === "titles" && !data.care) throw new LearningError("unavailable", "Titles only");
   return {
     ...data,
     understood: data.understood ?? { theme: query, related: [] },

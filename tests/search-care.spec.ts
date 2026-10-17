@@ -1,5 +1,5 @@
 import type { Page } from "@playwright/test";
-import { inDistress } from "../src/search/care";
+import { inDistress, maybeDistress } from "../src/search/care";
 import { expect, shown, test } from "./fixtures";
 
 // Someone who may be in distress: a calm card comes first, whether search
@@ -47,30 +47,120 @@ function cardFirst(page: Page) {
   });
 }
 
-test("the plain wordings of distress are recognised, and teaching phrases are not", () => {
-  for (const q of [
-    "I want to die",
-    "I want to kill myself",
-    "I want to end my life",
-    "thinking about suicide",
-    "There is no reason to live",
-    "Everyone would be better off dead without me",
-    "I don’t want to live anymore",
-  ])
-    expect(inDistress(q), q).toBe(true);
-  for (const q of [
-    "I want to die to self",
-    "dying to the flesh",
-    "I'm afraid of what's coming",
-    "I feel hopeless and can't go on",
-    "",
-  ])
-    expect(inDistress(q), q).toBe(false);
+// Every wording the shared list (supabase/functions/_shared/distress.ts, used
+// by the search function and the app) must read, both ways. "care": the card
+// always shows and their words are never searched as typed. "maybe": the card
+// shows when search can't read it (the model failed, or search failed).
+// null: neither. The first block is the audit's appendix (16 October 2026).
+const PHRASES: [phrase: string, reads: "care" | "maybe" | null][] = [
+  // Matched before, still matched
+  ["I want to die", "care"],
+  ["I want to kill myself", "care"],
+  ["suicidal", "care"],
+  ["end it all", "care"],
+  ["no reason to live", "care"],
+  ["better off dead", "care"],
+  ["self harm", "care"],
+  ["cutting myself", "care"],
+  ["I wan kill myself", "care"],
+  ["je veux me suicider", "care"],
+  // Missed before
+  ["tired of living", "care"],
+  ["I'm tired of living", "care"],
+  ["I can't go on", "care"],
+  ["i cant go on anymore", "care"],
+  ["I hate my life", "care"],
+  ["nobody would miss me", "care"],
+  ["I wan die", "care"],
+  ["I don tire for this life", "care"],
+  ["wan comot for this world", "care"],
+  ["je veux mourir", "care"],
+  ["quero morrer", "care"],
+  ["vou me matar", "care"],
+  ["nataka kufa", "care"],
+  ["najiua", "care"],
+  // Teaching and grief, rightly not matched
+  ["die to self", null],
+  ["dying to self", null],
+  ["kill the flesh", null],
+  ["how to die to sin", null],
+  ["death of a loved one", null],
+  ["my father died", null],
+  ["grief", null],
+  // False positives before, not now
+  ["I want to die to my flesh", null],
+  ["I want to die daily", null],
+  ["ready to die for Christ", null],
+  ["suicide prevention sermon", null],
+  ["killing myself slowly with sin", null],
+  ["I want to die to the world", null],
+  ["I want to die to self", null],
+  ["dying to the flesh", null],
+  ["I will die for Jesus", null],
+  ["ready to die for Jesus", null],
+  ["I want to die empty", null],
+  ["to live is Christ and to die is gain", null],
+  ["I don't want to die", null],
+  ["mourir à soi-même", null],
+  ["morrer para o mundo", null],
+  // More plain wordings
+  ["I want to end my life", "care"],
+  ["thinking about suicide", "care"],
+  ["There is no reason to live", "care"],
+  ["Everyone would be better off dead without me", "care"],
+  ["I don’t want to live anymore", "care"],
+  ["I feel hopeless and can't go on", "care"],
+  ["I wish I was never born", "care"],
+  ["what's the point of living", "care"],
+  ["life isn't worth living", "care"],
+  ["I have nothing to live for", "care"],
+  ["I'm ready to die", "care"],
+  ["I want to die to self, but honestly I want to kill myself", "care"],
+  ["I no wan live again", "care"],
+  ["make I just die", "care"],
+  ["j'ai envie de mourir", "care"],
+  ["je vais me tuer", "care"],
+  ["je ne veux plus vivre", "care"],
+  ["Não quero mais viver", "care"],
+  ["cansada de viver", "care"],
+  ["nitajiua", "care"],
+  ["sitaki kuishi", "care"],
+  ["nimechoka na maisha", "care"],
+  // Despair that may mean it
+  ["I can't go on like this", "maybe"],
+  ["I feel hopeless", "maybe"],
+  ["everything feels pointless", "maybe"],
+  ["I feel like a burden to my family", "maybe"],
+  ["I'm so depressed", "maybe"],
+  ["sermon on depression", "maybe"],
+  ["I can't take it anymore", "maybe"],
+  ["I just want to disappear", "maybe"],
+  ["I don tire", "maybe"],
+  ["je n'en peux plus", "maybe"],
+  ["désespoir", "maybe"],
+  ["não aguento mais", "maybe"],
+  ["nimechoka", "maybe"],
+  ["sina matumaini", "maybe"],
+  // Ordinary searches
+  ["I keep falling into the same sin", null],
+  ["I'm afraid of what's coming", null],
+  ["fear of death", null],
+  ["how to give up smoking", null],
+  ["life is worth living", null],
+  ["the joy of the Lord is my strength", null],
+  ["", null],
+];
+
+test("the phrase table: each wording reads as care, maybe or neither", () => {
+  for (const [phrase, reads] of PHRASES) {
+    expect(inDistress(phrase), `care: ${phrase}`).toBe(reads === "care");
+    expect(maybeDistress(phrase), `maybe: ${phrase}`).toBe(reads !== null);
+  }
 });
 
 test("search's care flag puts the card first, above comforting moments", async ({ page }) => {
-  // Words the app's own list doesn't catch; search's reading does.
-  await search(page, "I feel hopeless and can't go on");
+  // Words the app's own list doesn't settle ("maybe"); search's reading does.
+  await search(page, "I feel hopeless");
   await expectCard(page);
   await expect(results(page)).toHaveCount(4);
   expect(await cardFirst(page)).toBe(true);
@@ -157,6 +247,36 @@ for (const fault of ["unavailable", "offline"] as const) {
     await expectCard(page);
   });
 }
+
+// Words that may mean distress: the card when search can't read them
+// (failing closed), never otherwise.
+const fails = { unavailable: "isn’t answering", busy: "is busy" } as const;
+for (const fault of ["unavailable", "busy"] as const) {
+  test(`words that may mean distress get the card when search ${fails[fault]}`, async ({ page }) => {
+    await page.addInitScript((f) => {
+      (globalThis as { __aaoSearchFault?: string }).__aaoSearchFault = f;
+    }, fault);
+    await search(page, "everything feels pointless");
+    await expectCard(page);
+    await expect(shown(page.getByTestId("care-calm"))).toContainText("The Apostle’s teaching couldn’t load just now.");
+    await expect(page.getByTestId("search-unavailable")).toHaveCount(0);
+    await expect(page.getByTestId("search-busy")).toHaveCount(0);
+    await expect(shown(page.getByTestId("sermon-row"))).toHaveCount(0);
+    expect(await cardFirst(page)).toBe(true);
+  });
+}
+
+test("words that may mean distress, read as ordinary by search, show no card", async ({ page }) => {
+  await search(page, "everything feels pointless");
+  await expect(results(page).first()).toBeVisible();
+  await expect(page.getByTestId("care-card")).toHaveCount(0);
+});
+
+test("a prayer to die to the flesh is not a crisis", async ({ page }) => {
+  await search(page, "I want to die to my flesh");
+  await expect(results(page).first()).toBeVisible();
+  await expect(page.getByTestId("care-card")).toHaveCount(0);
+});
 
 test("words of distress aren't kept in recent searches", async ({ page }) => {
   await search(page, "I want to die");

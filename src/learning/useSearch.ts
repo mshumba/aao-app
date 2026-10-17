@@ -8,7 +8,8 @@ import { LearningError, type SearchResponse } from "./types";
  * theirs from the quotes function; until it answers their ids are in
  * `pendingQuotes` (show the static placeholder), then the quote appears in
  * `data` (MomentCard crossfades it in). The last 12 results are kept for the
- * session, so going back is instant.
+ * session, so going back is instant; a stand-in answer from when search
+ * couldn't search by meaning (`fallback`) isn't, so the next visit tries again.
  *
  * Each search is a numbered request. A newer query, or none (the field
  * cleared), aborts the one before; and an answer that arrives anyway for a
@@ -57,7 +58,7 @@ export function useSearch(query: string | null | undefined) {
     (known ? Promise.resolve(known) : search(q, controller.signal))
       .then((data) => {
         if (stale()) return;
-        remember(key, data);
+        if (!data.fallback) remember(key, data);
         const missing = data.moments.filter((m) => m.quote == null).map((m) => m.id);
         setState({
           slot,

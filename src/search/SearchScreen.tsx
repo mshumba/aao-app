@@ -67,7 +67,7 @@ import {
   SuggestRow,
   TopicCards,
 } from "./parts";
-import { careText, inDistress } from "./care";
+import { careText, inDistress, maybeDistress } from "./care";
 import { CareCalm, CareCard } from "./CareCard";
 import { FAN_MAX, SearchLoader, loaderText, warmArt, type LoaderStep } from "./Loader";
 import { AlsoRow, ResultCard } from "./ResultCard";
@@ -379,9 +379,11 @@ function SearchView({ initialQuery, unknownTopic }: { initialQuery: string; unkn
   const theme = understood && same(understood, asked) ? asked : understood;
 
   // Someone who may be in distress: search says so, or their words plainly
-  // do (in case search can't answer, or answers without saying).
+  // do (in case search can't answer, or answers without saying), or search
+  // couldn't answer words that may mean it (failing closed).
   const distress = mode === "results" && inDistress(asked);
-  const care = distress || data?.care === true;
+  const care =
+    distress || data?.care === true || (mode === "results" && result.status === "error" && maybeDistress(asked));
 
   // ---- While search works ----------------------------------------------------------------
 
@@ -1178,13 +1180,21 @@ function errorTitle(error: LearningError | null) {
     case "offline":
       return "Search needs a connection";
     case "rate_limited":
-      return "Too many searches at once";
+      return busyTitle(error);
     default:
       return "Search isn’t answering";
   }
 }
 
-/** The calm states: offline, too many searches, unavailable, or nothing found. */
+/**
+ * Over a limit, never put as the person's doing: the allowance everyone
+ * shares, or this account's or connection's (a church's Wi-Fi is one).
+ */
+function busyTitle(error: LearningError | null) {
+  return error?.scope === "everyone" ? "Search is busy for everyone right now" : "Search needs a moment";
+}
+
+/** The calm states: offline, busy, unavailable, or nothing found. */
 function SearchProblem({
   state,
   q,
@@ -1215,11 +1225,13 @@ function SearchProblem({
       <CalmState
         testID="search-busy"
         icon="hourglass-outline"
-        title="Too many searches at once"
+        title={busyTitle(error)}
         body={
-          error?.retryAfter && error.retryAfter > 90
-            ? "Try again in a few minutes."
-            : "Try again in a minute."
+          error?.scope === "everyone"
+            ? "Try again in a few minutes. Sermon titles still match as you type."
+            : error?.retryAfter && error.retryAfter > 90
+              ? "Try again in a few minutes."
+              : "Try again in a minute."
         }
         action={{ label: "Try again", onPress: onRetry }}
       />

@@ -244,11 +244,12 @@ function wait(ms: number, signal?: AbortSignal, onAbort?: () => void) {
 
 /**
  * Development builds only: how the stand-in search should fail, so the
- * calm states (offline, too many searches, unavailable, nothing found) can
- * be seen and tested, or answer with sermons but no moments in them
- * ("sermons_only"). Set `globalThis.__aaoSearchFault`; null answers.
+ * calm states (offline, over the caller's limit, busy for everyone,
+ * unavailable, nothing found) can be seen and tested, or answer with sermons
+ * but no moments in them ("sermons_only"). Set `globalThis.__aaoSearchFault`;
+ * null answers.
  */
-type SearchFault = "offline" | "rate_limited" | "unavailable" | "empty" | "sermons_only";
+type SearchFault = "offline" | "rate_limited" | "busy" | "unavailable" | "empty" | "sermons_only";
 function searchFault(): SearchFault | null {
   // (Unit tests run this file outside the app, where __DEV__ isn't defined.)
   if (typeof __DEV__ === "undefined" || !__DEV__) return null;
@@ -309,9 +310,13 @@ export async function fakeSearch(q: string, signal?: AbortSignal): Promise<Searc
   await wait(tookMs, signal, () => logSearch(query, "aborted"));
   const fault = searchFault();
   const care = searchFake().care ?? (inDistress(query) || MODEL_CARE.test(query));
-  if (fault === "rate_limited" || fault === "offline" || fault === "unavailable") {
+  if (fault === "rate_limited" || fault === "busy") {
     logSearch(query, "failed");
-    throw new LearningError(fault, undefined, fault === "rate_limited" ? 60 : undefined);
+    throw new LearningError("rate_limited", undefined, 60, fault === "busy" ? "everyone" : "caller");
+  }
+  if (fault === "offline" || fault === "unavailable") {
+    logSearch(query, "failed");
+    throw new LearningError(fault);
   }
   logSearch(query, "answered");
   if (fault === "empty")
