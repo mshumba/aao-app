@@ -287,7 +287,10 @@ test.describe("Apple's REST calls", () => {
 function standIns(options: {
   row?: TokenRow | null;
   due?: TokenRow[];
-  subs?: string[];
+  /** The account's Apple IDs; null once the account is gone. */
+  subs?: string[] | null;
+  /** What saving answers: false once the account is gone. */
+  saved?: boolean;
   exchange?: () => Promise<{ refreshToken: string; sub: string }>;
   revoke?: (clientId: string, token: string) => Promise<void>;
 }) {
@@ -299,9 +302,10 @@ function standIns(options: {
     },
     async save(userId, clientId, refreshToken) {
       steps.push(`save ${userId} ${clientId} ${refreshToken}`);
+      return options.saved ?? true;
     },
-    async remove(id) {
-      steps.push(`remove ${id}`);
+    async remove(id, refreshToken) {
+      steps.push(`remove ${id} ${refreshToken}`);
     },
     async failed(id, reason) {
       steps.push(`failed ${id} ${reason}`);
@@ -312,7 +316,7 @@ function standIns(options: {
     },
     async appleSubs(userId) {
       steps.push(`appleSubs ${userId}`);
-      return options.subs ?? ["001234.apple"];
+      return options.subs === undefined ? ["001234.apple"] : options.subs;
     },
   };
   const apple: Apple = {
@@ -370,10 +374,40 @@ test.describe("the apple-tokens function", () => {
     expect(unset.steps).toEqual([]);
   });
 
+  test("store: an account deleted while its code was on the way gets the new token revoked at once", async () => {
+    // Gone before the Apple IDs were looked up.
+    const before = standIns({ subs: null });
+    expect(await storeCode(before.apple, before.store, "user-1", "code-1")).toEqual({
+      ok: false,
+      error: "account_gone",
+      reason: "revoked",
+    });
+    expect(before.steps).toEqual(["exchange code-1", "appleSubs user-1", `revoke ${BUNDLE_ID} refresh-new`]);
+
+    // Gone between the look-up and saving (the row's foreign key refused it).
+    const between = standIns({ saved: false });
+    expect(await storeCode(between.apple, between.store, "user-1", "code-1")).toMatchObject({
+      error: "account_gone",
+    });
+    expect(between.steps).toEqual([
+      "exchange code-1",
+      "appleSubs user-1",
+      `save user-1 ${BUNDLE_ID} refresh-new`,
+      `revoke ${BUNDLE_ID} refresh-new`,
+    ]);
+
+    const down = standIns({ subs: null, revoke: () => Promise.reject(new AppleError("timeout")) });
+    expect(await storeCode(down.apple, down.store, "user-1", "code-1")).toEqual({
+      ok: false,
+      error: "account_gone",
+      reason: "timeout",
+    });
+  });
+
   test("revoke: Apple revokes the token before its row is deleted", async () => {
     const { steps, store, apple } = standIns({ row: ROW });
     expect(await revokeForDeletion(apple, store, "user-1")).toEqual({ revoked: true, stored: true });
-    expect(steps).toEqual(["find user-1", `revoke ${BUNDLE_ID} refresh-1`, "remove 7"]);
+    expect(steps).toEqual(["find user-1", `revoke ${BUNDLE_ID} refresh-1`, "remove 7 refresh-1"]);
   });
 
   test("revoke: an account that never stored a token is a quick no, without Apple", async () => {
@@ -420,17 +454,19 @@ test.describe("the apple-tokens function", () => {
     expect(steps.slice(1).sort()).toEqual(
       [
         `revoke ${BUNDLE_ID} refresh-a`,
-        "remove 1",
+        "remove 1 refresh-a",
         `revoke ${BUNDLE_ID} refresh-b`,
         "failed 2 http_503",
         "revoke com.mshumba.aao.web refresh-c",
-        "remove 3",
+        "remove 3 refresh-c",
       ].sort(),
     );
     // Each row is removed only after its own revocation.
     for (const id of [1, 3]) {
       const token = rows.find((row) => row.id === id)!.refresh_token;
-      expect(steps.findIndex((step) => step.endsWith(token))).toBeLessThan(steps.indexOf(`remove ${id}`));
+      expect(steps.indexOf(`revoke ${rows.find((row) => row.id === id)!.client_id} ${token}`)).toBeLessThan(
+        steps.indexOf(`remove ${id} ${token}`),
+      );
     }
   });
 
@@ -525,6 +561,57 @@ test.describe("the app's half", () => {
       },
     });
     expect(steps).toEqual(["revoke started", "revoke done", "delete_account"]);
+  });
+
+  test("deleting straight after signing in waits for the code on its way, then revokes", async () => {
+    const steps: string[] = [];
+    let arrive: () => void = () => {};
+    const storing = new Promise<boolean>((resolve) => {
+      arrive = () => {
+        steps.push("code stored");
+        resolve(true);
+      };
+    });
+    setTimeout(() => arrive(), 30);
+    await deleteInOrder({
+      storing,
+      revokeApple: async () => {
+        steps.push("revoke");
+      },
+      deleteAccount: async () => {
+        steps.push("delete_account");
+      },
+    });
+    expect(steps).toEqual(["code stored", "revoke", "delete_account"]);
+
+    // A code that never arrives holds the deletion up only so long.
+    steps.length = 0;
+    const started = Date.now();
+    await deleteInOrder({
+      storing: new Promise(() => {}),
+      waitMs: 50,
+      revokeApple: async () => {
+        steps.push("revoke");
+      },
+      deleteAccount: async () => {
+        steps.push("delete_account");
+      },
+    });
+    expect(steps).toEqual(["revoke", "delete_account"]);
+    expect(Date.now() - started).toBeLessThan(2000);
+
+    // A code that failed to send doesn't stop it either.
+    steps.length = 0;
+    await deleteInOrder({
+      storing: Promise.reject(new Error("offline")),
+      revokeApple: async () => {
+        steps.push("revoke");
+      },
+      deleteAccount: async () => {
+        steps.push("delete_account");
+      },
+    });
+    expect(steps).toEqual(["revoke", "delete_account"]);
   });
 
   test("the account is deleted even when revoking fails, and without it when there's no Apple ID", async () => {

@@ -13,16 +13,19 @@ export type TokenRow = { id: number; client_id: string; refresh_token: string };
 export type Store = {
   /** The account's stored token, if it has one. */
   find(userId: string): Promise<TokenRow | null>;
-  /** Keeps the newest token for the account, in place of any earlier one. */
-  save(userId: string, clientId: string, refreshToken: string): Promise<void>;
-  /** Forgets a token Apple has revoked. */
-  remove(id: number): Promise<void>;
+  /**
+   * Keeps the newest token for the account, in place of any earlier one.
+   * False when the account no longer exists.
+   */
+  save(userId: string, clientId: string, refreshToken: string): Promise<boolean>;
+  /** Forgets a token Apple has revoked, unless the row has since been given a newer one. */
+  remove(id: number, refreshToken: string): Promise<void>;
   /** Records a failed revocation (apple_tokens_failed): why, and when to try again. */
   failed(id: number, reason: string): Promise<void>;
   /** Up to `max` tokens of deleted accounts that are due another try (apple_tokens_due). */
   due(max: number): Promise<TokenRow[]>;
-  /** The Apple user IDs linked to the account. */
-  appleSubs(userId: string): Promise<string[]>;
+  /** The Apple user IDs linked to the account, or null when the account no longer exists. */
+  appleSubs(userId: string): Promise<string[] | null>;
 };
 
 /** Apple's REST API with the owner's key (apple.ts appleClient), or null when the secrets aren't set. */
@@ -39,14 +42,20 @@ function reasonFor(error: unknown): string {
   return typeof code === "string" && code ? code : "error";
 }
 
-export type StoreError = "invalid_code" | "identity_mismatch" | "apple_unavailable" | "not_configured";
+export type StoreError =
+  | "invalid_code"
+  | "identity_mismatch"
+  | "account_gone"
+  | "apple_unavailable"
+  | "not_configured";
 export type StoreResult = { ok: true } | { ok: false; error: StoreError; reason?: string };
 
 /**
  * After a native Sign in with Apple: swaps the authorization code for a
  * refresh token, checks the token belongs to an Apple ID linked to this
  * account, and keeps it. A code for anyone else's Apple ID is refused and
- * nothing is kept.
+ * nothing is kept. If the account was deleted while the code was on its way
+ * (deleting straight after signing in), the new token is revoked at once.
  */
 export async function storeCode(apple: Apple | null, store: Store, userId: string, code: string): Promise<StoreResult> {
   if (!apple) return { ok: false, error: "not_configured" };
@@ -60,9 +69,14 @@ export async function storeCode(apple: Apple | null, store: Store, userId: strin
     return { ok: false, error: reason === "invalid_grant" ? "invalid_code" : "apple_unavailable", reason };
   }
   const subs = await store.appleSubs(userId);
-  if (!subs.includes(exchanged.sub)) return { ok: false, error: "identity_mismatch" };
-  await store.save(userId, apple.clientId, exchanged.refreshToken);
-  return { ok: true };
+  if (subs && !subs.includes(exchanged.sub)) return { ok: false, error: "identity_mismatch" };
+  if (subs && (await store.save(userId, apple.clientId, exchanged.refreshToken))) return { ok: true };
+  // The account is gone, so nothing would revoke this token later.
+  const reason = await apple.revoke(apple.clientId, exchanged.refreshToken).then(
+    () => "revoked",
+    reasonFor,
+  );
+  return { ok: false, error: "account_gone", reason };
 }
 
 /**
@@ -85,7 +99,7 @@ async function revokeRow(apple: Apple | null, store: Store, row: TokenRow): Prom
     await store.failed(row.id, reason);
     return reason;
   }
-  await store.remove(row.id);
+  await store.remove(row.id, row.refresh_token);
   return null;
 }
 
