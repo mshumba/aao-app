@@ -71,11 +71,8 @@ export const PathCover = memo(function PathCover({
   length?: number | null;
   topInset: number;
   onLayout?: (e: LayoutChangeEvent) => void;
-  /**
-   * Where the kicker and title start and the title's last line ends, from
-   * the cover's top (for the pinned band).
-   */
-  onWordsLayout?: (words: { top: number; bottom: number }) => void;
+  /** The kicker and title's layout on the cover, where the title's last line ends (for the pinned header). */
+  onWordsLayout?: (e: LayoutChangeEvent) => void;
 }) {
   const { width } = useWindowDimensions();
   const scale = fanScale(width);
@@ -103,17 +100,7 @@ export const PathCover = memo(function PathCover({
     <View style={[styles.cover, { paddingTop: topInset + coverTop(width) }]} onLayout={onLayout} testID="path-cover">
       <Wash kind="pathCover" />
       <CardFan sermons={fan} size="cover" scale={scale} style={styles.fan} priority="high" dimBack />
-      <View
-        style={styles.text}
-        onLayout={
-          onWordsLayout
-            ? (e) => {
-                const { y, height } = e.nativeEvent.layout;
-                onWordsLayout({ top: y, bottom: y + height });
-              }
-            : undefined
-        }
-      >
+      <View style={styles.text} onLayout={onWordsLayout}>
         <Kicker tone="onMedia">{`${words.kind} · ${words.count(path.dayCount || total)}`}</Kicker>
         <ItalicTitle
           text={name.text}
