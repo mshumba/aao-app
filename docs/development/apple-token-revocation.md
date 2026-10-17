@@ -21,7 +21,7 @@ Apple's codes work once and expire after five minutes, so the app sends each cod
 2. The app calls `delete_account()`, which deletes the account and its data as before.
 3. The app signs out on the device.
 
-The account deleted is the one signed in when the viewer confirmed. Before steps 1 and 2 the app checks that account is still the one signed in on the device, and sends that account's own session token with each request. If someone else has signed in meanwhile, nothing is revoked or deleted. The delete screen can't be left while this runs.
+The account deleted is the one signed in when the viewer confirmed. Before steps 1 and 2 the app checks that account is still the one signed in on the device, and sends that account's own session token with each request. If someone else has signed in meanwhile, nothing is revoked or deleted. The delete screen's Back and the iOS swipe are off while this runs; Android's back button and the browser's can still leave it, and the deletion then finishes in the background, still checked against the same account.
 
 Revoking can only delay a deletion, never stop it. If Apple can't be reached, refuses, or the function fails or isn't deployed, the account is still deleted:
 

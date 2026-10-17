@@ -432,7 +432,7 @@ test.describe("the apple-tokens function", () => {
       `orphan ${BUNDLE_ID} refresh-new invalid_client`,
     ]);
 
-    // Keeping it failing too still answers.
+    // Keeping it failing too still answers, and the log says it was lost.
     const stuck = standIns({
       subs: null,
       revoke: () => Promise.reject(new AppleError("network")),
@@ -441,7 +441,7 @@ test.describe("the apple-tokens function", () => {
     expect(await storeCode(stuck.apple, stuck.store, "user-1", "code-1")).toEqual({
       ok: false,
       error: "account_gone",
-      reason: "network",
+      reason: "network, not kept",
     });
     expect(stuck.steps.at(-1)).toBe(`orphan ${BUNDLE_ID} refresh-new network`);
   });

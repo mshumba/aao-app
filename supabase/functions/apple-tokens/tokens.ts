@@ -82,8 +82,11 @@ export async function storeCode(apple: Apple | null, store: Store, userId: strin
     () => "revoked",
     reasonFor,
   );
-  if (reason !== "revoked") await store.orphan(apple.clientId, exchanged.refreshToken, reason).catch(() => {});
-  return { ok: false, error: "account_gone", reason };
+  if (reason === "revoked") return { ok: false, error: "account_gone", reason };
+  // Kept for the sweep; if even that fails, say so, since the token is then
+  // neither revoked nor kept.
+  const kept = await store.orphan(apple.clientId, exchanged.refreshToken, reason).then(() => true, () => false);
+  return { ok: false, error: "account_gone", reason: kept ? reason : `${reason}, not kept` };
 }
 
 /**
