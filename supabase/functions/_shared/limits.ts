@@ -22,7 +22,12 @@ export const LIMIT_DEFAULTS = {
   /** quotes calls an hour that reach the model, everyone together: about $4.80 an hour at most. */
   QUOTES_GLOBAL_PER_HOUR: 600,
   QUOTES_USER_PER_5MIN: 30,
-  QUOTES_GUEST_PER_5MIN: 120,
+  /**
+   * Per guest address: 360 an hour, so no one address can use up everyone's
+   * allowance (and the archive's one-time quoting) alone. Past it, moments show
+   * without a quote.
+   */
+  QUOTES_GUEST_PER_5MIN: 30,
 } as const;
 
 export type LimitName = keyof typeof LIMIT_DEFAULTS;

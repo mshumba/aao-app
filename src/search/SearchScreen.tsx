@@ -128,7 +128,7 @@ type Row =
   | { key: string; kind: "moment"; moment: SearchMoment; pending: boolean; saved: boolean; continued: boolean; lead: boolean }
   | { key: string; kind: "also"; moment: SearchMoment; first: boolean }
   | { key: string; kind: "state"; state: "offline" | "rate_limited" | "unavailable" | "empty"; q: string }
-  | { key: string; kind: "care"; retry: boolean }
+  | { key: string; kind: "care" }
   | { key: string; kind: "note"; text: string };
 
 /** A row of a result set rises in with the rest (`reveal` staggers a moment card). */
@@ -440,7 +440,7 @@ function SearchView({ initialQuery, unknownTopic }: { initialQuery: string; unkn
             : sermonsFound
               ? `${sermonCount(sermonsFound)} found`
               : care
-                ? careText.empty
+                ? careText.failed
                 : `Nothing found for ${asked} yet`
           : result.status === "error"
             ? care
@@ -592,7 +592,7 @@ function SearchView({ initialQuery, unknownTopic }: { initialQuery: string; unkn
     if (result.status === "error") {
       // Someone in distress gets one calm line, never other needs or titles.
       if (care) {
-        out.push({ key: "care", kind: "care", retry: true });
+        out.push({ key: "care", kind: "care" });
         return out;
       }
       const code = errorCode(result.error);
@@ -658,8 +658,10 @@ function SearchView({ initialQuery, unknownTopic }: { initialQuery: string; unkn
       });
       found.forEach((sermon, i) => out.push({ key: `f-${sermon.youtubeId}`, kind: "found", sermon, first: i === 0 }));
     }
+    // A care answer always holds the comfort list; one with nothing in it means
+    // search was down, so it says so and offers Try again.
     if (!data.moments.length && !found.length && !listed.size)
-      out.push(care ? { key: "care", kind: "care", retry: false } : { key: "state", kind: "state", state: "empty", q: asked });
+      out.push(care ? { key: "care", kind: "care" } : { key: "state", kind: "state", state: "empty", q: asked });
     // The result set rises in as one.
     return out.map((item) => (item.reveal === undefined ? { ...item, reveal: 0 } : item));
   }, [mode, typed, trimmed, titles, showTitles, limit, needs, allNeeds, recent.recent, emptyPaths, result.status, result.error, result.pendingQuotes, data, care, pathCard, asked, isSaved, needFor, titleKeys, needKeys]);
@@ -1147,7 +1149,7 @@ function rowFor(item: Item, actions: RowActions) {
     case "note":
       return <Note>{item.text}</Note>;
     case "care":
-      return <CareCalm onRetry={item.retry ? actions.retry : undefined} />;
+      return <CareCalm onRetry={actions.retry} />;
     case "state":
       return (
         <SearchProblem

@@ -1,4 +1,5 @@
-// POST /functions/v1/search {"q": "I keep going back to the same sin"}
+// POST /functions/v1/search {"q": "I keep going back to the same sin", "accept": ["titles"]}
+// ("accept" is optional: see "When OpenAI fails" below.)
 //
 // Need-based search over the sermon passages (see migrations need_search,
 // search_polish and search_safety, and supabase/functions/README.md). In order:
@@ -12,7 +13,8 @@
 //      limits (_shared/limits.ts: the caller's own allowance, then everyone's).
 //      Someone in distress is never refused: their search counts only against
 //      an allowance for the model's reading, and past it they get the care
-//      answer without the model. A cached answer without care is never served
+//      answer without the model (the same for every question, so cached once
+//      under CARE_DEFAULT_KEY). A cached answer without care is never served
 //      to them. The published needs and guided paths load meanwhile;
 //   3a. a need chip (q is a published need's label or short name): its fixed
 //      teaching phrase and its label are searched with their stored embeddings
@@ -33,7 +35,8 @@
 // When OpenAI fails: a chip answers with the need's curated moments (public
 // .moments), someone in distress with the comfort list or else the curated
 // moments of the comforting needs, anything else with sermon-title matches
-// (fallback: "titles"). None of these is cached. If the chat model alone fails
+// (fallback: "titles") when the app asks for them ({"accept": ["titles"]}),
+// otherwise a 503. None of these is cached. If the chat model alone fails
 // (and there is no distress), search answers from the question alone (theme =
 // the question, no related needs, no path) and isn't cached.
 // POST {"warm": true} with the project's secret key as the bearer token stores
@@ -76,6 +79,12 @@ const CACHE_SECONDS = 24 * 60 * 60;
 // v5 (search safety): the distress list's version in the key, so an answer
 // given under an older list isn't served once the list changes.
 const CACHE_PREFIX = `search:v5:d${DISTRESS_LIST_VERSION}:`;
+/**
+ * The care answer without the model (someone in distress past the limits) is
+ * the same whatever they typed, so it is cached once, under this key: each such
+ * search then costs one cache read, never a comfort-list search of its own.
+ */
+const CARE_DEFAULT_KEY = `${CACHE_PREFIX}care-default`;
 /** Stored embeddings are used only when made the way passages were embedded. */
 const VECTOR_MODEL = `${EMBEDDING_MODEL}@${EMBEDDING_DIMENSIONS}`;
 const RRF_K = 60;
@@ -148,7 +157,8 @@ type SearchResponse = {
   /**
    * Set when nothing could be searched by meaning (OpenAI failed or, for a
    * chip, the limits stopped it): "curated", the needs' hand-picked moments;
-   * "titles", sermons whose titles match the words (moments: 0 on each).
+   * "titles", sermons whose titles match the words (moments: 0 on each), only
+   * for a request with "accept": ["titles"].
    */
   fallback?: "curated" | "titles";
   cached: boolean;
@@ -287,6 +297,23 @@ async function open(
   );
   if (error || !data) throw new Error(`search_open: ${error?.code ?? ""} ${error?.message ?? "no answer"}`);
   return data as Opened;
+}
+
+/** A cached answer under 24 hours old, by its key; null when there is none (or the read failed). */
+async function readCache(key: string, onRetry: OnRetry): Promise<SearchResponse | null> {
+  const fresh = new Date(Date.now() - CACHE_SECONDS * 1000).toISOString();
+  const { data, error } = await withRetry(
+    () =>
+      admin()
+        .from("search_cache")
+        .select("response")
+        .eq("key", key)
+        .gte("created_at", fresh)
+        .abortSignal(dbTimeout(3000)),
+    () => onRetry("cache"),
+  );
+  const found = error ? null : (data as { response: unknown }[] | null)?.[0]?.response;
+  return found && typeof found === "object" ? (found as SearchResponse) : null;
 }
 
 async function writeCache(key: string, response: SearchResponse): Promise<void> {
@@ -888,6 +915,9 @@ Deno.serve(async (req) => {
   // Before anything else, so the limits never stand between someone in
   // distress and help.
   const distress = readDistress(q);
+  // Title matches are sent only to an app that asks for them: an older build
+  // would list them as results, each with "0 moments on this".
+  const acceptsTitles = Array.isArray(body?.accept) && body.accept.includes("titles");
 
   const log: Record<string, unknown> = { fn: "search" };
   if (distress) log.distress = distress;
@@ -911,11 +941,14 @@ Deno.serve(async (req) => {
         })
         : [];
       // Someone in distress gets an answer even with nothing to show, so the
-      // app can still offer help. Anyone else gets title matches, or a 503.
-      const titles = moments.length || found.reading.care ? [] : await titleMatches(q, onRetry).catch((error) => {
-        log.titles_error = errorText(error);
-        return [] as Sermon[];
-      });
+      // app can still offer help. Anyone else gets title matches (when the app
+      // asked for them), or a 503.
+      const titles = moments.length || found.reading.care || !acceptsTitles
+        ? []
+        : await titleMatches(q, onRetry).catch((error) => {
+          log.titles_error = errorText(error);
+          return [] as Sermon[];
+        });
       if (!moments.length && !titles.length && !found.reading.care) {
         console.error(JSON.stringify({ ...log, failed: true, ms: since(), steps: run.ms, retries }));
         return json(req, 503, { error: "unavailable" });
@@ -938,6 +971,23 @@ Deno.serve(async (req) => {
     return json(req, 200, { ...result, cached: false, tookMs });
   };
 
+  /**
+   * The care answer without the model, from its one cache entry
+   * (CARE_DEFAULT_KEY), else searched and stored there once the comfort list
+   * has been found.
+   */
+  const careDefault = async (needsP: Promise<NeedInfo[]>, careVector: string | null | undefined) => {
+    const known = await readCache(CARE_DEFAULT_KEY, onRetry);
+    if (known?.care === true) {
+      const tookMs = since();
+      console.log(JSON.stringify({ ...log, cached: true, ms: tookMs, ...(retries.length ? { retries } : {}) }));
+      return json(req, 200, { ...known, query: q, cached: true, tookMs });
+    }
+    const found = await careWithoutModel(await needsP, run, careVector);
+    // `complete` only for this entry: the question's own key keeps waiting for the model's reading.
+    return await respond({ ...found, complete: found.lists.some((l) => l.rows.length > 0) }, CARE_DEFAULT_KEY);
+  };
+
   try {
     const needsP = loadNeeds(onRetry).catch(() => [] as NeedInfo[]);
     const pathsP = loadPaths(onRetry).catch(() => [] as PathInfo[]);
@@ -954,7 +1004,7 @@ Deno.serve(async (req) => {
       // whose words say it (one cached before the list knew their wording).
       if (distress === "care" && !begun.cached.care) {
         log.recheck = true;
-        return await respond(await careWithoutModel(await needsP, run, undefined), null);
+        return await careDefault(needsP, undefined);
       }
       // Quotes found since the answer was cached are added on the way out.
       const moments = (begun.cached.moments ?? []).map((m) => {
@@ -974,7 +1024,7 @@ Deno.serve(async (req) => {
       // search is busy.
       if (distress) {
         log.limited = "care";
-        return await respond(await careWithoutModel(await needsP, run, begun.care_vector), null);
+        return await careDefault(needsP, begun.care_vector);
       }
       const needs = await needsP;
       const need = needFor(norm, needs);
@@ -998,6 +1048,13 @@ Deno.serve(async (req) => {
     const need = distress === "care"
       ? null
       : (stored && needs.find((n) => n.id === stored.id && n.query)) || needFor(norm, needs);
+    if (stored && !need) {
+      // A chip search_open let through uncounted, but the needs didn't load:
+      // its curated moments (or a 503), never an uncounted search with the model.
+      log.need = stored.id;
+      const reading = { theme: fallbackTheme(q), related: [], path: null, care: false };
+      return await respond({ reading, lists: [], complete: false, curated: [stored.id] }, null);
+    }
     if (need) log.need = need.id;
     const found = need
       ? await needSearch(need, needs, paths, run, stored?.id === need.id ? stored : undefined)

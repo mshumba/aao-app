@@ -17,6 +17,11 @@ Deno.test("search: the caller's own allowance, then everyone's, with the documen
   assertEquals(quotesLimits({ key: "quotes:u:1", signedIn: true }).map((l) => l.max), [30, 600]);
 });
 
+Deno.test("quotes: one guest address can't use up everyone's allowance alone", () => {
+  const [own, all] = quotesLimits({ key: "quotes:ip:abc", signedIn: false });
+  assertEquals(own.max * (all.windowSeconds / own.windowSeconds) < all.max, true);
+});
+
 Deno.test("limits: a secret overrides a default; a bad value doesn't", () => {
   Deno.env.set("SEARCH_GLOBAL_PER_HOUR", "5000");
   Deno.env.set("SEARCH_GUEST_PER_5MIN", "nonsense");
