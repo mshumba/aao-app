@@ -25,8 +25,6 @@ test("the moments are listed in order with his words", async ({ page }) => {
     "24 minutes 58 seconds. Temptation is personal. “Temptation is idiosyncratic; temptation is particular to you.”",
   );
   await expect(section.getByTestId("moment-row").first()).toContainText("24:58");
-  // The band under the poster says so too.
-  await expect(page.getByText("4 moments marked", { exact: true })).toBeVisible();
 });
 
 test("tapping a moment starts the sermon there, and the next one is coming up", async ({

@@ -1,161 +1,187 @@
 import { useIsFocused } from "expo-router";
-import { memo, useEffect, useRef, useState, type Ref } from "react";
-import { Platform, Pressable, StyleSheet, View } from "react-native";
-import Animated from "react-native-reanimated";
+import { memo, useEffect, useRef, type Ref } from "react";
+import { Platform, StyleSheet, View } from "react-native";
 import { headline } from "../data/display";
 import type { Sermon } from "../data/sermons";
-import { Artwork, RoundButton } from "../kit";
-import { STAGE_BAR } from "../player/layout";
-import { usePlayerSession } from "../player/PlayerProvider";
+import { Artwork, clockText, leftText, spokenTime } from "../kit";
+import { bumpStageFocusToggle, type StageMarks } from "../player/layout";
+import { clock, usePlayerSession } from "../player/PlayerProvider";
 import { canRetry, canWatchOnYouTube, playerError } from "../player/types";
-import { useGo } from "../navigation";
-import { c, easeOut, gradients, radius, space, type } from "../theme";
+import { c, font, radius, shadows, space, tabular, textCap, type } from "../theme";
 import { Icon, T, Tap, gradient, moveFocus, web, type IconName } from "../ui";
 
-/**
- * The stage's top bar, between the status bar and the video: Back (a
- * chevron down, as the concept draws it) and "…". It sits above the video,
- * never over it, so YouTube's own controls are always reachable.
- */
-export const StageBar = memo(function StageBar({
-  width,
-  skipToPlayer,
-  onMore,
-  moreRef,
-  title,
-  titleShown = false,
-}: {
-  width: number;
-  /** Web: offer a skip link to the playing video, right after Back. */
-  skipToPlayer: boolean;
-  onMore: () => void;
-  moreRef?: Ref<View>;
-  /** The headline, faded into the bar once the page's title has scrolled under it. */
-  title?: string;
-  titleShown?: boolean;
-}) {
-  const go = useGo();
-  return (
-    <View style={[styles.bar, { width }]} {...web({ dataSet: { dark: "true" } })}>
-      <RoundButton tone="glass" size={40} icon="chevron-down" iconSize={20} label="Back" onPress={go.back} />
-      {skipToPlayer && Platform.OS === "web" ? <SkipToPlayer /> : null}
-      <View style={styles.barTitleSlot} accessible={false} importantForAccessibility="no-hide-descendants">
-        {title ? (
-          <Animated.View
-            style={{
-              // Stretched to the slot, so a long title ends in an ellipsis
-              // instead of running under Back and More options.
-              alignSelf: "stretch",
-              opacity: titleShown ? 1 : 0,
-              transitionProperty: "opacity",
-              transitionDuration: 200,
-              transitionTimingFunction: easeOut,
-            }}
-          >
-            <T style={styles.barTitle} numberOfLines={1} aria-hidden maxFontSizeMultiplier={1.2}>
-              {title}
-            </T>
-          </Animated.View>
-        ) : null}
-      </View>
-      <View ref={moreRef} collapsable={false}>
-        <RoundButton
-          tone="glass"
-          size={40}
-          icon="ellipsis-horizontal"
-          iconSize={18}
-          label="More options"
-          onPress={onMore}
-        />
-      </View>
-    </View>
-  );
-});
+const BOTTOM_SCRIM =
+  "linear-gradient(0deg, rgba(15, 17, 21, 0.78) 0%, rgba(15, 17, 21, 0.34) 60%, rgba(15, 17, 21, 0) 100%)";
 
 /**
- * The video player comes last in keyboard order, since it floats above every
- * screen. This link, shown when focused, jumps straight to it.
- */
-function SkipToPlayer() {
-  const { focusPlayer } = usePlayerSession();
-  const [focused, setFocused] = useState(false);
-  return (
-    <Tap
-      accessibilityRole="button"
-      accessibilityLabel="Go to video player"
-      onPress={focusPlayer}
-      onFocus={() => setFocused(true)}
-      onBlur={() => setFocused(false)}
-      feedback="dim"
-      style={[styles.skipLink, !focused && styles.offscreen]}
-    >
-      <T style={styles.skipLinkText}>Go to video player</T>
-    </Tap>
-  );
-}
-
-/**
- * The sermon's artwork where the video will play, with a 52pt glass play
- * disc in its lower-left corner, clear of the poster's own lettering. The
- * art always fills the frame: where YouTube's 200pt minimum makes the frame
- * taller than 16:9 (a narrow phone), it's drawn at the frame's height and
- * its sides are clipped, never left with bars. Tapping it starts the
- * sermon, like the Watch pill below it; the pill is the one control
- * assistive technology meets, so this stays out of the accessibility tree.
+ * The sermon's 16:9 poster before the player loads: shows the artwork, the
+ * centred 64pt white Play disc, a single Resume / Play-from badge when
+ * applicable, and the bottom progress rail with gold moment dots. Serves as
+ * the single accessible call to play ("Watch sermon", "Resume at 4:10", or
+ * "Play from 1 hour 8 minutes 40 seconds").
  */
 export const Poster = memo(function Poster({
   sermon,
   width,
   height,
   radius: corner,
+  startAt = null,
+  resumeAt = 0,
+  watched = 0,
+  left = 0,
+  guest = false,
+  marks,
   onPress,
 }: {
   sermon: Sermon;
   width: number;
   height: number;
   radius: number;
+  startAt?: number | null;
+  resumeAt?: number;
+  watched?: number;
+  left?: number;
+  guest?: boolean;
+  marks?: StageMarks;
   onPress: () => void;
 }) {
   const artWidth = Math.max(width, Math.round((height * 16) / 9));
+  const ask = guest ? "Asks you to create a free account first" : undefined;
+
+  let accessibilityLabel = "Watch sermon";
+  let accessibilityHint = ask ?? "Starts the sermon in the YouTube player";
+  let badgeText: string | null = null;
+
+  if (startAt != null) {
+    accessibilityLabel = `Play from ${spokenTime(startAt)}`;
+    accessibilityHint = ask ?? `Starts the sermon at ${spokenTime(startAt)}`;
+    badgeText = `Play from ${clockText(startAt)}`;
+  } else if (resumeAt > 0) {
+    accessibilityLabel = `Resume at ${clock(resumeAt)}`;
+    accessibilityHint = ask ?? "Plays the sermon from where you left off";
+    badgeText = left > 0 ? `Resume · ${leftText(left)}` : "Resume";
+  }
+
+  const total = marks?.estimate || 0;
+  const fillFraction =
+    startAt != null && total > 0
+      ? Math.min(1, Math.max(0, startAt / total))
+      : watched > 0
+        ? Math.min(1, Math.max(0, watched))
+        : 0;
+  const remainingAtStart = startAt != null && total > startAt ? total - startAt : null;
+
   return (
-    <Pressable
-      onPress={onPress}
-      accessible={false}
-      focusable={false}
-      importantForAccessibility="no-hide-descendants"
-      {...web({ "aria-hidden": true, tabIndex: -1 })}
-      style={{ width, height, borderRadius: corner, overflow: "hidden" }}
+    <View
+      style={{ width, height, borderRadius: corner, overflow: "hidden", backgroundColor: c.media }}
+      {...web({ dataSet: { dark: "true" } })}
     >
-      {({ pressed }) => (
-        <>
-          <Artwork
-            art={sermon}
-            width={artWidth}
-            radius={corner}
-            lift="none"
-            priority="high"
-            fallback={headline(sermon)}
-            style={{ width: artWidth, height, marginLeft: (width - artWidth) / 2 }}
-          />
-          <View style={[StyleSheet.absoluteFill, gradient(gradients.videoShade), { pointerEvents: "none" }]} />
-          <Animated.View
-            style={[
-              styles.disc,
-              {
-                transform: [{ scale: pressed ? 0.94 : 1 }],
-                transitionProperty: "transform",
-                transitionDuration: 120,
-                transitionTimingFunction: easeOut,
-              },
-            ]}
-          >
-            <View style={{ marginLeft: 2 }}>
-              <Icon name="play" size={22} color={c.white} />
+      <View
+        style={StyleSheet.absoluteFill}
+        accessible={false}
+        importantForAccessibility="no-hide-descendants"
+        {...web({ "aria-hidden": true, pointerEvents: "none" })}
+      >
+        <Artwork
+          art={sermon}
+          width={artWidth}
+          radius={corner}
+          lift="none"
+          priority="high"
+          fallback={headline(sermon)}
+          style={{ width: artWidth, height, marginLeft: (width - artWidth) / 2 }}
+        />
+        <View style={[styles.bottomScrim, gradient(BOTTOM_SCRIM)]} />
+      </View>
+
+      {/* Primary accessible play button covering the stage */}
+      <Tap
+        accessibilityRole="button"
+        accessibilityLabel={accessibilityLabel}
+        accessibilityHint={accessibilityHint}
+        onPress={onPress}
+        feedback="scale"
+        style={styles.posterButton}
+      >
+        {/* Centred 64pt white Play disc + single Resume / Play-from badge */}
+        <View
+          style={styles.centerStack}
+          accessible={false}
+          importantForAccessibility="no-hide-descendants"
+          {...web({ "aria-hidden": true })}
+        >
+          <View style={styles.playDisc}>
+            <View style={{ transform: [{ translateX: 2 }] }}>
+              <Icon name="play" size={28} color={c.media} />
             </View>
-          </Animated.View>
-        </>
-      )}
-    </Pressable>
+          </View>
+          {badgeText ? (
+            <View style={styles.badgePill}>
+              <T style={styles.badgeText} maxFontSizeMultiplier={textCap.chip}>
+                {badgeText}
+              </T>
+            </View>
+          ) : null}
+        </View>
+
+        {/* Bottom rail with gold moment dots and saved progress fill */}
+        <View style={styles.bottomArea}>
+          {startAt != null ? (
+            <View
+              style={styles.timesPreviewRow}
+              accessible={false}
+              importantForAccessibility="no-hide-descendants"
+              {...web({ "aria-hidden": true })}
+            >
+              <T style={styles.previewTimeText}>{clockText(startAt)}</T>
+              {remainingAtStart != null ? (
+                <T style={styles.previewTimeText}>{`−${clockText(remainingAtStart)}`}</T>
+              ) : null}
+            </View>
+          ) : null}
+
+          <View
+            style={styles.bottomBar}
+            accessible={false}
+            importantForAccessibility="no-hide-descendants"
+            {...web({ "aria-hidden": true })}
+          >
+            <View
+              testID={resumeAt > 0 ? "progress-bar" : undefined}
+              style={styles.previewRail}
+            >
+              <View
+                style={[
+                  styles.previewFill,
+                  { width: `${Math.round(fillFraction * 100)}%` },
+                ]}
+              />
+              {total > 0 &&
+                marks?.moments.map((m) => {
+                  const f = Math.min(1, Math.max(0, m.at / total));
+                  return (
+                    <View
+                      key={m.key}
+                      style={[
+                        styles.previewDot,
+                        { left: `${Math.round(f * 1000) / 10}%` },
+                      ]}
+                    />
+                  );
+                })}
+              {fillFraction > 0 ? (
+                <View
+                  style={[
+                    styles.previewThumb,
+                    { left: `${Math.round(fillFraction * 1000) / 10}%` },
+                  ]}
+                />
+              ) : null}
+            </View>
+          </View>
+        </View>
+      </Tap>
+    </View>
   );
 });
 
@@ -196,7 +222,16 @@ export function ErrorSlot({ width, height }: { width: number; height: number }) 
       </View>
       <View style={styles.errorActions}>
         {retry && (
-          <SlotButton ref={primary} label="Try again" icon="refresh" primary onPress={session.retry} />
+          <SlotButton
+            ref={primary}
+            label="Try again"
+            icon="refresh"
+            primary
+            onPress={() => {
+              bumpStageFocusToggle();
+              session.retry();
+            }}
+          />
         )}
         {canWatchOnYouTube(code) && (
           <SlotButton
@@ -242,53 +277,105 @@ function SlotButton({
 }
 
 const styles = StyleSheet.create({
-  bar: {
-    height: STAGE_BAR,
-    paddingBottom: STAGE_BAR - 44,
-    paddingHorizontal: space.lg,
+  bottomScrim: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 76,
+  },
+  posterButton: {
+    ...StyleSheet.absoluteFill,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  centerStack: {
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+  },
+  playDisc: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: c.white,
+    alignItems: "center",
+    justifyContent: "center",
+    boxShadow: "0 4px 18px rgba(0, 0, 0, 0.32)",
+  },
+  badgePill: {
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: radius.pill,
+    backgroundColor: "rgba(15, 17, 21, 0.68)",
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.24)",
+  },
+  badgeText: {
+    fontFamily: font.semibold,
+    fontSize: 12,
+    lineHeight: 16,
+    color: c.white,
+    ...tabular,
+  },
+  bottomArea: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    paddingHorizontal: space.md,
+    paddingBottom: space.sm,
+    gap: 6,
+  },
+  timesPreviewRow: {
     flexDirection: "row",
     alignItems: "center",
-    alignSelf: "center",
+    justifyContent: "space-between",
   },
-  skipLink: {
-    position: "absolute",
-    top: 0,
-    left: 64,
-    minHeight: 44,
-    justifyContent: "center",
-    paddingHorizontal: space.md,
-    borderRadius: radius.pill,
-    backgroundColor: c.raised,
-    zIndex: 2,
+  previewTimeText: {
+    fontFamily: font.bold,
+    fontSize: 12,
+    lineHeight: 16,
+    color: c.white,
+    ...tabular,
   },
-  skipLinkText: { ...type.label, color: c.accent },
-  // Off the page until focused (opacity on a Tap would be overridden by its
-  // own press styles, leaving a dot showing).
-  offscreen: {
-    position: "absolute",
-    left: -10000,
-    width: 1,
-    height: 1,
-    minHeight: 1,
-    paddingHorizontal: 0,
-    overflow: "hidden",
-  },
-  barTitleSlot: { flex: 1, minWidth: 0, paddingHorizontal: 12, alignItems: "center" },
-  barTitle: { ...type.label, color: c.white, textAlign: "center" },
-  // Glass, like the stage's round buttons, 16pt in from the frame's corner.
-  disc: {
-    position: "absolute",
-    left: space.lg,
-    bottom: space.lg,
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: c.glass,
-    borderWidth: 1,
-    borderColor: c.glassBorder,
+  bottomBar: {
+    flexDirection: "row",
     alignItems: "center",
+    minHeight: 16,
+  },
+  previewRail: {
+    flex: 1,
+    height: 5,
+    borderRadius: radius.pill,
+    backgroundColor: "rgba(255, 255, 255, 0.28)",
     justifyContent: "center",
-    pointerEvents: "none",
+  },
+  previewFill: {
+    height: 5,
+    borderRadius: radius.pill,
+    backgroundColor: "#4d84d6",
+  },
+  previewDot: {
+    position: "absolute",
+    top: -0.5,
+    marginLeft: -3,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: c.goldOnMedia,
+  },
+  previewThumb: {
+    position: "absolute",
+    top: -4.5,
+    marginLeft: -7,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: c.goldOnMedia,
+    borderWidth: 2,
+    borderColor: c.white,
+    boxShadow: shadows.knob,
   },
   // On the stage, where the video was: a quiet panel, white words.
   error: {

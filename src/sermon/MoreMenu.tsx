@@ -1,90 +1,8 @@
-import { memo, useEffect, useRef } from "react";
-import { Modal, Platform, Pressable, StyleSheet, View } from "react-native";
+import { memo } from "react";
+import { StyleSheet, View } from "react-native";
 import { CardFan, Kicker, type ArtSource } from "../kit";
-import { c, radius, shadows, space, type } from "../theme";
-import { Icon, T, Tap, moveFocus, nowrap, type IconName } from "../ui";
-import { RouteIcon } from "../kit/RouteIcon";
-
-/** `icon: "route"`: the Paths tab's own glyph. */
-export type MenuItem = { key: string; label: string; icon: IconName | "route"; onPress: () => void };
-
-/**
- * The stage's "…": a small menu under the button (Open in YouTube, the
- * path, About this sermon). A tap outside, Escape or Back closes it.
- */
-export const MoreMenu = memo(function MoreMenu({
-  visible,
-  onClose,
-  items,
-  top,
-  right,
-}: {
-  visible: boolean;
-  onClose: () => void;
-  items: MenuItem[];
-  top: number;
-  right: number;
-}) {
-  const first = useRef<View>(null);
-  const close = useRef(onClose);
-  useEffect(() => {
-    close.current = onClose;
-  }, [onClose]);
-  useEffect(() => {
-    if (!visible) return;
-    const id = setTimeout(() => moveFocus(first.current), 50);
-    // Web: Escape closes it wherever focus is, even before focus moves in.
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") close.current();
-    };
-    if (Platform.OS === "web") document.addEventListener("keydown", onKey);
-    return () => {
-      clearTimeout(id);
-      if (Platform.OS === "web") document.removeEventListener("keydown", onKey);
-    };
-  }, [visible]);
-  return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="fade"
-      onRequestClose={onClose}
-      onShow={() => moveFocus(first.current)}
-      statusBarTranslucent
-    >
-      <Pressable
-        style={StyleSheet.absoluteFill}
-        onPress={onClose}
-        accessibilityRole="button"
-        accessibilityLabel="Close menu"
-      />
-      <View style={[styles.menu, { top, right }]} accessibilityRole="menu" accessibilityLabel="More options">
-        {items.map((item, i) => (
-          <Tap
-            key={item.key}
-            ref={i === 0 ? first : undefined}
-            accessibilityRole="menuitem"
-            accessibilityLabel={item.label}
-            onPress={() => {
-              onClose();
-              item.onPress();
-            }}
-            feedback="highlight"
-            highlightColor={c.feature}
-            style={styles.item}
-          >
-            {item.icon === "route" ? (
-              <RouteIcon size={20} color={c.accent} />
-            ) : (
-              <Icon name={item.icon} size={20} color={c.accent} />
-            )}
-            <T style={styles.label}>{item.label}</T>
-          </Tap>
-        ))}
-      </View>
-    </Modal>
-  );
-});
+import { c, radius, type } from "../theme";
+import { Icon, T, Tap, nowrap } from "../ui";
 
 /**
  * "Part of Apostolic Shift" on the panel when the sermon isn't a path day:
@@ -131,24 +49,6 @@ export const SeriesRow = memo(function SeriesRow({
 });
 
 const styles = StyleSheet.create({
-  menu: {
-    position: "absolute",
-    minWidth: 232,
-    maxWidth: 300,
-    padding: 6,
-    borderRadius: radius.lg,
-    backgroundColor: c.raised,
-    boxShadow: shadows.floating,
-  },
-  item: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: space.md,
-    minHeight: 48,
-    paddingHorizontal: 14,
-    borderRadius: radius.md,
-  },
-  label: { ...type.label, color: c.text, flexShrink: 1 },
   row: {
     flexDirection: "row",
     alignItems: "center",

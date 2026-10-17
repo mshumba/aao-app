@@ -1,8 +1,10 @@
 import { usePathname } from "expo-router";
+import { StatusBar } from "expo-status-bar";
 import { useEffect } from "react";
 import {
   AccessibilityInfo,
   ActivityIndicator,
+  BackHandler,
   Platform,
   StyleSheet,
   View,
@@ -21,6 +23,7 @@ import {
   TextButton,
   Thumbnail,
   c,
+  moveFocus,
   s,
   web,
 } from "../ui";
@@ -28,12 +31,18 @@ import Embed from "./Embed";
 import {
   DOCK_MARGIN,
   DOCK_PAD,
+  clearStageFocusToggle,
+  consumeStageFocusToggle,
   dockFrame,
   fullFrame,
   setChrome,
+  setStageOverlay,
+  stageToggleRef,
   useChrome,
+  useStageOverlay,
 } from "./layout";
-import { clock, usePlayback, usePlayerSession } from "./PlayerProvider";
+import { BLOCKED, STILL, clock, usePlayback, usePlayerSession } from "./PlayerProvider";
+import { VideoOverlay } from "./stage/VideoOverlay";
 import { headline } from "../data/display";
 import { canRetry, playerError } from "./types";
 import { useDayDoneNotice } from "./dayDone";
@@ -52,10 +61,22 @@ export function PlayerHost() {
   const insets = useSafeAreaInsets();
   const aboveTabs = useDockAboveTabs();
   const chrome = useChrome();
+  const overlay = useStageOverlay();
   const { sermon, phase, cover, attempt, start, attach, onEvent, hold } =
     session;
   const pathname = usePathname();
   const full = !!sermon && session.stage === sermon.id;
+  const isFullscreen = full && overlay.fullscreen;
+  const rotateFullscreen = isFullscreen && window.height > window.width;
+  const nativeSafeSpan =
+    Platform.OS !== "web" && rotateFullscreen
+      ? Math.min(
+          window.height - (insets.top > 0 ? insets.top + 4 : 0) - insets.bottom,
+          Math.ceil(window.width * (16 / 9)),
+        )
+      : window.height;
+  const fsWidth = rotateFullscreen ? nativeSafeSpan : window.width;
+  const fsHeight = rotateFullscreen ? window.width : window.height;
   const d = dockFrame(window, insets, aboveTabs, chrome);
   const hidden = !!sermon && !full && d.compact;
   // The room screens keep below their content so it scrolls clear of the dock.
@@ -67,14 +88,43 @@ export function PlayerHost() {
   useEffect(() => {
     if (hidden || covered) hold();
   }, [hidden, covered, hold]);
+  // Clear any pending focus-on-play flag if playback fails or the player closes.
+  useEffect(() => {
+    if (!sermon || phase === "error") clearStageFocusToggle();
+  }, [sermon, phase]);
+  // Exit fullscreen if the sermon docks or on Escape (web) / hardware Back (Android).
+  useEffect(() => {
+    if (!full && overlay.fullscreen) setStageOverlay({ fullscreen: false });
+  }, [full, overlay.fullscreen]);
+  useEffect(() => {
+    if (!isFullscreen) return;
+    if (Platform.OS === "web") {
+      const onKey = (e: KeyboardEvent) => {
+        if (e.key === "Escape") setStageOverlay({ fullscreen: false });
+      };
+      document.addEventListener("keydown", onKey);
+      return () => document.removeEventListener("keydown", onKey);
+    }
+    StatusBar.setHidden(true, "fade");
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      setStageOverlay({ fullscreen: false });
+      return true;
+    });
+    return () => {
+      StatusBar.setHidden(false, "fade");
+      sub.remove();
+    };
+  }, [isFullscreen]);
   if (!sermon) return null;
   // The Now Playing screen shows its own error panel and poster.
   if (full && phase === "error") return null;
   const f = fullFrame(window, insets);
+  const videoHeight = isFullscreen ? fsHeight : full ? f.height : d.videoHeight;
   return (
     // box-none must stay a prop: react-native-web only honours it there, and
     // as a style this full-screen layer would swallow every tap in the app.
     <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
+      {isFullscreen ? <StatusBar hidden animated /> : null}
       <View
         testID={full ? "player-full" : "player-dock"}
         {...web({
@@ -83,9 +133,26 @@ export function PlayerHost() {
         })}
         style={[
           styles.shell,
-          full
-            ? { left: f.left, top: f.top, width: f.width }
-            : { left: d.left, bottom: d.bottom, width: d.width },
+          isFullscreen
+            ? {
+                left: 0,
+                top: 0,
+                width: window.width,
+                height: window.height,
+                paddingTop:
+                  rotateFullscreen && Platform.OS !== "web" && insets.top > 0
+                    ? insets.top + 4
+                    : 0,
+                paddingBottom:
+                  rotateFullscreen && Platform.OS !== "web" ? insets.bottom : 0,
+                backgroundColor: "#000",
+                zIndex: 100,
+                alignItems: "center",
+                justifyContent: "center",
+              }
+            : full
+              ? { left: f.left, top: f.top, width: f.width }
+              : { left: d.left, bottom: d.bottom, width: d.width },
           !full && styles.dock,
           covered && styles.gone,
         ]}
@@ -93,16 +160,23 @@ export function PlayerHost() {
         <View
           style={[
             styles.video,
-            full
-              ? { height: f.height, borderRadius: f.radius }
-              : {
-                  height: d.videoHeight,
-                  margin: DOCK_PAD,
-                  marginBottom: 0,
-                  // Flush in the dock's top corners.
-                  borderTopLeftRadius: radius.lg,
-                  borderTopRightRadius: radius.lg,
-                },
+            isFullscreen
+              ? {
+                  width: fsWidth,
+                  height: fsHeight,
+                  borderRadius: 0,
+                  transform: rotateFullscreen ? [{ rotate: "90deg" }] : undefined,
+                }
+              : full
+                ? { height: f.height, borderRadius: f.radius }
+                : {
+                    height: d.videoHeight,
+                    margin: DOCK_PAD,
+                    marginBottom: 0,
+                    // Flush in the dock's top corners.
+                    borderTopLeftRadius: radius.lg,
+                    borderTopRightRadius: radius.lg,
+                  },
             // Kept mounted, so opening Now Playing picks up where it paused.
             hidden && styles.gone,
           ]}
@@ -112,7 +186,7 @@ export function PlayerHost() {
               key={attempt}
               ref={attach}
               videoId={sermon.id}
-              height={full ? f.height : d.videoHeight}
+              height={videoHeight}
               startSeconds={start}
               onEvent={onEvent}
             />
@@ -123,7 +197,7 @@ export function PlayerHost() {
           )}
           {cover !== "off" && (
             // Never receives touches, and is gone once the player is ready,
-            // so YouTube's own controls are never covered.
+            // so controls are never covered.
             <Animated.View
               testID="player-cover"
               style={[
@@ -139,7 +213,7 @@ export function PlayerHost() {
             >
               <Thumbnail
                 sermon={sermon}
-                height={full ? f.height : d.videoHeight}
+                height={videoHeight}
               />
               <View style={styles.center}>
                 <View style={styles.spinner}>
@@ -148,10 +222,67 @@ export function PlayerHost() {
               </View>
             </Animated.View>
           )}
+          {full && phase !== "error" ? <StageFullOverlay /> : null}
         </View>
         {!full && <DockBar compact={d.compact} />}
       </View>
     </View>
+  );
+}
+
+/**
+ * Connects the Mindvalley VideoOverlay to the active player session when the
+ * player is shown full-size on the sermon screen.
+ */
+function StageFullOverlay() {
+  const session = usePlayerSession();
+  const p = usePlayback();
+  const overlay = useStageOverlay();
+  const window = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const rotateFullscreen = overlay.fullscreen && window.height > window.width;
+
+  useEffect(() => {
+    if (consumeStageFocusToggle()) {
+      moveFocus(stageToggleRef.current);
+    }
+  }, [overlay.focusToggleKey, session.attempt]);
+
+  const fullscreenInsets = overlay.fullscreen
+    ? rotateFullscreen
+      ? {
+          top: Math.max(insets.left, 8),
+          bottom: Math.max(insets.right, 8),
+          side: Platform.OS !== "web" ? space.sm : Math.max(insets.top, insets.bottom, 16),
+        }
+      : {
+          top: Math.max(insets.top, 8),
+          bottom: Math.max(insets.bottom, 8),
+          side: Math.max(insets.left, insets.right, 16),
+        }
+    : undefined;
+
+  return (
+    <VideoOverlay
+      playing={p.playing}
+      loading={session.phase === "loading"}
+      seconds={p.seconds}
+      duration={p.duration}
+      rate={p.rate}
+      captionsOn={p.captionsOn}
+      fullscreen={overlay.fullscreen}
+      fullscreenInsets={fullscreenInsets}
+      marks={overlay.marks}
+      glideKey={overlay.glideKey}
+      toggleRef={stageToggleRef}
+      allowPassthroughTap={p.status === BLOCKED || p.status === STILL}
+      onTogglePlay={p.toggle}
+      onSkip={p.skip}
+      onSeek={p.seek}
+      onCycleRate={p.cycleRate}
+      onToggleCaptions={p.toggleCaptions}
+      onToggleFullscreen={() => setStageOverlay({ fullscreen: !overlay.fullscreen })}
+    />
   );
 }
 

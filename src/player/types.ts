@@ -4,6 +4,7 @@ export type PlayerEvent =
   | { type: "ready"; duration?: number }
   | { type: "state"; state: number; seconds?: number; duration?: number }
   | { type: "rate"; rate: number }
+  | { type: "captions"; enabled: boolean }
   | { type: "error"; code: number };
 
 /** Commands sent to the provider's own player through the official IFrame API. */
@@ -11,12 +12,11 @@ export type PlayerCommand =
   | { type: "play" }
   | { type: "pause" }
   | { type: "seek"; seconds: number }
-  | { type: "rate"; rate: number };
+  | { type: "rate"; rate: number }
+  | { type: "captions"; enabled: boolean };
 
 export type EmbedHandle = {
   command: (command: PlayerCommand) => void;
-  /** Moves keyboard focus into the provider's player (web). */
-  focus: () => void;
 };
 
 /** App-side code (not YouTube's) for a player whose page was shut down by the system. */
