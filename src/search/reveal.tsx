@@ -63,12 +63,14 @@ const RevealContext = createContext<ResultSet | null>(null);
 /**
  * Starts the clock when a new result set (`id`, empty for none) arrives.
  * `id` names the set of the rows on screen, so it changes in the same draw
- * as they do. Pass the value to RevealProvider around the list.
+ * as they do. Starting it for "" too makes the clock forget a set once
+ * nothing is shown, so that set rises again when it comes back. Pass the
+ * value to RevealProvider around the list.
  */
 export function useResultsReveal(id: string, reduced: boolean): ResultSet {
   const [clock] = useState(() => new Clock());
   useEffect(() => {
-    if (id) clock.start(id);
+    clock.start(id);
   }, [id, clock]);
   return useMemo(() => ({ id, reduced, clock }), [id, reduced, clock]);
 }

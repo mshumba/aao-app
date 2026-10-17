@@ -31,6 +31,37 @@ function results(page: Page) {
   return shown(page.getByTestId("moment-result"));
 }
 
+const animationsSettled = (page: Page) =>
+  page.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished.catch(() => {}))));
+
+/** Records, every frame for 3s, the faintest each result row is drawn. */
+function watchFaintest(page: Page) {
+  return page.evaluate(() => {
+    const w = window as unknown as { __faintest: Record<string, number> };
+    const rows = {
+      related: '[aria-label="Related needs"]',
+      path: '[data-testid="search-path"]',
+      moment: '[data-testid="moment-result"]',
+    };
+    w.__faintest = { related: 1, path: 1, moment: 1 };
+    const until = performance.now() + 3000;
+    const tick = () => {
+      for (const [name, selector] of Object.entries(rows)) {
+        const el = document.querySelector(selector);
+        if (!el) continue;
+        let opacity = 1;
+        for (let a: Element | null = el; a; a = a.parentElement) opacity *= Number(getComputedStyle(a).opacity);
+        w.__faintest[name] = Math.min(w.__faintest[name], opacity);
+      }
+      if (performance.now() < until) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  });
+}
+
+const faintestSeen = (page: Page) =>
+  page.evaluate(() => (window as unknown as { __faintest: Record<string, number> }).__faintest);
+
 function needChip(page: Page, name: string) {
   return page
     .getByRole("list", { name: "Common needs" })
@@ -222,44 +253,46 @@ test("going back to an earlier search, its answer rises in whole, rows the last 
 }) => {
   const related = (name: string) =>
     page.getByRole("list", { name: "Related needs" }).getByRole("button", { name, exact: true });
-  const settled = () =>
-    page.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished.catch(() => {}))));
   await page.goto(`/search?q=${encodeURIComponent(NEED)}`);
   await expect(results(page)).toHaveCount(6);
   await related("Temptation").click();
   await expect(results(page).first()).toContainText("“Temptation is idiosyncratic;");
-  await settled();
+  await animationsSettled(page);
   // From here, every frame: the faintest the related needs and the path
   // card (rows both answers have) are drawn.
-  await page.evaluate(() => {
-    const w = window as unknown as { __faintest: Record<string, number> };
-    const rows = { related: '[aria-label="Related needs"]', path: '[data-testid="search-path"]' };
-    w.__faintest = { related: 1, path: 1 };
-    const until = performance.now() + 3000;
-    const tick = () => {
-      for (const [name, selector] of Object.entries(rows)) {
-        const el = document.querySelector(selector);
-        if (!el) continue;
-        let opacity = 1;
-        for (let a: Element | null = el; a; a = a.parentElement) opacity *= Number(getComputedStyle(a).opacity);
-        w.__faintest[name] = Math.min(w.__faintest[name], opacity);
-      }
-      if (performance.now() < until) requestAnimationFrame(tick);
-    };
-    requestAnimationFrame(tick);
-  });
+  await watchFaintest(page);
   // The first question's answer is kept from before, so it's there at once.
   await related("The same sin again").click();
   await expect(field(page)).toHaveValue(NEED);
   await expect(results(page).first()).toContainText(FIRST_QUOTE);
-  await settled();
+  await animationsSettled(page);
   // They rose in with the new answer's other rows, not switched in place.
-  const faintest = await page.evaluate(
-    () => (window as unknown as { __faintest: Record<string, number> }).__faintest,
-  );
+  const faintest = await faintestSeen(page);
   expect(faintest.related).toBeLessThan(0.5);
   expect(faintest.path).toBeLessThan(0.5);
   await expect(shown(page.getByTestId("search-path"))).toBeVisible();
+});
+
+test("a kept answer rises again after the field was cleared", async ({ page }) => {
+  await page.goto("/search");
+  await field(page).fill(NEED);
+  await field(page).press("Enter");
+  await expect(results(page)).toHaveCount(6);
+  await animationsSettled(page);
+  await page.getByRole("button", { name: "Clear", exact: true }).click();
+  await expect(field(page)).toHaveValue("");
+  const again = page.getByRole("button", { name: `Search again: ${NEED}`, exact: true });
+  await expect(again).toBeVisible();
+  await watchFaintest(page);
+  await again.click();
+  await expect(field(page)).toHaveValue(NEED);
+  await expect(results(page)).toHaveCount(6);
+  await animationsSettled(page);
+  // The same set, shown again after nothing was, rises in rather than
+  // appearing at full strength.
+  const faintest = await faintestSeen(page);
+  expect(faintest.moment).toBeLessThan(0.5);
+  expect(faintest.related).toBeLessThan(0.5);
 });
 
 test("the empty field offers common needs and topics to browse", async ({ page }) => {
