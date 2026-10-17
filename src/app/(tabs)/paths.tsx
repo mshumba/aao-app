@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo, useState } from "react";
+import { memo, useCallback, useMemo, useState, useSyncExternalStore } from "react";
 import { FlatList, StyleSheet, View, useWindowDimensions, type ListRenderItem, type ViewToken } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useProgressOf } from "../../auth/AccountProvider";
@@ -209,14 +209,14 @@ export default function PathsTab() {
   const guidedCount = list.findIndex((row) => row.kind === "heading");
   const morePaths = guidedCount === -1 ? list.length : guidedCount;
 
-  // The rows whose tiles draw their fan: those in sight and a few beyond.
-  // Only grows, so a row never loses its fan, and a few rows at a time, so
-  // a scroll down the list draws now and then, not at every row.
-  const [fanned, setFanned] = useState(FAN_AHEAD);
-  const onViewableItemsChanged = useCallback(({ viewableItems }: { viewableItems: ViewToken<Row>[] }) => {
-    const last = viewableItems.reduce((most, v) => Math.max(most, v.index ?? -1), -1);
-    setFanned((was) => (last + FAN_AHEAD > was ? last + 2 * FAN_AHEAD : was));
-  }, []);
+  // The rows whose tiles draw their fan (FanReach): each row reads it for
+  // itself, so a scroll redraws only the rows it brings near.
+  const [reach] = useState(() => new FanReach());
+  const onViewableItemsChanged = useCallback(
+    ({ viewableItems }: { viewableItems: ViewToken<Row>[] }) =>
+      reach.saw(viewableItems.reduce((most, v) => Math.max(most, v.index ?? -1), -1)),
+    [reach],
+  );
 
   const open = useCallback((id: string) => go.push(pathHref(id)), [go]);
   // A series of one teaching opens that teaching; any other path its page.
@@ -293,9 +293,9 @@ export default function PathsTab() {
           <SectionHeader title={item.title} count={item.count} style={styles.seriesSection} />
         </View>
       ) : (
-        <PathRow row={item} fanned={index <= fanned} onOpen={openRow} />
+        <PathRow row={item} index={index} reach={reach} onOpen={openRow} />
       ),
-    [openRow, fanned],
+    [openRow, reach],
   );
 
   return (
@@ -419,18 +419,52 @@ const Masthead = memo(function Masthead({
 });
 
 /**
+ * The rows whose tiles draw their fan: those in sight and a few beyond
+ * (FAN_AHEAD). Only grows, so a row never loses its fan, and a few rows at
+ * a time, so a scroll down the list draws now and then, not at every row.
+ * Kept out of the tab's state: a row reads whether it's in reach for
+ * itself (useSyncExternalStore), so only the rows coming into reach draw
+ * again, never the list.
+ */
+class FanReach {
+  private last = FAN_AHEAD;
+  private readonly listeners = new Set<() => void>();
+
+  subscribe = (listener: () => void) => {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  };
+
+  /** The last row in sight is now `index`. */
+  saw(index: number) {
+    if (index + FAN_AHEAD <= this.last) return;
+    this.last = index + 2 * FAN_AHEAD;
+    this.listeners.forEach((listener) => listener());
+  }
+
+  reaches(index: number) {
+    return index <= this.last;
+  }
+}
+
+/**
  * A path's row in the list: memoised, so a row only draws again when its
  * own path changes or its fan comes in.
  */
 const PathRow = memo(function PathRow({
   row,
-  fanned,
+  index,
+  reach,
   onOpen,
 }: {
   row: Extract<Row, { kind: "card" }>;
-  fanned: boolean;
+  index: number;
+  reach: FanReach;
   onOpen: (row: Extract<Row, { kind: "card" }>) => void;
 }) {
+  const fanned = useSyncExternalStore(reach.subscribe, () => reach.reaches(index));
   const onPress = useCallback(() => onOpen(row), [onOpen, row]);
   return (
     <View style={styles.column}>
