@@ -1,25 +1,27 @@
 import * as Haptics from "expo-haptics";
 import { useState } from "react";
 import { Platform, StyleSheet, View, useWindowDimensions } from "react-native";
-import { Category, CategoryId, categories } from "../data/categories";
+import { useTopics, type Topic } from "../learning";
 import { font, radius, shadows, space, textCap, type } from "../theme";
-import { Icon, T, Tap, c, s, web } from "../ui";
+import { topicIcon } from "../topics";
+import { Icon, Notice, T, Tap, c, s, web } from "../ui";
 
 /**
- * Pick any of the four topics. Each is a card that says what the topic is
- * about; picked cards get a navy border and a filled check (never colour
- * alone) and are checkboxes to assistive tech. Shared by onboarding and
- * Account › Your topics.
+ * Pick any of the topics. Each is a card with its icon, its name and a line
+ * on what it's about; picked cards get a navy border and a filled check
+ * (never colour alone) and are checkboxes to assistive tech. Shared by
+ * onboarding and Account › Your topics.
  */
 export function TopicPicker({
   value,
   onChange,
   disabled = false,
 }: {
-  value: CategoryId[];
-  onChange: (ids: CategoryId[]) => void;
+  value: readonly string[];
+  onChange: (ids: string[]) => void;
   disabled?: boolean;
 }) {
+  const { topics, loading } = useTopics();
   const { width, fontScale } = useWindowDimensions();
   // Measured, because the picker sits in columns of different widths. The
   // first guess is the onboarding column, so phones never flash two-up.
@@ -27,14 +29,22 @@ export function TopicPicker({
   // Two cards a row once each has room for its description at the
   // viewer's text size.
   const twoUp = column / fontScale >= 360;
-  const rows = twoUp ? pairs(categories) : categories.map((category) => [category]);
+  const rows = twoUp ? pairs(topics) : topics.map((topic) => [topic]);
 
-  function toggle(id: CategoryId) {
+  function toggle(id: string) {
     const next = value.includes(id) ? value.filter((v) => v !== id) : [...value, id];
     if (Platform.OS !== "web") Haptics.selectionAsync().catch(() => {});
-    // Library order, whatever order they were tapped in.
-    onChange(categories.filter((category) => next.includes(category.id)).map((category) => category.id));
+    // The topics' own order, whatever order they were tapped in.
+    onChange(topics.filter((topic) => next.includes(topic.id)).map((topic) => topic.id));
   }
+
+  // First launch offline: there's nothing to pick from yet.
+  if (!topics.length && !loading)
+    return (
+      <Notice icon="cloud-offline-outline">
+        The topics will be here once you’re online. You can pick them any time in Account.
+      </Notice>
+    );
 
   return (
     <View
@@ -44,14 +54,14 @@ export function TopicPicker({
     >
       {rows.map((row) => (
         <View key={row[0].id} style={styles.row}>
-          {row.map((category) => (
+          {row.map((topic) => (
             <TopicCard
-              key={category.id}
-              category={category}
-              selected={value.includes(category.id)}
+              key={topic.id}
+              topic={topic}
+              selected={value.includes(topic.id)}
               stacked={twoUp}
               disabled={disabled}
-              onPress={() => toggle(category.id)}
+              onPress={() => toggle(topic.id)}
             />
           ))}
         </View>
@@ -61,19 +71,19 @@ export function TopicPicker({
 }
 
 function TopicCard({
-  category,
+  topic,
   selected,
   stacked,
   disabled,
   onPress,
 }: {
-  category: Category;
+  topic: Topic;
   selected: boolean;
   stacked: boolean;
   disabled: boolean;
   onPress: () => void;
 }) {
-  const descriptionId = `pick-${category.id}-description`;
+  const descriptionId = `pick-${topic.id}-description`;
   const check = (
     <View style={[styles.check, selected && styles.checkOn]}>
       {selected && <Icon name="checkmark" size={16} color={c.onAccent} />}
@@ -81,10 +91,10 @@ function TopicCard({
   );
   return (
     <Tap
-      testID={`topic-option-${category.id}`}
+      testID={`topic-option-${topic.id}`}
       accessibilityRole="checkbox"
-      accessibilityLabel={category.label}
-      accessibilityHint={category.description}
+      accessibilityLabel={topic.label}
+      accessibilityHint={topic.description}
       aria-checked={selected}
       aria-disabled={disabled}
       {...web({
@@ -106,18 +116,18 @@ function TopicCard({
     >
       {stacked ? (
         <View style={styles.stackedTop}>
-          <TopicIcon category={category} />
+          <TopicIcon id={topic.id} />
           {check}
         </View>
       ) : (
-        <TopicIcon category={category} />
+        <TopicIcon id={topic.id} />
       )}
       <View style={[styles.text, !stacked && { flex: 1 }]}>
         <T style={styles.label} maxFontSizeMultiplier={textCap.section}>
-          {category.label}
+          {topic.label}
         </T>
         <T nativeID={descriptionId} style={s.meta}>
-          {category.description}
+          {topic.description}
         </T>
       </View>
       {!stacked && check}
@@ -125,10 +135,10 @@ function TopicCard({
   );
 }
 
-function TopicIcon({ category }: { category: Category }) {
+function TopicIcon({ id }: { id: string }) {
   return (
     <View style={styles.icon}>
-      <Icon name={category.icon} color={c.accent} size={22} />
+      <Icon name={topicIcon(id)} color={c.accent} size={22} />
     </View>
   );
 }

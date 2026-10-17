@@ -30,7 +30,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAccount, useSaved } from "../auth/AccountProvider";
 import { useGate } from "../auth/gate";
 import { useCatalogue } from "../catalogue/CatalogueProvider";
-import { getCategory } from "../data/categories";
 import { words } from "../data/display";
 import { searchSermons, type Sermon } from "../data/sermons";
 import { ChipRow, ItalicTitle, Kicker, NeedChip, PathCardNavy, SearchField, Strong, type ArtSource } from "../kit";
@@ -43,6 +42,7 @@ import {
   usePaths,
   useRecentSearches,
   useSearch,
+  useTopics,
   type LearningError,
   type Need,
   type SearchMoment,
@@ -53,7 +53,7 @@ import { firstParam, requestWatch, takeSearchFocus, useFocusEffect, useGo, usePa
 import { useDockInset } from "../player/useDockInset";
 import { c, textCap, type } from "../theme";
 import { useToast } from "../toast";
-import { sermonCount } from "../topics";
+import { sermonCount, topicHref } from "../topics";
 import { Heading, dockScrollPadding, web } from "../ui";
 import {
   CalmState,
@@ -177,18 +177,19 @@ export function SearchScreen() {
 
   // Old scoped links (/search?category=prayer) open that topic's page,
   // where its sermons are; Search itself no longer filters by topic.
-  const known = category ? getCategory(category) : undefined;
+  const { topics, loading } = useTopics();
+  const known = category ? topics.find((topic) => topic.id === category) : undefined;
   useEffect(() => {
     if (!known) return;
     router.setParams({ category: "" });
-    go.push({ pathname: "/topics/[categoryId]", params: { categoryId: known.id } });
+    go.push(topicHref(known.id));
     // Only when the link arrives.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [known?.id]);
 
   // A question in the link (?q=…, or a need tapped on Home) is searched at
   // once; a new one starts the screen afresh.
-  return <SearchView key={q} initialQuery={q} unknownTopic={!!category && !known} />;
+  return <SearchView key={q} initialQuery={q} unknownTopic={!!category && !loading && !known} />;
 }
 
 function SearchView({ initialQuery, unknownTopic }: { initialQuery: string; unknownTopic: boolean }) {

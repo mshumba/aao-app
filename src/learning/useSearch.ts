@@ -16,9 +16,9 @@ import { LearningError, type SearchResponse } from "./types";
  * results never replace a newer one's.
  */
 
-export type SearchStatus = "idle" | "loading" | "success" | "error";
+type SearchStatus = "idle" | "loading" | "success" | "error";
 
-export type SearchState = {
+type SearchState = {
   status: SearchStatus;
   data: SearchResponse | null;
   error: LearningError | null;

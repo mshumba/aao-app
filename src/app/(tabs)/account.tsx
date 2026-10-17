@@ -11,8 +11,8 @@ import { useAccount, useSaved } from "../../auth/AccountProvider";
 import type { Provider } from "../../auth/types";
 import { AccountBenefits, FormAlert, useAuthTask } from "../../auth/ui";
 import { useCatalogue } from "../../catalogue/CatalogueProvider";
-import { getCategory } from "../../data/categories";
 import { Card, ListGroup, ListRow } from "../../kit";
+import { useMyTopics } from "../../learning";
 import { useGo, usePageTitle } from "../../navigation";
 import { font, radius, space, textCap, type } from "../../theme";
 import { useToast } from "../../toast";
@@ -69,9 +69,8 @@ export default function AccountTab() {
   // The profile and saved list arrive a moment after the session.
   const loaded = account.loaded;
 
-  const topics = account.interests
-    .map((id) => getCategory(id)?.label)
-    .filter(Boolean)
+  const topics = useMyTopics()
+    .map((topic) => topic.label)
     .join(", ");
   const catalogue = useCatalogue();
   const { saved: savedIds, savedError } = useSaved();

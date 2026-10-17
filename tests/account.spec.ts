@@ -138,25 +138,25 @@ test.describe("signed in", () => {
 
   test("topics chosen while signed in leave with the account", async ({ page }) => {
     await page.goto("/account/topics");
-    await page.getByRole("checkbox", { name: /Faith/ }).click();
+    await page.getByRole("checkbox", { name: "Faith & Hope" }).click();
     await page.getByTestId("save-topics").click();
     await expect(page.getByTestId("toast")).toContainText("Topics updated");
     await page.goto("/account");
-    await expect(shown(page.getByText("Faith", { exact: true }))).toBeVisible();
+    await expect(shown(page.getByText("Faith & Hope", { exact: true }))).toBeVisible();
     await page.getByTestId("sign-out").click();
     await expect(page.getByTestId("toast")).toContainText("Signed out");
     // Nothing of the account's choice stays behind for the guest…
     await expect(
       shown(page.getByRole("heading", { name: "Create your free account" })),
     ).toBeVisible();
-    await expect(shown(page.getByText("Faith", { exact: true }))).toHaveCount(0);
+    await expect(shown(page.getByText("Faith & Hope", { exact: true }))).toHaveCount(0);
     // …or fills the next account made on this device.
     await page.getByRole("button", { name: "Create free account" }).click();
     await page.getByTestId("continue-google").click();
     await expect(page.getByTestId("toast")).toContainText("signed in");
     await expect(shown(page.getByText("google.viewer@example.com"))).toBeVisible();
     await page.waitForTimeout(600);
-    await expect(shown(page.getByText("Faith", { exact: true }))).toHaveCount(0);
+    await expect(shown(page.getByText("Faith & Hope", { exact: true }))).toHaveCount(0);
   });
 
   test("a profile that doesn't load is fetched again, never replaced", async ({
@@ -172,7 +172,7 @@ test.describe("signed in", () => {
         JSON.stringify({
           profile: {
             displayName: "Grace",
-            interests: ["faith"],
+            interests: ["faith-hope"],
             onboardedAt: "2026-10-01T00:00:00.000Z",
           },
           saved: [],
@@ -201,16 +201,16 @@ test.describe("signed in", () => {
       MEMBER.id,
     );
     expect(stored.profile.displayName).toBe("Grace");
-    expect(stored.profile.interests).toEqual(["faith"]);
+    expect(stored.profile.interests).toEqual(["faith-hope"]);
   });
 
   test("topics chosen in Account are kept", async ({ page }) => {
     await page.goto("/account/topics");
-    await page.getByRole("checkbox", { name: /Prayer/ }).click();
+    await page.getByRole("checkbox", { name: "Prayer" }).click();
     await page.getByTestId("save-topics").click();
     await expect(page.getByTestId("toast")).toContainText("Topics updated");
     await page.goto("/account/topics");
-    await expect(page.getByRole("checkbox", { name: /Prayer/ })).toHaveAttribute(
+    await expect(page.getByRole("checkbox", { name: "Prayer" })).toHaveAttribute(
       "aria-checked",
       "true",
     );

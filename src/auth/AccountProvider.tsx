@@ -10,7 +10,6 @@ import {
   type ReactNode,
 } from "react";
 import { AppState, Platform } from "react-native";
-import { CategoryId, categories } from "../data/categories";
 import { keys, readJSON, removeKey, writeJSON } from "../lib/storage";
 import { authMode, enabledMethods } from "./config";
 import { createLocalBackend } from "./localBackend";
@@ -47,10 +46,11 @@ type Onboarding = {
   /** Finished or skipped the welcome flow. */
   welcomed: boolean;
   /**
-   * Topics chosen as a guest. They move into the first account that signs
-   * in (or give way to its own), so they're empty while signed in.
+   * Topics chosen as a guest (public.topics ids). They move into the first
+   * account that signs in (or give way to its own), so they're empty while
+   * signed in.
    */
-  interests: CategoryId[];
+  interests: string[];
 };
 
 type Account = {
@@ -76,9 +76,12 @@ type Account = {
   loaded: boolean;
 
   welcomed: boolean;
-  /** The viewer's topics: the account's once signed in, else this device's. */
-  interests: CategoryId[];
-  setInterests: (ids: CategoryId[]) => Promise<void>;
+  /**
+   * The viewer's topics' ids: the account's once signed in, else this
+   * device's. useMyTopics (src/learning) has the current topics among them.
+   */
+  interests: string[];
+  setInterests: (ids: string[]) => Promise<void>;
   finishWelcome: () => Promise<void>;
 
   /** What guests may watch without an account (a remote setting). */
@@ -215,9 +218,6 @@ const AccountContext = createContext<Account | null>(null);
 const SavedContext = createContext<Saved | null>(null);
 const ProgressContext = createContext<ProgressSource | null>(null);
 
-const validTopic = (id: string): id is CategoryId =>
-  categories.some((category) => category.id === id);
-
 export function AccountProvider({ children }: { children: ReactNode }) {
   const [restored, setRestored] = useState(false);
   const [user, setUser] = useState<AuthUser | null>(null);
@@ -276,10 +276,11 @@ export function AccountProvider({ children }: { children: ReactNode }) {
       readJSON<PendingName | null>(keys.pendingName, null),
     ]).then(([restoredUser, stored, storedPasses, storedName]) => {
       if (!active) return;
-      setOnboarding({
-        welcomed: !!stored.welcomed,
-        interests: (stored.interests ?? []).filter(validTopic),
-      });
+      // The ref at once, as persistOnboarding sets it: what renders with
+      // this (a child's effect) may write onboarding before the effect below
+      // catches the ref up.
+      onboardingRef.current = { welcomed: !!stored.welcomed, interests: stored.interests ?? [] };
+      setOnboarding(onboardingRef.current);
       setPasses(Array.isArray(storedPasses) ? storedPasses : []);
       if (storedName?.userId && storedName.name) pendingName.current = storedName;
       setUser(restoredUser);
@@ -367,10 +368,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
         if (now?.interests.length) persistOnboarding({ ...now, interests: [] });
       }
       const profile = { ...loaded, ...changes };
-      return {
-        profile: { ...profile, interests: profile.interests.filter(validTopic) },
-        synced,
-      };
+      return { profile, synced };
     },
     [holdName, persistOnboarding],
   );
@@ -574,14 +572,13 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   );
 
   const setInterests = useCallback(
-    async (ids: CategoryId[]) => {
-      const clean = ids.filter(validTopic);
+    async (ids: string[]) => {
       // Signed in, they're kept with the account only, so an account's
       // topics never stay on the device after signing out.
-      if (userId && backend) return updateProfile({ interests: clean });
+      if (userId && backend) return updateProfile({ interests: ids });
       persistOnboarding({
         welcomed: onboardingRef.current?.welcomed ?? false,
-        interests: clean,
+        interests: ids,
       });
     },
     [persistOnboarding, updateProfile, userId],

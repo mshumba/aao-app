@@ -1,11 +1,13 @@
+import type { TopicTags } from "../data/sermons";
 import { SERMON_COLUMNS, type Changes, type SeriesRecord, type SermonRecord } from "./records";
 import type { Remote } from "./sync";
 
 /**
- * Reads the catalogue from Supabase's REST API with the public key. The
- * tables are readable by everyone and written by nobody (see
- * supabase/migrations/20261014200000_sermon_catalogue.sql), so this needs no
- * session and stays apart from the account client.
+ * Reads the catalogue, and every sermon's topics, from Supabase's REST API
+ * with the public key. The tables are readable by everyone and written by
+ * nobody (see supabase/migrations/20261014200000_sermon_catalogue.sql and
+ * 20261016000300_topics.sql), so this needs no session and stays apart from
+ * the account client.
  */
 
 // Supabase returns at most 1,000 rows a request.
@@ -23,7 +25,7 @@ const SERMONS = [...SERMON_COLUMNS, "updated_at"].join(",");
 
 type Row = Record<string, unknown> & { updated_at?: string };
 
-export function createRemote(config: { url: string; key: string }): Remote {
+export function createRemote(config: { url: string; key: string }): Remote & { fetchTags(): Promise<TopicTags> } {
   const base = `${config.url.replace(/\/+$/, "")}/rest/v1`;
 
   async function get(path: string, extra: Record<string, string> = {}) {
@@ -143,5 +145,18 @@ export function createRemote(config: { url: string; key: string }): Remote {
     return { sermons: sermonsOf(sermonRows), series: seriesOf(seriesRows), syncedAt: stamp };
   }
 
-  return { fetchAll, fetchChanges };
+  /** Each tagged sermon's topic (about 1,400 rows, one a sermon). */
+  async function fetchTags(): Promise<TopicTags> {
+    const rows = await all("sermon_topics?select=youtube_id,topic_id,score&order=youtube_id,rank");
+    const tags: TopicTags = {};
+    for (const row of rows)
+      tags[String(row.youtube_id)] ??= {
+        id: String(row.topic_id),
+        // Three places keep the order and a smaller copy on the device.
+        score: Math.round(Number(row.score) * 1000) / 1000,
+      };
+    return tags;
+  }
+
+  return { fetchAll, fetchChanges, fetchTags };
 }

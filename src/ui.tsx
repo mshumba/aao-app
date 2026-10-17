@@ -38,9 +38,8 @@ import {
   SafeAreaView,
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
-import { CategoryId, getCategory } from "./data/categories";
 import { eventLine, eventParts, headline } from "./data/display";
-import { Sermon, sermonCategoryIds } from "./data/sermons";
+import { Sermon } from "./data/sermons";
 import { useReducedMotion } from "./motion";
 import { useGo, usePageTitle } from "./navigation";
 import { shortDay } from "./home/copy";
@@ -825,7 +824,7 @@ export function SectionHeading({
   );
 }
 
-/** Quiet inline note, used for honest limits (sample topics, YouTube). */
+/** Quiet inline note, used for honest limits (how topics are matched, YouTube). */
 export function Notice({
   children,
   icon = "information-circle-outline",
@@ -1006,16 +1005,6 @@ export function ProgressBar({
   );
 }
 
-/** Sample topic labels, with the topic being browsed first when given. */
-export function topicLabels(sermon: Sermon, lead?: CategoryId) {
-  const ids = sermonCategoryIds(sermon);
-  const ordered =
-    lead && ids.includes(lead) ? [lead, ...ids.filter((id) => id !== lead)] : ids;
-  return ordered
-    .map((id) => getCategory(id)?.label)
-    .filter(Boolean) as string[];
-}
-
 /**
  * True when the reading column is under ~300pt at the user's text size, from
  * a narrow screen, browser zoom or large accessibility text.
@@ -1045,21 +1034,10 @@ function useStackedRows(art: number) {
  * row draws instead of the headline and event line (a series page's "Day 4 ·
  * Morning"), so the label says what's on screen.
  */
-export function sermonLabel(
-  sermon: Sermon,
-  lead?: CategoryId,
-  shown?: { title: string; kicker: string | null },
-) {
-  const topics = topicLabels(sermon, lead);
+export function sermonLabel(sermon: Sermon, shown?: { title: string; kicker: string | null }) {
   const title = shown ? spokenKicker(shown.title) : headline(sermon);
   const kicker = shown ? shown.kicker && spokenKicker(shown.kicker) : eventLine(sermon);
-  return [
-    `${title}.`,
-    `${[kicker, sermon.date, spokenDuration(sermon.duration)].filter(Boolean).join(", ")}.`,
-    topics.length ? `Sample topics: ${topics.join(", ")}.` : "",
-  ]
-    .filter(Boolean)
-    .join(" ");
+  return `${title}. ${[kicker, sermon.date, spokenDuration(sermon.duration)].filter(Boolean).join(", ")}.`;
 }
 
 /**
@@ -1084,7 +1062,6 @@ export function sermonMeta(sermon: Pick<Sermon, "day" | "date" | "duration">, no
  */
 export const SermonRow = memo(function SermonRow({
   sermon,
-  lead,
   title,
   kicker,
   detail,
@@ -1094,8 +1071,6 @@ export const SermonRow = memo(function SermonRow({
   testID = "sermon-row",
 }: {
   sermon: Sermon;
-  /** The topic being browsed: read first among the sample topics. */
-  lead?: CategoryId;
   /** Replaces the headline ("Day 4 · Morning" on a series page). */
   title?: string;
   /** Replaces the event line as the kicker ("Part 2", "Session 3"). */
@@ -1117,7 +1092,7 @@ export const SermonRow = memo(function SermonRow({
   // Kept to one line beside the artwork: the event gives way, and the
   // session ("Day 2 Morning") that tells a gathering's rows apart stays.
   const split = kicker === undefined && !stacked ? eventParts(sermon) : null;
-  const label = sermonLabel(sermon, lead, title === undefined ? undefined : { title, kicker: top });
+  const label = sermonLabel(sermon, title === undefined ? undefined : { title, kicker: top });
   return (
     <Tap
       testID={testID}
@@ -1356,9 +1331,6 @@ export const s = StyleSheet.create({
   lead: { ...type.lead, color: c.muted },
   body: { ...type.body, color: c.muted },
   meta: { ...type.caption, color: c.muted },
-  // Navy caps mean "sample topic"; verified or editorial labels use eyebrow.
-  kicker: { ...type.kicker, color: c.accent },
-  eyebrow: { ...type.kicker, color: c.muted },
   notice: {
     flexDirection: "row",
     alignItems: "flex-start",

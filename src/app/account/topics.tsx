@@ -2,7 +2,7 @@ import { useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { useAccount } from "../../auth/AccountProvider";
 import { FormAlert, useAuthTask } from "../../auth/ui";
-import { CategoryId } from "../../data/categories";
+import { useMyTopics } from "../../learning";
 import { useGo } from "../../navigation";
 import { TopicPicker } from "../../onboarding/TopicPicker";
 import { space } from "../../theme";
@@ -20,8 +20,9 @@ export default function YourTopics() {
   const task = useAuthTask();
   // Until they tap a card, this follows the stored topics (which can arrive
   // a moment after the screen when the profile is still loading).
-  const [picked, setPicked] = useState<CategoryId[] | null>(null);
-  const value = picked ?? account.interests;
+  const [picked, setPicked] = useState<string[] | null>(null);
+  const mine = useMyTopics();
+  const value = picked ?? mine.map((topic) => topic.id);
 
   async function save() {
     const saved = await task.run("save", async () => {

@@ -157,14 +157,14 @@ test("typing suggests needs and sermon titles; finding moments waits for Return"
   await expect(
     page.getByRole("button", { name: "Search: My prayer life feels dry", exact: true }),
   ).toBeVisible();
-  await expect(shown(page.getByTestId("result-count"))).toHaveText("2 sermons");
-  await expect(rows(page)).toHaveCount(2);
+  await expect(shown(page.getByTestId("result-count"))).toHaveText("1 sermon");
+  await expect(rows(page)).toHaveCount(1);
   // Nothing is sent while typing.
   await expect(results(page)).toHaveCount(0);
   await field(page).press("Enter");
   await expect(results(page)).toHaveCount(6);
   // Title matches stay for a title-like question.
-  await expect(shown(page.getByTestId("result-count"))).toHaveText("2 sermons");
+  await expect(shown(page.getByTestId("result-count"))).toHaveText("1 sermon");
 
   // The question is kept as a recent search, which can run again or go.
   await page.getByRole("button", { name: "Clear", exact: true }).click();

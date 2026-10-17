@@ -2,7 +2,7 @@ import { router } from "expo-router";
 import { useState } from "react";
 import { useAccount } from "../../auth/AccountProvider";
 import { FlowButton, FlowScreen, FlowTitle } from "../../auth/ui";
-import { CategoryId } from "../../data/categories";
+import { useMyTopics } from "../../learning";
 import { useGo } from "../../navigation";
 import { TopicPicker } from "../../onboarding/TopicPicker";
 import { TextButton } from "../../ui";
@@ -12,8 +12,9 @@ export default function OnboardingTopics() {
   const account = useAccount();
   const go = useGo();
   // Until they tap a card, this follows the topics already stored.
-  const [picked, setPicked] = useState<CategoryId[] | null>(null);
-  const value = picked ?? account.interests;
+  const [picked, setPicked] = useState<string[] | null>(null);
+  const mine = useMyTopics();
+  const value = picked ?? mine.map((topic) => topic.id);
 
   const next = () =>
     go.run(async () => {

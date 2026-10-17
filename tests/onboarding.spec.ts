@@ -40,7 +40,7 @@ test("Get started picks topics, creates an account and starts watching", async (
   ).toBeVisible();
   // How far there is to go is written out, not only drawn.
   await expect(shown(page.getByText("Step 1 of 3", { exact: true }))).toBeVisible();
-  const prayer = page.getByRole("checkbox", { name: /Prayer/ });
+  const prayer = page.getByRole("checkbox", { name: "Prayer" });
   await prayer.click();
   await expect(prayer).toHaveAttribute("aria-checked", "true");
   await page.getByTestId("topics-continue").click();
@@ -82,7 +82,7 @@ test("Not now on the account step keeps the chosen topics on the device", async 
 }) => {
   await page.goto("/");
   await page.getByTestId("welcome-get-started").click();
-  await page.getByRole("checkbox", { name: /Faith/ }).click();
+  await page.getByRole("checkbox", { name: "Faith & Hope" }).click();
   await page.getByTestId("topics-continue").click();
   await page.getByTestId("onboarding-not-now").click();
   await expect(tab(page, "Home")).toHaveAttribute("aria-selected", "true");
@@ -90,7 +90,7 @@ test("Not now on the account step keeps the chosen topics on the device", async 
   await expect(
     shown(page.getByRole("heading", { name: "Create your free account" })),
   ).toBeVisible();
-  await expect(shown(page.getByText("Faith", { exact: true })).first()).toBeVisible();
+  await expect(shown(page.getByText("Faith & Hope", { exact: true })).first()).toBeVisible();
 });
 
 test("I already have an account signs in and skips the rest", async ({ page }) => {
