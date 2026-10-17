@@ -84,12 +84,9 @@ export const AboutSermon = memo(function AboutSermon({
   onYouTube,
   onLayout,
   ref,
-  first = false,
 }: {
   sermon: Sermon;
   onYouTube: () => void;
-  /** First on the panel (no path, series or moments above it). */
-  first?: boolean;
   /** Once it's laid out, for the menu's "About this sermon". */
   onLayout?: (e: LayoutChangeEvent) => void;
   ref?: Ref<View>;
@@ -99,7 +96,7 @@ export const AboutSermon = memo(function AboutSermon({
       ref={ref}
       onLayout={onLayout}
       collapsable={false}
-      style={first ? styles.aboutFirst : styles.about}
+      style={styles.about}
       testID="about-sermon"
     >
       {/* The link follows the title, or takes the next line when it doesn't fit. */}
@@ -134,7 +131,6 @@ export const AboutSermon = memo(function AboutSermon({
 const styles = StyleSheet.create({
   sectionGap: { marginTop: space.xxl },
   about: { gap: space.sm, marginTop: space.xl },
-  aboutFirst: { gap: space.sm },
   source: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: space.sm },
   sourceText: { ...type.meta, color: c.muted, maxWidth: "100%" },
   link: { flexDirection: "row", alignItems: "center", gap: 4, minHeight: 32 },

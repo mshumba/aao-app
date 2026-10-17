@@ -199,7 +199,7 @@ test("embedding-disabled errors don't offer a retry that can't work", async ({
   ).toHaveCount(0);
 });
 
-test("Watch starts playback and nothing stays over the provider player", async ({
+test("faded overlay doesn't take taps and YouTube's title strip and logo corner stay clear", async ({
   page,
 }) => {
   await fakeYouTube(page);
@@ -212,6 +212,24 @@ test("Watch starts playback and nothing stays over the provider player", async (
   await expect(page.getByTestId("player-full")).toBeVisible();
   const box = (await page.getByTestId("player-full").boundingBox())!;
   expect(box.height).toBeGreaterThanOrEqual(200);
+
+  const hitTestId = (x: number, y: number) =>
+    page.evaluate(
+      ([px, py]) => {
+        const el = document.elementFromPoint(px, py);
+        return el?.closest("[data-testid]")?.getAttribute("data-testid") ?? null;
+      },
+      [x, y] as const,
+    );
+
+  // Top 48pt title strip and bottom-right 96×44pt logo corner stay clear of
+  // our buttons, shading, and tap layer while playing.
+  expect(await hitTestId(box.x + box.width / 2, box.y + 24)).toBe("fake-yt");
+  expect(await hitTestId(box.x + box.width - 24, box.y + 24)).toBe("fake-yt");
+  expect(await hitTestId(box.x + box.width - 48, box.y + box.height - 22)).toBe("fake-yt");
+
+  const toggleBox = (await page.getByTestId("now-playing-toggle").boundingBox())!;
+
   // Tapping the stage backdrop hides the custom overlay controls.
   await page
     .getByRole("button", { name: "Hide video controls", exact: true })
@@ -219,6 +237,31 @@ test("Watch starts playback and nothing stays over the provider player", async (
   await expect(
     page.getByRole("button", { name: "Show video controls", exact: true }),
   ).toBeVisible();
+
+  // While faded to opacity 0, the invisible Pause button does not intercept taps:
+  // tapping where Pause was hits the backdrop to show controls again without pausing.
+  expect(
+    await hitTestId(
+      toggleBox.x + toggleBox.width / 2,
+      toggleBox.y + toggleBox.height / 2,
+    ),
+  ).toBe("video-overlay-backdrop");
+  await page.mouse.click(
+    toggleBox.x + toggleBox.width / 2,
+    toggleBox.y + toggleBox.height / 2,
+  );
+  await expect(page.getByTestId("playback-status")).toHaveText("Playing");
+  await expect(
+    page.getByRole("button", { name: "Hide video controls", exact: true }),
+  ).toBeVisible();
+
+  // While paused, our shading and full-frame backdrop drop away so YouTube's
+  // pause overlay is unobstructed outside our centre transport and bottom bar.
+  await page.getByTestId("now-playing-toggle").click();
+  await expect(page.getByTestId("playback-status")).toHaveText("Paused");
+  await expect(page.getByTestId("video-overlay-backdrop")).toHaveCount(0);
+  expect(await hitTestId(box.x + 24, box.y + 72)).toBe("fake-yt");
+  expect(await hitTestId(box.x + box.width - 48, box.y + box.height - 22)).toBe("fake-yt");
 });
 
 test("Now Playing controls drive the provider player", async ({ page }) => {

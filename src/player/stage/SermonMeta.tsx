@@ -119,7 +119,7 @@ function IvoryRoundAction({
  * Round Save button on the ivory surface below the video. Keeps the double-tap
  * lock, optimistic haptic feedback, and guest sign-up gate.
  */
-export const IvorySaveButton = memo(function IvorySaveButton({
+const IvorySaveButton = memo(function IvorySaveButton({
   sermon,
 }: {
   sermon: Sermon;
@@ -170,7 +170,7 @@ export const IvorySaveButton = memo(function IvorySaveButton({
 });
 
 /** Round Share button on the ivory surface below the video. */
-export const IvoryShareButton = memo(function IvoryShareButton({
+const IvoryShareButton = memo(function IvoryShareButton({
   sermon,
 }: {
   sermon: Sermon;

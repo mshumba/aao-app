@@ -1,101 +1,24 @@
 import { useIsFocused } from "expo-router";
-import { memo, useEffect, useRef, useState, type Ref } from "react";
+import { memo, useEffect, useRef, type Ref } from "react";
 import { Platform, StyleSheet, View } from "react-native";
-import Animated from "react-native-reanimated";
 import { headline } from "../data/display";
 import type { Sermon } from "../data/sermons";
-import { Artwork, RoundButton, clockText, leftText, spokenTime } from "../kit";
-import { STAGE_BAR, bumpStageFocusToggle, type StageMarks } from "../player/layout";
+import { Artwork, clockText, leftText, spokenTime } from "../kit";
+import { bumpStageFocusToggle, type StageMarks } from "../player/layout";
 import { clock, usePlayerSession } from "../player/PlayerProvider";
-import { CcBadge, FullscreenIcon, Skip15Icon } from "../player/stage/icons";
 import { canRetry, canWatchOnYouTube, playerError } from "../player/types";
-import { useGo } from "../navigation";
-import { c, easeOut, font, radius, shadows, space, tabular, textCap, type } from "../theme";
+import { c, font, radius, shadows, space, tabular, textCap, type } from "../theme";
 import { Icon, T, Tap, gradient, moveFocus, web, type IconName } from "../ui";
 
-const TOP_SCRIM =
-  "linear-gradient(180deg, rgba(15, 17, 21, 0.62) 0%, rgba(15, 17, 21, 0.2) 55%, rgba(15, 17, 21, 0) 100%)";
 const BOTTOM_SCRIM =
   "linear-gradient(0deg, rgba(15, 17, 21, 0.78) 0%, rgba(15, 17, 21, 0.34) 60%, rgba(15, 17, 21, 0) 100%)";
 
 /**
- * The stage's top bar (kept for backwards compatibility).
- */
-export const StageBar = memo(function StageBar({
-  width,
-  skipToPlayer,
-  onMore,
-  moreRef,
-  title,
-  titleShown = false,
-}: {
-  width: number;
-  skipToPlayer: boolean;
-  onMore: () => void;
-  moreRef?: Ref<View>;
-  title?: string;
-  titleShown?: boolean;
-}) {
-  const go = useGo();
-  return (
-    <View style={[styles.bar, { width }]} {...web({ dataSet: { dark: "true" } })}>
-      <RoundButton tone="glass" size={40} icon="chevron-down" iconSize={20} label="Back" onPress={go.back} />
-      {skipToPlayer && Platform.OS === "web" ? <SkipToPlayer /> : null}
-      <View style={styles.barTitleSlot} accessible={false} importantForAccessibility="no-hide-descendants">
-        {title ? (
-          <Animated.View
-            style={{
-              alignSelf: "stretch",
-              opacity: titleShown ? 1 : 0,
-              transitionProperty: "opacity",
-              transitionDuration: 200,
-              transitionTimingFunction: easeOut,
-            }}
-          >
-            <T style={styles.barTitle} numberOfLines={1} aria-hidden maxFontSizeMultiplier={1.2}>
-              {title}
-            </T>
-          </Animated.View>
-        ) : null}
-      </View>
-      <View ref={moreRef} collapsable={false}>
-        <RoundButton
-          tone="glass"
-          size={40}
-          icon="ellipsis-horizontal"
-          iconSize={18}
-          label="More options"
-          onPress={onMore}
-        />
-      </View>
-    </View>
-  );
-});
-
-function SkipToPlayer() {
-  const { focusPlayer } = usePlayerSession();
-  const [focused, setFocused] = useState(false);
-  return (
-    <Tap
-      accessibilityRole="button"
-      accessibilityLabel="Go to video player"
-      onPress={focusPlayer}
-      onFocus={() => setFocused(true)}
-      onBlur={() => setFocused(false)}
-      feedback="dim"
-      style={[styles.skipLink, !focused && styles.offscreen]}
-    >
-      <T style={styles.skipLinkText}>Go to video player</T>
-    </Tap>
-  );
-}
-
-/**
- * The sermon's 16:9 poster before the player loads, with the Mindvalley-style
- * video overlay controls: top-right CC, centre -15 / 64pt white Play disc / +15,
- * and bottom scrubber rail with gold moment dots, progress fill, speed pill,
- * and fullscreen icon. Serves as the single accessible call to play
- * ("Watch sermon", "Resume at 4:10", or "Play from 1 hour 8 minutes 40 seconds").
+ * The sermon's 16:9 poster before the player loads: shows the artwork, the
+ * centred 64pt white Play disc, a single Resume / Play-from badge when
+ * applicable, and the bottom progress rail with gold moment dots. Serves as
+ * the single accessible call to play ("Watch sermon", "Resume at 4:10", or
+ * "Play from 1 hour 8 minutes 40 seconds").
  */
 export const Poster = memo(function Poster({
   sermon,
@@ -146,7 +69,6 @@ export const Poster = memo(function Poster({
       : watched > 0
         ? Math.min(1, Math.max(0, watched))
         : 0;
-  const momentCount = marks?.moments.length ?? 0;
   const remainingAtStart = startAt != null && total > startAt ? total - startAt : null;
 
   return (
@@ -169,16 +91,7 @@ export const Poster = memo(function Poster({
           fallback={headline(sermon)}
           style={{ width: artWidth, height, marginLeft: (width - artWidth) / 2 }}
         />
-        <View style={[styles.topScrim, gradient(TOP_SCRIM)]} />
         <View style={[styles.bottomScrim, gradient(BOTTOM_SCRIM)]} />
-
-        {/* Top-right CC preview badge */}
-        <View style={styles.topRow}>
-          <View style={{ flex: 1 }} />
-          <View style={styles.ccSlot}>
-            <CcBadge active={false} />
-          </View>
-        </View>
       </View>
 
       {/* Primary accessible play button covering the stage */}
@@ -190,35 +103,28 @@ export const Poster = memo(function Poster({
         feedback="scale"
         style={styles.posterButton}
       >
-        {/* Centre -15 / 64pt white Play disc / +15 */}
+        {/* Centred 64pt white Play disc + single Resume / Play-from badge */}
         <View
-          style={styles.centerRow}
+          style={styles.centerStack}
           accessible={false}
           importantForAccessibility="no-hide-descendants"
           {...web({ "aria-hidden": true })}
         >
-          <View style={styles.skipPreview}>
-            <Skip15Icon direction="back" size={34} color={c.white} />
-          </View>
           <View style={styles.playDisc}>
             <View style={{ transform: [{ translateX: 2 }] }}>
               <Icon name="play" size={28} color={c.media} />
             </View>
           </View>
-          <View style={styles.skipPreview}>
-            <Skip15Icon direction="forward" size={34} color={c.white} />
-          </View>
+          {badgeText ? (
+            <View style={styles.badgePill}>
+              <T style={styles.badgeText} maxFontSizeMultiplier={textCap.chip}>
+                {badgeText}
+              </T>
+            </View>
+          ) : null}
         </View>
 
-        {badgeText ? (
-          <View style={styles.badgePill}>
-            <T style={styles.badgeText} maxFontSizeMultiplier={textCap.chip}>
-              {badgeText}
-            </T>
-          </View>
-        ) : null}
-
-        {/* Bottom scrubber preview rail + progress-bar when resuming */}
+        {/* Bottom rail with gold moment dots and saved progress fill */}
         <View style={styles.bottomArea}>
           {startAt != null ? (
             <View
@@ -228,27 +134,9 @@ export const Poster = memo(function Poster({
               {...web({ "aria-hidden": true })}
             >
               <T style={styles.previewTimeText}>{clockText(startAt)}</T>
-              {momentCount > 0 ? (
-                <T style={styles.markedCaption}>
-                  {`${momentCount} moment${momentCount === 1 ? "" : "s"} marked`}
-                </T>
-              ) : null}
               {remainingAtStart != null ? (
                 <T style={styles.previewTimeText}>{`−${clockText(remainingAtStart)}`}</T>
               ) : null}
-            </View>
-          ) : momentCount > 0 ? (
-            <View
-              style={styles.timesPreviewRow}
-              accessible={false}
-              importantForAccessibility="no-hide-descendants"
-              {...web({ "aria-hidden": true })}
-            >
-              <View />
-              <T style={styles.markedCaption}>
-                {`${momentCount} moment${momentCount === 1 ? "" : "s"} marked`}
-              </T>
-              <View />
             </View>
           ) : null}
 
@@ -289,12 +177,6 @@ export const Poster = memo(function Poster({
                   ]}
                 />
               ) : null}
-            </View>
-            <View style={styles.speedPillPreview}>
-              <T style={styles.speedTextPreview}>1x</T>
-            </View>
-            <View style={styles.fullscreenPreview}>
-              <FullscreenIcon size={18} color={c.white} />
             </View>
           </View>
         </View>
@@ -395,87 +277,22 @@ function SlotButton({
 }
 
 const styles = StyleSheet.create({
-  bar: {
-    height: STAGE_BAR,
-    paddingBottom: STAGE_BAR - 44,
-    paddingHorizontal: space.lg,
-    flexDirection: "row",
-    alignItems: "center",
-    alignSelf: "center",
-  },
-  skipLink: {
-    position: "absolute",
-    top: 0,
-    left: 64,
-    minHeight: 44,
-    justifyContent: "center",
-    paddingHorizontal: space.md,
-    borderRadius: radius.pill,
-    backgroundColor: c.raised,
-    zIndex: 2,
-  },
-  skipLinkText: { ...type.label, color: c.accent },
-  offscreen: {
-    position: "absolute",
-    left: -10000,
-    width: 1,
-    height: 1,
-    minHeight: 1,
-    paddingHorizontal: 0,
-    overflow: "hidden",
-  },
-  barTitleSlot: { flex: 1, minWidth: 0, paddingHorizontal: 12, alignItems: "center" },
-  barTitle: { ...type.label, color: c.white, textAlign: "center" },
-  topScrim: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 76,
-  },
   bottomScrim: {
     position: "absolute",
     bottom: 0,
     left: 0,
     right: 0,
-    height: 92,
-  },
-  topRow: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: space.sm,
-    paddingTop: space.xs,
-    minHeight: 44,
-  },
-  ccSlot: {
-    width: 44,
-    height: 44,
-    alignItems: "center",
-    justifyContent: "center",
+    height: 76,
   },
   posterButton: {
     ...StyleSheet.absoluteFill,
     alignItems: "center",
     justifyContent: "center",
   },
-  centerRow: {
-    flexDirection: "row",
+  centerStack: {
     alignItems: "center",
     justifyContent: "center",
-    gap: 36,
-  },
-  skipPreview: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
-    backgroundColor: "rgba(15, 17, 21, 0.36)",
-    alignItems: "center",
-    justifyContent: "center",
-    opacity: 0.9,
+    gap: 10,
   },
   playDisc: {
     width: 64,
@@ -487,8 +304,6 @@ const styles = StyleSheet.create({
     boxShadow: "0 4px 18px rgba(0, 0, 0, 0.32)",
   },
   badgePill: {
-    position: "absolute",
-    bottom: 44,
     paddingHorizontal: 12,
     paddingVertical: 4,
     borderRadius: radius.pill,
@@ -509,8 +324,8 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     paddingHorizontal: space.md,
-    paddingBottom: space.xs,
-    gap: 4,
+    paddingBottom: space.sm,
+    gap: 6,
   },
   timesPreviewRow: {
     flexDirection: "row",
@@ -524,22 +339,10 @@ const styles = StyleSheet.create({
     color: c.white,
     ...tabular,
   },
-  markedCaption: {
-    fontFamily: font.medium,
-    fontSize: 11.5,
-    lineHeight: 15,
-    color: "rgba(255, 255, 255, 0.88)",
-    backgroundColor: "rgba(15, 17, 21, 0.62)",
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: radius.pill,
-    overflow: "hidden",
-  },
   bottomBar: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-    minHeight: 32,
+    minHeight: 16,
   },
   previewRail: {
     flex: 1,
@@ -551,7 +354,7 @@ const styles = StyleSheet.create({
   previewFill: {
     height: 5,
     borderRadius: radius.pill,
-    backgroundColor: "#254b7c",
+    backgroundColor: "#4d84d6",
   },
   previewDot: {
     position: "absolute",
@@ -573,30 +376,6 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: c.white,
     boxShadow: shadows.knob,
-  },
-  speedPillPreview: {
-    minWidth: 36,
-    height: 24,
-    paddingHorizontal: 7,
-    borderRadius: radius.pill,
-    borderWidth: 1.5,
-    borderColor: "rgba(255, 255, 255, 0.8)",
-    backgroundColor: "rgba(15, 17, 21, 0.4)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  speedTextPreview: {
-    fontFamily: font.bold,
-    fontSize: 11.5,
-    lineHeight: 14,
-    color: c.white,
-    ...tabular,
-  },
-  fullscreenPreview: {
-    width: 28,
-    height: 28,
-    alignItems: "center",
-    justifyContent: "center",
   },
   // On the stage, where the video was: a quiet panel, white words.
   error: {

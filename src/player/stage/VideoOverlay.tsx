@@ -1,5 +1,11 @@
 import { memo, useCallback, useEffect, useRef, useState, type RefObject } from "react";
-import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
+import {
+  AccessibilityInfo,
+  ActivityIndicator,
+  Pressable,
+  StyleSheet,
+  View,
+} from "react-native";
 import Animated from "react-native-reanimated";
 import { useReducedMotion } from "../../motion";
 import type { BandMarks } from "../NowPlaying";
@@ -11,8 +17,14 @@ import { StageScrubber } from "./Scrubber";
 
 const HIDE_AFTER_MS = 3000;
 
-const TOP_SCRIM =
-  "linear-gradient(180deg, rgba(15, 17, 21, 0.68) 0%, rgba(15, 17, 21, 0.24) 55%, rgba(15, 17, 21, 0) 100%)";
+/**
+ * YouTube's title strip at the top (~48pt) and logo corner at the bottom-right
+ * (~96×44pt) stay clear of our buttons, shading, and tap layer at all times.
+ */
+export const YOUTUBE_TOP_CLEAR = 48;
+export const YOUTUBE_LOGO_WIDTH = 96;
+export const YOUTUBE_LOGO_HEIGHT = 44;
+
 const BOTTOM_SCRIM =
   "linear-gradient(0deg, rgba(15, 17, 21, 0.78) 0%, rgba(15, 17, 21, 0.34) 60%, rgba(15, 17, 21, 0) 100%)";
 
@@ -31,6 +43,8 @@ export type VideoOverlayProps = {
   captionsOn: boolean;
   /** Whether the stage is currently in full-screen mode. */
   fullscreen: boolean;
+  /** Safe-area padding when rotated into landscape full-screen. */
+  fullscreenInsets?: { top: number; bottom: number; side: number };
   /** Key moments and estimated length for the scrubber. */
   marks: BandMarks;
   /** Bumped when jumping to a moment so the thumb glides. */
@@ -49,9 +63,9 @@ export type VideoOverlayProps = {
 
 /**
  * Mindvalley-inspired playback overlay drawn over the 16:9 video frame.
- * Contains only playback controls (per YouTube API policy): top-right CC,
- * centre -15 / white Play-Pause disc / +15, and bottom elapsed time, navy/gold
- * scrubber with moment dots, total time, speed pill (1x), and full screen.
+ * Leaves YouTube's top 48pt title strip and bottom-right 96×44pt logo corner
+ * completely clear of buttons, shading, and tap catchers at all times, and
+ * drops shading and the backdrop while paused so YouTube's pause overlay shows.
  */
 export const VideoOverlay = memo(function VideoOverlay({
   playing,
@@ -61,6 +75,7 @@ export const VideoOverlay = memo(function VideoOverlay({
   rate,
   captionsOn,
   fullscreen,
+  fullscreenInsets,
   marks,
   glideKey = 0,
   toggleRef,
@@ -75,7 +90,25 @@ export const VideoOverlay = memo(function VideoOverlay({
   const reduced = useReducedMotion();
   const [visible, setVisible] = useState(true);
   const [previewSeconds, setPreviewSeconds] = useState<number | null>(null);
+  const [screenReaderEnabled, setScreenReaderEnabled] = useState(false);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dragging = previewSeconds != null;
+
+  useEffect(() => {
+    let active = true;
+    AccessibilityInfo.isScreenReaderEnabled()
+      .then((on) => {
+        if (active) setScreenReaderEnabled(Boolean(on));
+      })
+      .catch(() => {});
+    const sub = AccessibilityInfo.addEventListener("screenReaderChanged", (on) => {
+      setScreenReaderEnabled(Boolean(on));
+    });
+    return () => {
+      active = false;
+      sub.remove();
+    };
+  }, []);
 
   const clearHideTimer = useCallback(() => {
     if (hideTimer.current) {
@@ -86,22 +119,22 @@ export const VideoOverlay = memo(function VideoOverlay({
 
   const scheduleHide = useCallback(() => {
     clearHideTimer();
-    if (!playing) return;
+    if (!playing || dragging || screenReaderEnabled) return;
     hideTimer.current = setTimeout(() => {
       setVisible(false);
     }, HIDE_AFTER_MS);
-  }, [clearHideTimer, playing]);
+  }, [clearHideTimer, playing, dragging, screenReaderEnabled]);
 
-  // Show controls whenever paused; hide 3s after play starts.
+  // Show controls whenever paused, dragging, or using a screen reader; hide 3s after play starts.
   useEffect(() => {
-    if (!playing) {
+    if (!playing || dragging || screenReaderEnabled) {
       clearHideTimer();
       setVisible(true);
       return;
     }
     scheduleHide();
     return clearHideTimer;
-  }, [playing, clearHideTimer, scheduleHide]);
+  }, [playing, dragging, screenReaderEnabled, clearHideTimer, scheduleHide]);
 
   const registerInteraction = useCallback(() => {
     setVisible(true);
@@ -111,25 +144,38 @@ export const VideoOverlay = memo(function VideoOverlay({
   const toggleVisibility = useCallback(() => {
     setVisible((was) => {
       const next = !was;
-      if (next && playing) scheduleHide();
+      if (next && playing && !dragging && !screenReaderEnabled) scheduleHide();
       else clearHideTimer();
       return next;
     });
-  }, [playing, scheduleHide, clearHideTimer]);
+  }, [playing, dragging, screenReaderEnabled, scheduleHide, clearHideTimer]);
 
   const shownSeconds = previewSeconds ?? seconds;
   const totalSeconds = duration > 0 ? duration : marks.estimate;
+  // Fixed tabular width sized to the sermon's total length so 9:59 -> 10:00
+  // or 59:59 -> 1:00:00 never shifts the scrubber rail under the finger.
+  const timeWidth = totalSeconds >= 3600 ? 48 : 36;
+
+  const fsTop = fullscreen ? (fullscreenInsets?.top ?? 0) : 0;
+  const fsBottom = fullscreen ? (fullscreenInsets?.bottom ?? 0) : 0;
+  const fsSide = fullscreen ? (fullscreenInsets?.side ?? 0) : 0;
+
+  // Only catch background taps while actively playing; when paused, let taps
+  // outside our buttons reach YouTube's pause overlay.
+  const showBackdrop = playing && !allowPassthroughTap;
+  const childBoxPointerEvents = visible ? "box-none" : "none";
+  const childAutoPointerEvents = visible ? "auto" : "none";
 
   return (
     <View
       style={styles.root}
-      pointerEvents={allowPassthroughTap ? "box-none" : "auto"}
+      pointerEvents="box-none"
       {...web({ dataSet: { dark: "true" } })}
     >
-      {/* Tap catcher to toggle controls visibility */}
-      {!allowPassthroughTap ? (
+      {/* Tap catcher to toggle controls visibility while playing (leaves top 48pt and bottom 44pt clear) */}
+      {showBackdrop ? (
         <Pressable
-          style={StyleSheet.absoluteFill}
+          style={styles.backdrop}
           onPress={toggleVisibility}
           accessibilityRole="button"
           accessibilityLabel={visible ? "Hide video controls" : "Show video controls"}
@@ -138,8 +184,11 @@ export const VideoOverlay = memo(function VideoOverlay({
       ) : null}
 
       <Animated.View
-        pointerEvents={visible ? "box-none" : "none"}
-        {...web({ onFocusCapture: registerInteraction })}
+        pointerEvents={childBoxPointerEvents}
+        {...web({
+          onFocusCapture: registerInteraction,
+          ...(!visible ? { "aria-hidden": true, inert: true } : {}),
+        })}
         style={[
           styles.overlayBox,
           {
@@ -150,25 +199,38 @@ export const VideoOverlay = memo(function VideoOverlay({
           },
         ]}
       >
-        {/* Soft dark scrim at the top and bottom */}
-        <View
-          pointerEvents="none"
-          style={[styles.topScrim, gradient(TOP_SCRIM)]}
-        />
-        <View
-          pointerEvents="none"
-          style={[styles.bottomScrim, gradient(BOTTOM_SCRIM)]}
-        />
+        {/* Bottom scrim only while playing, and clear of the 96×44pt YouTube logo corner */}
+        {playing ? (
+          <View
+            pointerEvents="none"
+            style={[
+              styles.bottomScrim,
+              { right: Math.max(YOUTUBE_LOGO_WIDTH, fsSide) },
+              gradient(BOTTOM_SCRIM),
+            ]}
+          />
+        ) : null}
 
-        {/* Top row: leaves top-centre room for a future Video/Audio switch; CC on the right */}
-        <View pointerEvents="box-none" style={styles.topRow}>
+        {/* Top row: leaves top 48pt clear for YouTube's title strip; CC on the right */}
+        <View
+          pointerEvents={childBoxPointerEvents}
+          style={[
+            styles.topRow,
+            {
+              marginTop: Math.max(YOUTUBE_TOP_CLEAR, fsTop),
+              paddingLeft: Math.max(space.sm, fsSide),
+              paddingRight: Math.max(space.xs, fsSide),
+            },
+          ]}
+        >
           <View pointerEvents="none" style={styles.futureSwitchSlot} />
-          <View style={styles.topRightActions}>
+          <View pointerEvents={childAutoPointerEvents} style={styles.topRightActions}>
             <Tap
               accessibilityRole="button"
               accessibilityLabel={captionsOn ? "Closed captions on" : "Closed captions off"}
               accessibilityHint="Toggles video captions"
-              accessibilityState={{ selected: captionsOn }}
+              accessibilityState={{ selected: captionsOn, disabled: loading }}
+              disabled={loading}
               {...web({ "aria-pressed": captionsOn })}
               onPress={() => {
                 registerInteraction();
@@ -184,7 +246,7 @@ export const VideoOverlay = memo(function VideoOverlay({
         </View>
 
         {/* Centre transport: back 15s, large white play/pause disc, forward 15s */}
-        <View pointerEvents="box-none" style={styles.centerRow}>
+        <View pointerEvents={childBoxPointerEvents} style={styles.centerRow}>
           <Tap
             accessibilityRole="button"
             accessibilityLabel="Back 15 seconds"
@@ -239,10 +301,22 @@ export const VideoOverlay = memo(function VideoOverlay({
           </Tap>
         </View>
 
-        {/* Bottom row: elapsed time, scrubber, total time, speed pill (1x), full screen */}
-        <View pointerEvents="box-none" style={styles.bottomRow}>
+        {/* Bottom row: elapsed time, scrubber, total time, speed pill (1x), full screen.
+            Stops 96pt short of the right edge so the YouTube logo corner stays clear. */}
+        <View
+          pointerEvents={childBoxPointerEvents}
+          style={[
+            styles.bottomRow,
+            {
+              paddingLeft: Math.max(space.sm, fsSide),
+              marginRight: Math.max(YOUTUBE_LOGO_WIDTH, fsSide),
+              marginBottom: fsBottom,
+            },
+          ]}
+        >
           <T
-            style={styles.timeText}
+            style={[styles.timeText, styles.timeElapsed, { width: timeWidth }]}
+            numberOfLines={1}
             testID="elapsed"
             accessibilityLabel={`${spokenClock(shownSeconds)} played`}
             maxFontSizeMultiplier={textCap.chip}
@@ -252,6 +326,7 @@ export const VideoOverlay = memo(function VideoOverlay({
 
           <StageScrubber
             seconds={seconds}
+            previewSeconds={previewSeconds}
             duration={duration}
             marks={marks}
             glideKey={glideKey}
@@ -262,7 +337,8 @@ export const VideoOverlay = memo(function VideoOverlay({
           />
 
           <T
-            style={styles.timeText}
+            style={[styles.timeText, styles.timeDuration, { width: timeWidth }]}
+            numberOfLines={1}
             testID="duration"
             accessibilityLabel={
               totalSeconds > 0
@@ -288,7 +364,7 @@ export const VideoOverlay = memo(function VideoOverlay({
             testID="player-speed-button"
           >
             <View style={styles.speedPill}>
-              <T style={styles.speedText} maxFontSizeMultiplier={1.2}>
+              <T style={styles.speedText} maxFontSizeMultiplier={1.15}>
                 {`${rate}x`}
               </T>
             </View>
@@ -317,43 +393,40 @@ const styles = StyleSheet.create({
   root: {
     ...StyleSheet.absoluteFill,
   },
+  backdrop: {
+    position: "absolute",
+    top: YOUTUBE_TOP_CLEAR,
+    bottom: YOUTUBE_LOGO_HEIGHT,
+    left: 0,
+    right: 0,
+  },
   overlayBox: {
     ...StyleSheet.absoluteFill,
     justifyContent: "space-between",
-  },
-  topScrim: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 76,
   },
   bottomScrim: {
     position: "absolute",
     bottom: 0,
     left: 0,
-    right: 0,
-    height: 92,
+    height: 52,
   },
   topRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: space.sm,
-    paddingTop: space.xs,
-    minHeight: 48,
+    height: 36,
   },
   futureSwitchSlot: {
     flex: 1,
-    minHeight: 36,
+    height: 36,
   },
   topRightActions: {
     flexDirection: "row",
     alignItems: "center",
   },
   ccButton: {
-    width: 44,
-    height: 44,
+    width: 36,
+    height: 36,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -386,30 +459,32 @@ const styles = StyleSheet.create({
   bottomRow: {
     flexDirection: "row",
     alignItems: "center",
-    paddingLeft: space.md,
-    paddingRight: space.xs,
-    paddingBottom: space.xs,
-    gap: 6,
-    minHeight: 48,
+    paddingRight: 0,
+    gap: 2,
+    height: YOUTUBE_LOGO_HEIGHT,
   },
   timeText: {
     fontFamily: font.bold,
-    fontSize: 12.5,
+    fontSize: 12,
     lineHeight: 16,
     color: c.white,
     ...tabular,
   },
+  timeElapsed: {
+    textAlign: "right",
+  },
+  timeDuration: {
+    textAlign: "left",
+  },
   speedTarget: {
-    minWidth: 44,
-    height: 44,
-    paddingHorizontal: 2,
+    width: 40,
+    height: YOUTUBE_LOGO_HEIGHT,
     alignItems: "center",
     justifyContent: "center",
   },
   speedPill: {
-    minWidth: 38,
-    height: 26,
-    paddingHorizontal: 8,
+    width: 38,
+    height: 24,
     borderRadius: radius.pill,
     borderWidth: 1.5,
     borderColor: "rgba(255, 255, 255, 0.85)",
@@ -419,14 +494,14 @@ const styles = StyleSheet.create({
   },
   speedText: {
     fontFamily: font.bold,
-    fontSize: 12,
-    lineHeight: 15,
+    fontSize: 11.5,
+    lineHeight: 14,
     color: c.white,
     ...tabular,
   },
   fullscreenButton: {
-    width: 44,
-    height: 44,
+    width: 36,
+    height: YOUTUBE_LOGO_HEIGHT,
     alignItems: "center",
     justifyContent: "center",
   },

@@ -22,12 +22,16 @@ import { Sermon, seriesSermons } from "../../data/sermons";
 import { Wash, clockText, parseDuration } from "../../kit";
 import { FocusedStatusBar } from "../../kit/FocusedStatusBar";
 import { useMoments } from "../../learning";
+import { LockedDaySheet } from "../../paths/LockedDaySheet";
+import { pathWords, stateOf } from "../../paths/model";
+import { usePlayDay } from "../../paths/navigation";
 import {
   bumpStageFocusToggle,
   fullFrame,
   setStageOverlay,
   stageColumn,
   stageToggleRef,
+  useStageOverlay,
 } from "../../player/layout";
 import { PlayerCenter, type BandMarks } from "../../player/NowPlaying";
 import { usePlayback, usePlayerSession } from "../../player/PlayerProvider";
@@ -54,7 +58,7 @@ import { PathDayRow, useOpenPath, usePathDay } from "../../sermon/PathDay";
 import { AboutSermon, MoreSermons, TopicsSection } from "../../sermon/Sections";
 import { ErrorSlot, Poster } from "../../sermon/Stage";
 import { c, space } from "../../theme";
-import { Header, Page, StatePanel, dockScrollPadding } from "../../ui";
+import { Header, Page, StatePanel, dockScrollPadding, moveFocus, web } from "../../ui";
 
 export default function SermonScreen() {
   const params = useLocalSearchParams<Record<string, string | string[]>>();
@@ -155,6 +159,7 @@ function useStage(id: string) {
 function NowPlayingScreen({ sermon, link }: { sermon: Sermon; link: SermonParams }) {
   usePageTitle(headline(sermon));
   const session = usePlayerSession();
+  const overlay = useStageOverlay();
   const account = useAccount();
   const progressFor = useProgressOf([sermon.id]);
   const gate = useGate();
@@ -164,12 +169,25 @@ function NowPlayingScreen({ sermon, link }: { sermon: Sermon; link: SermonParams
   const catalogue = useCatalogue();
   const go = useGo();
   const openPath = useOpenPath();
+  const playDay = usePlayDay();
   const scroll = useRef<NativeScrollView>(null);
   const about = useRef<View>(null);
+  const { moments } = useMoments(sermon.id);
+  const pathDay = usePathDay(sermon.id, link);
+
   // Bumped when playback jumps to a moment, so the stage scrubber's thumb glides.
   const [glideKey, setGlideKey] = useState(0);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<SermonTabKey>("moments");
+  const [lockedDay, setLockedDay] = useState<number | null>(null);
+  const userPickedTab = useRef(false);
+  const [activeTab, setActiveTab] = useState<SermonTabKey>(() =>
+    moments.length > 0 ? "moments" : "about",
+  );
+  useEffect(() => {
+    if (!userPickedTab.current) {
+      setActiveTab(moments.length > 0 ? "moments" : "about");
+    }
+  }, [moments.length]);
   const [pendingSeek, setPendingSeek] = useState<number | null>(null);
   useStage(sermon.id);
 
@@ -225,9 +243,6 @@ function NowPlayingScreen({ sermon, link }: { sermon: Sermon; link: SermonParams
     const id = requestAnimationFrame(() => scroll.current?.scrollTo({ y, animated: false }));
     return () => cancelAnimationFrame(id);
   }, [pinned]);
-
-  const { moments } = useMoments(sermon.id);
-  const pathDay = usePathDay(sermon.id, link);
 
   // Where Watch would pick up for a signed-in viewer.
   const saved = account.user ? progressFor(sermon.id) : null;
@@ -329,13 +344,6 @@ function NowPlayingScreen({ sermon, link }: { sermon: Sermon; link: SermonParams
     [searchPill, link.q],
   );
 
-  const shared = !account.user && account.guestWatch === "shared" && account.hasPass(sermon.id);
-  const kicker = shared
-    ? link.t != null
-      ? `Shared with you · at ${clockText(link.t)}`
-      : `Shared with you · ${sermon.date}`
-    : sermon.date;
-
   // Its series, in order: a pass over the whole library, so only when that changes.
   const { seriesKey } = sermon;
   const series = useMemo(
@@ -344,11 +352,25 @@ function NowPlayingScreen({ sermon, link }: { sermon: Sermon; link: SermonParams
   );
   const seriesName = catalogue.seriesName(seriesKey);
   const inSeries = series.length > 1 && !!seriesName;
+  const seriesPart = inSeries ? series.findIndex((s) => s.id === sermon.id) + 1 : 0;
   const fan = useMemo(() => seriesFan(series, sermon), [series, sermon]);
   const openSeries = useCallback(
     () => go.push({ pathname: "/series/[key]", params: { key: seriesKey! } }),
     [go, seriesKey],
   );
+
+  const shared = !account.user && account.guestWatch === "shared" && account.hasPass(sermon.id);
+  const baseKicker = pathDay
+    ? `${pathWords(pathDay.path).unit} ${pathDay.day.day}`
+    : inSeries && seriesPart > 0
+      ? `Teaching ${seriesPart}`
+      : sermon.date;
+  const kicker = shared
+    ? link.t != null
+      ? `Shared with you · at ${clockText(link.t)}`
+      : `Shared with you · ${baseKicker}`
+    : baseKicker;
+
   const openYouTube = useCallback(() => {
     const { session } = latest.current;
     if (session.sermon?.id === sermon.id) session.watchOnYouTube();
@@ -373,6 +395,7 @@ function NowPlayingScreen({ sermon, link }: { sermon: Sermon; link: SermonParams
     });
   }, []);
   const showAbout = useCallback(() => {
+    userPickedTab.current = true;
     setSettled(true);
     setActiveTab("about");
     aboutAsked.current = true;
@@ -383,19 +406,23 @@ function NowPlayingScreen({ sermon, link }: { sermon: Sermon; link: SermonParams
   }, [scrollToAbout]);
 
   const handleChangeTab = useCallback((nextTab: SermonTabKey) => {
+    userPickedTab.current = true;
     if (nextTab === "about") setSettled(true);
     setActiveTab(nextTab);
   }, []);
 
   const handleSelectDay = useCallback(
     (dayNum: number, targetSermonId: string) => {
-      if (!pathDay) return;
-      go.push({
-        pathname: "/sermon/[id]",
-        params: { id: targetSermonId, path: pathDay.path.id, day: String(dayNum) },
-      });
+      if (!pathDay || dayNum === pathDay.day.day) return;
+      const todayNum = pathDay.enrolled ? pathDay.today : pathDay.total ? 1 : null;
+      const state = stateOf(dayNum, pathDay.done, todayNum);
+      if (state === "upcoming") {
+        setLockedDay(dayNum);
+        return;
+      }
+      playDay(targetSermonId, { path: { id: pathDay.path.id, day: dayNum } });
     },
-    [go, pathDay],
+    [pathDay, playDay],
   );
 
   const handleSelectMoment = useCallback(
@@ -411,7 +438,7 @@ function NowPlayingScreen({ sermon, link }: { sermon: Sermon; link: SermonParams
   );
 
   const headerStaticTitle = pathDay?.path.name ?? (inSeries ? seriesName : null);
-  const rightLabel = pathDay ? "Days" : "Moments";
+  const rightLabel = pathDay ? "Path days" : "Show moments";
   const rightHint = pathDay
     ? `Opens the days in ${pathDay.path.name}`
     : "Opens the moments and options for this sermon";
@@ -443,20 +470,19 @@ function NowPlayingScreen({ sermon, link }: { sermon: Sermon; link: SermonParams
       {inSeries && !pathDay ? (
         <SeriesRow
           name={seriesName!}
-          part={series.findIndex((s) => s.id === sermon.id) + 1 || null}
+          part={seriesPart || null}
           total={series.length}
           fan={fan}
           onPress={openSeries}
         />
       ) : null}
-      {settled ? (
+      {settled || activeTab === "about" ? (
         <>
           <AboutSermon
             ref={about}
             sermon={sermon}
             onYouTube={openYouTube}
             onLayout={onAbout}
-            first={false}
           />
           <TopicsSection sermon={sermon} />
           <MoreSermons
@@ -471,8 +497,11 @@ function NowPlayingScreen({ sermon, link }: { sermon: Sermon; link: SermonParams
   );
 
   return (
-    <View style={styles.screen}>
-      <FocusedStatusBar style="dark" animated={false} />
+    <View
+      style={styles.screen}
+      {...web(overlay.fullscreen ? { "aria-hidden": true, inert: true } : {})}
+    >
+      <FocusedStatusBar style="dark" animated={false} hidden={overlay.fullscreen} />
       <View style={{ height: insets.top, backgroundColor: c.bg }} />
       <LightHeader
         width={column}
@@ -484,7 +513,7 @@ function NowPlayingScreen({ sermon, link }: { sermon: Sermon; link: SermonParams
         rightLabel={rightLabel}
         rightHint={rightHint}
         skipToPlayer={pinned}
-        onSkipToPlayer={session.focusPlayer}
+        onSkipToPlayer={() => moveFocus(stageToggleRef.current)}
       />
 
       {/* Fixed slot the app-wide player fills while this sermon plays.
@@ -539,7 +568,6 @@ function NowPlayingScreen({ sermon, link }: { sermon: Sermon; link: SermonParams
             <SermonTabs
               activeTab={activeTab}
               onChangeTab={handleChangeTab}
-              momentsCount={moments.length}
               pathSlot={pathSlot}
               momentsSlot={momentsSlot}
               aboutSlot={aboutSlot}
@@ -576,12 +604,44 @@ function NowPlayingScreen({ sermon, link }: { sermon: Sermon; link: SermonParams
         onClose={() => setDrawerOpen(false)}
         pathDay={pathDay}
         moments={moments}
+        seriesName={inSeries && !pathDay ? seriesName : null}
         onSelectDay={handleSelectDay}
         onOpenPath={openPath}
+        onOpenSeries={inSeries && !pathDay ? openSeries : undefined}
         onSelectMoment={handleSelectMoment}
         onOpenYouTube={openYouTube}
         onShowAbout={showAbout}
       />
+
+      {pathDay ? (
+        <LockedDaySheet
+          day={lockedDay}
+          today={pathDay.today ?? 1}
+          enrolled={pathDay.enrolled}
+          unit={pathWords(pathDay.path).unit}
+          noun={pathWords(pathDay.path).noun}
+          onClose={() => setLockedDay(null)}
+          onGoToday={() => {
+            setLockedDay(null);
+            const todayNum = pathDay.today ?? 1;
+            if (todayNum === pathDay.day.day) {
+              watch();
+              return;
+            }
+            const todayItem = pathDay.days.find((d) => d.day === todayNum);
+            if (todayItem) {
+              playDay(todayItem.youtubeId, {
+                path: { id: pathDay.path.id, day: todayItem.day },
+              });
+            }
+          }}
+          onOpenAnyway={(n) => {
+            setLockedDay(null);
+            const d = pathDay.days.find((x) => x.day === n);
+            if (d) playDay(d.youtubeId);
+          }}
+        />
+      ) : null}
     </View>
   );
 }

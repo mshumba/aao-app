@@ -90,6 +90,10 @@ export function consumeStageFocusToggle() {
   return true;
 }
 
+export function clearStageFocusToggle() {
+  pendingToggleFocus = false;
+}
+
 export function useStageOverlay() {
   return useSyncExternalStore(subscribe, () => stageOverlay, () => stageOverlay);
 }

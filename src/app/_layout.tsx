@@ -226,6 +226,8 @@ function Screens() {
       <Stack.Screen name="auth/new-password" options={{ ...modal, gestureEnabled: false }} />
       <Stack.Screen name="auth/callback" options={{ animation: "none" }} />
       <Stack.Screen name="s/[id]" options={{ animation: "none" }} />
+      {/* Sermon stage: keep edge swipe-back, but don't let mid-screen scrubber drags trigger back. */}
+      <Stack.Screen name="sermon/[id]" options={{ fullScreenGestureEnabled: false }} />
       {/* A guided path: its dark cover runs under the status bar. */}
       <Stack.Screen name="path/[id]" />
       {/* Development only: every shared component with test data. */}

@@ -9,9 +9,13 @@ import { StatusBar, type StatusBarStyle } from "expo-status-bar";
 export function FocusedStatusBar({
   style,
   animated = true,
+  hidden = false,
 }: {
   style: StatusBarStyle;
   animated?: boolean;
+  hidden?: boolean;
 }) {
-  return useIsFocused() ? <StatusBar style={style} animated={animated} /> : null;
+  return useIsFocused() ? (
+    <StatusBar style={style} animated={animated} hidden={hidden} />
+  ) : null;
 }

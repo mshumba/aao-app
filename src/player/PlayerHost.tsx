@@ -1,8 +1,10 @@
 import { usePathname } from "expo-router";
+import { StatusBar } from "expo-status-bar";
 import { useEffect } from "react";
 import {
   AccessibilityInfo,
   ActivityIndicator,
+  BackHandler,
   Platform,
   StyleSheet,
   View,
@@ -29,6 +31,7 @@ import Embed from "./Embed";
 import {
   DOCK_MARGIN,
   DOCK_PAD,
+  clearStageFocusToggle,
   consumeStageFocusToggle,
   dockFrame,
   fullFrame,
@@ -38,7 +41,7 @@ import {
   useChrome,
   useStageOverlay,
 } from "./layout";
-import { clock, usePlayback, usePlayerSession } from "./PlayerProvider";
+import { BLOCKED, STILL, clock, usePlayback, usePlayerSession } from "./PlayerProvider";
 import { VideoOverlay } from "./stage/VideoOverlay";
 import { headline } from "../data/display";
 import { canRetry, playerError } from "./types";
@@ -64,6 +67,16 @@ export function PlayerHost() {
   const pathname = usePathname();
   const full = !!sermon && session.stage === sermon.id;
   const isFullscreen = full && overlay.fullscreen;
+  const rotateFullscreen = isFullscreen && window.height > window.width;
+  const nativeSafeSpan =
+    Platform.OS !== "web" && rotateFullscreen
+      ? Math.min(
+          window.height - (insets.top > 0 ? insets.top + 4 : 0) - insets.bottom,
+          Math.ceil(window.width * (16 / 9)),
+        )
+      : window.height;
+  const fsWidth = rotateFullscreen ? nativeSafeSpan : window.width;
+  const fsHeight = rotateFullscreen ? window.width : window.height;
   const d = dockFrame(window, insets, aboveTabs, chrome);
   const hidden = !!sermon && !full && d.compact;
   // The room screens keep below their content so it scrolls clear of the dock.
@@ -75,27 +88,43 @@ export function PlayerHost() {
   useEffect(() => {
     if (hidden || covered) hold();
   }, [hidden, covered, hold]);
-  // Exit fullscreen if the sermon docks or on Escape (web).
+  // Clear any pending focus-on-play flag if playback fails or the player closes.
+  useEffect(() => {
+    if (!sermon || phase === "error") clearStageFocusToggle();
+  }, [sermon, phase]);
+  // Exit fullscreen if the sermon docks or on Escape (web) / hardware Back (Android).
   useEffect(() => {
     if (!full && overlay.fullscreen) setStageOverlay({ fullscreen: false });
   }, [full, overlay.fullscreen]);
   useEffect(() => {
-    if (Platform.OS !== "web" || !isFullscreen) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setStageOverlay({ fullscreen: false });
+    if (!isFullscreen) return;
+    if (Platform.OS === "web") {
+      const onKey = (e: KeyboardEvent) => {
+        if (e.key === "Escape") setStageOverlay({ fullscreen: false });
+      };
+      document.addEventListener("keydown", onKey);
+      return () => document.removeEventListener("keydown", onKey);
+    }
+    StatusBar.setHidden(true, "fade");
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      setStageOverlay({ fullscreen: false });
+      return true;
+    });
+    return () => {
+      StatusBar.setHidden(false, "fade");
+      sub.remove();
     };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
   }, [isFullscreen]);
   if (!sermon) return null;
   // The Now Playing screen shows its own error panel and poster.
   if (full && phase === "error") return null;
   const f = fullFrame(window, insets);
-  const videoHeight = isFullscreen ? window.height : full ? f.height : d.videoHeight;
+  const videoHeight = isFullscreen ? fsHeight : full ? f.height : d.videoHeight;
   return (
     // box-none must stay a prop: react-native-web only honours it there, and
     // as a style this full-screen layer would swallow every tap in the app.
     <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
+      {isFullscreen ? <StatusBar hidden animated /> : null}
       <View
         testID={full ? "player-full" : "player-dock"}
         {...web({
@@ -110,8 +139,16 @@ export function PlayerHost() {
                 top: 0,
                 width: window.width,
                 height: window.height,
+                paddingTop:
+                  rotateFullscreen && Platform.OS !== "web" && insets.top > 0
+                    ? insets.top + 4
+                    : 0,
+                paddingBottom:
+                  rotateFullscreen && Platform.OS !== "web" ? insets.bottom : 0,
                 backgroundColor: "#000",
                 zIndex: 100,
+                alignItems: "center",
+                justifyContent: "center",
               }
             : full
               ? { left: f.left, top: f.top, width: f.width }
@@ -124,7 +161,12 @@ export function PlayerHost() {
           style={[
             styles.video,
             isFullscreen
-              ? { height: window.height, borderRadius: 0 }
+              ? {
+                  width: fsWidth,
+                  height: fsHeight,
+                  borderRadius: 0,
+                  transform: rotateFullscreen ? [{ rotate: "90deg" }] : undefined,
+                }
               : full
                 ? { height: f.height, borderRadius: f.radius }
                 : {
@@ -196,12 +238,29 @@ function StageFullOverlay() {
   const session = usePlayerSession();
   const p = usePlayback();
   const overlay = useStageOverlay();
+  const window = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const rotateFullscreen = overlay.fullscreen && window.height > window.width;
 
   useEffect(() => {
     if (consumeStageFocusToggle()) {
       moveFocus(stageToggleRef.current);
     }
   }, [overlay.focusToggleKey, session.attempt]);
+
+  const fullscreenInsets = overlay.fullscreen
+    ? rotateFullscreen
+      ? {
+          top: Math.max(insets.left, 8),
+          bottom: Math.max(insets.right, 8),
+          side: Platform.OS !== "web" ? space.sm : Math.max(insets.top, insets.bottom, 16),
+        }
+      : {
+          top: Math.max(insets.top, 8),
+          bottom: Math.max(insets.bottom, 8),
+          side: Math.max(insets.left, insets.right, 16),
+        }
+    : undefined;
 
   return (
     <VideoOverlay
@@ -212,9 +271,11 @@ function StageFullOverlay() {
       rate={p.rate}
       captionsOn={p.captionsOn}
       fullscreen={overlay.fullscreen}
+      fullscreenInsets={fullscreenInsets}
       marks={overlay.marks}
       glideKey={overlay.glideKey}
       toggleRef={stageToggleRef}
+      allowPassthroughTap={p.status === BLOCKED || p.status === STILL}
       onTogglePlay={p.toggle}
       onSkip={p.skip}
       onSeek={p.seek}

@@ -60,8 +60,6 @@ type Session = {
   close: () => void;
   /** Pause, and cancel a start still waiting for the player to load. */
   hold: () => void;
-  /** Moves keyboard focus into the provider's player (web). */
-  focusPlayer: () => void;
   /**
    * Which path day the loaded sermon plays as. The sermon's page sets it;
    * it stays while the sermon plays on docked, so finishing it there still
@@ -111,10 +109,10 @@ export function loadedSermonId() {
 const LOADING = "Loading the sermon…";
 const READY = "Press play to start";
 // Some browsers (Safari, for one) won't start sound they didn't see the tap
-// for, and the tap on Watch happened before the player existed. YouTube's own
-// play button always works.
-const BLOCKED = "Tap play in the video to start";
-const STILL = "Still loading. If it doesn’t start, tap play in the video.";
+// for, and the tap on Watch happened before the player existed. Point the
+// viewer at our Play button on the video while letting taps pass through too.
+export const BLOCKED = "Tap Play to start";
+export const STILL = "Still loading. If it doesn’t start, tap Play.";
 const ENDED = "Sermon ended";
 
 /** Statuses that ask something of the viewer, so they're shown, not just announced. */
@@ -201,6 +199,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState("");
   const [started, setStarted] = useState(false);
   const position = useRef(0);
+  // Seek target guard so rapid ±15 taps add up without a stale pre-seek poll overwriting position.
+  const pendingSeek = useRef<{ target: number; until: number } | null>(null);
   // The loaded sermon and its length, for saves made from callbacks.
   const current = useRef<Sermon | null>(null);
   const length = useRef(0);
@@ -215,7 +215,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const latestState = useRef(-1);
   // The app's own start (after Watch) hasn't resolved yet.
   const starting = useRef(false);
-  // The browser refused that start; only YouTube's play button will work.
+  // The browser refused that start; only a direct tap on Play will work.
   const blocked = useRef(false);
   const blockedCheck = useRef<ReturnType<typeof setTimeout> | null>(null);
   const clearBlockedCheck = useCallback(() => {
@@ -284,8 +284,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   );
 
   // Shared helper that sends play and watches for refused autoplay so both
-  // initial ready-autoplay and playWhenReady surface the "Tap play in the video
-  // to start" / "Still loading..." guidance when the browser blocks playback.
+  // initial ready-autoplay and playWhenReady surface the "Tap Play to start" /
+  // "Still loading..." guidance when the browser blocks playback.
   const startWithCheck = useCallback(() => {
     clearBlockedCheck();
     if (latestState.current !== 1) starting.current = true;
@@ -333,12 +333,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     command({ type: "pause" });
   }, [command, clearBlockedCheck]);
 
-  const focusPlayer = useCallback(() => embed.current?.focus(), []);
-
   const fail = useCallback((code: number) => {
     clearBlockedCheck();
     pending.current = false;
     autoplay.current = false;
+    pendingSeek.current = null;
     setPhase("error");
     setError(code);
     setStatus("");
@@ -363,6 +362,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     pending.current = true;
     autoplay.current = true;
     position.current = from;
+    pendingSeek.current = null;
     seekOnReady.current = null;
     setSermon(next);
     setError(null);
@@ -455,6 +455,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     current.current = null;
     loadedId = null;
     lateResume.current = null;
+    pendingSeek.current = null;
     resumeNote.current = 0;
     setResumedFrom(0);
     clearBlockedCheck();
@@ -481,6 +482,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     (e: PlayerEvent) => {
       if (e.type === "error") return fail(e.code);
       if (e.type === "rate") return setRate(e.rate);
+      if (e.type === "captions") return setCaptionsOn(e.enabled);
       pending.current = false;
       setCover((c) => (c === "on" ? "fading" : c));
       setPhase("ready");
@@ -514,10 +516,18 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         starting.current = false;
       }
       if (typeof e.seconds === "number") {
-        position.current = e.seconds;
-        setSeconds(e.seconds);
+        const guard = pendingSeek.current;
+        const staleSeek =
+          guard != null &&
+          Date.now() < guard.until &&
+          Math.abs(e.seconds - guard.target) > 2;
+        if (!staleSeek) {
+          pendingSeek.current = null;
+          position.current = e.seconds;
+          setSeconds(e.seconds);
+        }
         // Well past the resume point: the "Resuming at" note has done its job.
-        if (resumeNote.current && e.seconds > resumeNote.current + RESUME_NOTE_FOR) {
+        if (resumeNote.current && position.current > resumeNote.current + RESUME_NOTE_FOR) {
           resumeNote.current = 0;
           setResumedFrom(0);
         }
@@ -574,6 +584,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   const startOver = useCallback(() => {
     lateResume.current = null;
+    pendingSeek.current = null;
     resumeNote.current = 0;
     setResumedFrom(0);
     const loaded = current.current;
@@ -614,7 +625,6 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       retry,
       close,
       hold,
-      focusPlayer,
       setPathDay,
       dayDone,
       watchOnYouTube,
@@ -638,7 +648,6 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       retry,
       close,
       hold,
-      focusPlayer,
       setPathDay,
       dayDone,
       watchOnYouTube,
@@ -658,6 +667,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       // The player ignores commands until it's ready, so a choice made
       // while it loads is kept for then.
       seekOnReady.current = phaseRef.current === "loading" ? to : null;
+      pendingSeek.current = { target: to, until: Date.now() + 1500 };
       position.current = to;
       setSeconds(to);
       command({ type: "seek", seconds: to });
@@ -681,6 +691,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         command({ type: "rate", rate: next });
       },
       toggleCaptions: () => {
+        if (phaseRef.current !== "ready") return;
         const next = !captionsOn;
         setCaptionsOn(next);
         command({ type: "captions", enabled: next });

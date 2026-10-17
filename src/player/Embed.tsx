@@ -17,8 +17,6 @@ export default function Embed({
       webview.current?.injectJavaScript(
         `window.__aao&&window.__aao(${JSON.stringify(command)});true;`,
       ),
-    // Native screen readers move into the web view on their own.
-    focus: () => {},
   }));
   const inExpoGo = Constants.executionEnvironment === "storeClient";
   const appId =
@@ -40,11 +38,12 @@ export default function Embed({
       ...(baseUrl ? { origin: baseUrl.slice(0, -1) } : {}),
     };
     const html = `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="strict-origin-when-cross-origin"><style>html,body,#player{margin:0;width:100%;height:100%;background:#000}</style></head><body><div id="player"></div><script>
- var p, ready=false, ccChecked=false, ccWanted=false; function send(e){window.ReactNativeWebView.postMessage(JSON.stringify(e))}
- function ccOff(){try{p.unloadModule("captions");p.unloadModule("cc")}catch(e){}}
+ var p, ready=false, ccChecked=false, ccWanted=false, ccTimer; function send(e){window.ReactNativeWebView.postMessage(JSON.stringify(e))}
+ function ccOff(){try{p.setOption&&p.setOption("captions","track",{});p.unloadModule("captions");p.unloadModule("cc")}catch(e){}}
+ function reportCc(){try{if(typeof p.getOption==="function"){var t=p.getOption("captions","track");if(t&&typeof t==="object"){send({type:"captions",enabled:!!t.languageCode});return}}send({type:"captions",enabled:ccWanted})}catch(e){}}
  function dur(){try{return p.getDuration()}catch(e){return 0}}
- window.__aao=function(c){if(!ready)return;if(c.type==="play")p.playVideo();else if(c.type==="pause")p.pauseVideo();else if(c.type==="seek")p.seekTo(c.seconds,true);else if(c.type==="rate")p.setPlaybackRate(c.rate);else if(c.type==="captions"){ccWanted=!!c.enabled;try{if(c.enabled){p.loadModule&&p.loadModule("captions");p.setOption&&p.setOption("captions","track",{languageCode:"en"})}else{p.setOption&&p.setOption("captions","track",{});ccOff()}}catch(_){}}};
- function onYouTubeIframeAPIReady(){p=new YT.Player("player",{videoId:${JSON.stringify(videoId)},width:"100%",height:"100%",playerVars:${JSON.stringify(vars)},events:{onReady:function(){ready=true;if(!ccWanted)ccOff();send({type:"ready",duration:dur()})},onError:function(e){send({type:"error",code:e.data})},onStateChange:function(e){if(e.data===1&&!ccChecked){ccChecked=true;if(!ccWanted)ccOff()}send({type:"state",state:e.data,seconds:p.getCurrentTime(),duration:dur()})},onPlaybackRateChange:function(e){send({type:"rate",rate:e.data})}}})}
+ window.__aao=function(c){if(!ready)return;if(c.type==="play")p.playVideo();else if(c.type==="pause")p.pauseVideo();else if(c.type==="seek")p.seekTo(c.seconds,true);else if(c.type==="rate")p.setPlaybackRate(c.rate);else if(c.type==="captions"){ccWanted=!!c.enabled;clearTimeout(ccTimer);try{if(c.enabled){p.loadModule&&p.loadModule("captions");p.setOption&&p.setOption("captions","track",{languageCode:"en"})}else{ccOff()}}catch(_){}ccTimer=setTimeout(reportCc,500)}};
+ function onYouTubeIframeAPIReady(){p=new YT.Player("player",{videoId:${JSON.stringify(videoId)},width:"100%",height:"100%",playerVars:${JSON.stringify(vars)},events:{onReady:function(){ready=true;if(!ccWanted)ccOff();send({type:"ready",duration:dur()})},onApiChange:function(){if(!ccWanted){ccOff();send({type:"captions",enabled:false})}else{try{p.setOption&&p.setOption("captions","track",{languageCode:"en"})}catch(e){}clearTimeout(ccTimer);ccTimer=setTimeout(reportCc,500)}},onError:function(e){send({type:"error",code:e.data})},onStateChange:function(e){if(e.data===1&&!ccChecked){ccChecked=true;if(!ccWanted)ccOff()}send({type:"state",state:e.data,seconds:p.getCurrentTime(),duration:dur()})},onPlaybackRateChange:function(e){send({type:"rate",rate:e.data})}}})}
  setInterval(function(){if(ready&&p.getPlayerState()===1)send({type:"state",state:1,seconds:p.getCurrentTime(),duration:dur()})},1000);
  </script><script src="https://www.youtube.com/iframe_api" onerror="send({type:'error',code:0})"></script></body></html>`;
     return { html, ...(baseUrl ? { baseUrl } : {}) };
@@ -55,6 +54,8 @@ export default function Embed({
       source={source}
       style={{ height, backgroundColor: "#000" }}
       scrollEnabled={false}
+      contentInsetAdjustmentBehavior="never"
+      automaticallyAdjustContentInsets={false}
       allowsFullscreenVideo
       allowsInlineMediaPlayback
       // Playback only ever starts from the viewer's own tap (Watch or Play in
@@ -63,7 +64,7 @@ export default function Embed({
       onMessage={(e) => {
         try {
           const data = JSON.parse(e.nativeEvent.data);
-          if (["ready", "state", "rate", "error"].includes(data.type))
+          if (["ready", "state", "rate", "captions", "error"].includes(data.type))
             onEvent(data);
         } catch {
           /* Ignore unrelated messages. */
