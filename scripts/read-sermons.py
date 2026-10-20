@@ -8,10 +8,16 @@ service it is, and where the preaching starts and ends.
     python3 -I scripts/read-sermons.py sample 10      # reads 10 now, at full price
     python3 -I scripts/read-sermons.py submit         # the rest, through the Batch API (half price)
     python3 -I scripts/read-sermons.py collect        # waits for the batches, then saves their cards
+    python3 -I scripts/read-sermons.py save           # writes the cards to the database and re-tags topics
 
 Cards go to --out (default docs/sermon-cards, which git ignores) as
 cards.jsonl, one JSON object per line keyed by youtube_id. A sermon that
 already has a card is never read again, so every step can be re-run.
+
+`save` upserts every card into public.sermon_cards, then rebuilds
+public.sermon_topics from them: a sermon gets its card's topic when the fit
+is 4 or 5, scored by the fit plus a tenth of the embedding match. For new
+sermons: `sample N` reads the N newest without a card, then `save`.
 
 `submit` estimates the cost from the sample's real token counts and stops
 before sending anything if the whole run would pass --cap dollars (default
@@ -216,9 +222,60 @@ def append(path, rows):
             f.write(json.dumps(row, ensure_ascii=False) + "\n")
 
 
+# The card's topic counts when the card rates the fit this high or higher.
+TAG_FIT = 4
+CARD_COLUMNS = ("youtube_id text, summary text, main_points jsonb, scriptures jsonb, topic text, topic_fit int, "
+                "also_topic text, for_whom text, kind text, preacher text, preaching_start real, preaching_end real, "
+                "language text, flags jsonb")
+
+
+def save(cards):
+    """Upserts the cards into public.sermon_cards, then rebuilds sermon_topics."""
+    for k in range(0, len(cards), 150):
+        rows = json.dumps(cards[k:k + 150], ensure_ascii=False)
+        tag = "card" + str(abs(hash(rows)) % 10**8)
+        assert f"${tag}$" not in rows
+        sql(f"""insert into public.sermon_cards (youtube_id, summary, main_points, scriptures, topic, topic_fit,
+              also_topic, for_whom, kind, preacher, preaching_start, preaching_end, language, flags, model, read_at)
+            select x.youtube_id, x.summary,
+              array(select jsonb_array_elements_text(x.main_points)), array(select jsonb_array_elements_text(x.scriptures)),
+              x.topic, x.topic_fit, x.also_topic, x.for_whom, x.kind, x.preacher, x.preaching_start, x.preaching_end,
+              x.language, array(select jsonb_array_elements_text(x.flags)), '{MODEL}', now()
+            from jsonb_to_recordset(${tag}${rows}${tag}$::jsonb) as x({CARD_COLUMNS})
+            where exists (select 1 from public.sermons s where s.youtube_id = x.youtube_id)
+            on conflict (youtube_id) do update set
+              summary = excluded.summary, main_points = excluded.main_points, scriptures = excluded.scriptures,
+              topic = excluded.topic, topic_fit = excluded.topic_fit, also_topic = excluded.also_topic,
+              for_whom = excluded.for_whom, kind = excluded.kind, preacher = excluded.preacher,
+              preaching_start = excluded.preaching_start, preaching_end = excluded.preaching_end,
+              language = excluded.language, flags = excluded.flags, model = excluded.model, read_at = excluded.read_at""")
+        print(f"  saved {min(k + 150, len(cards))}/{len(cards)} cards", flush=True)
+    sql(f"""begin;
+      delete from public.sermon_topics;
+      with tagged as (
+        select youtube_id, topic, topic_fit from public.sermon_cards where topic is not null and topic_fit >= {TAG_FIT}
+      ),
+      c as (
+        select p.youtube_id, avg(p.embedding::extensions.vector(768)) as v
+        from public.passages p join tagged t using (youtube_id)
+        where p.dup_of is null and not coalesce(p.hidden_from_search, false)
+        group by p.youtube_id
+      )
+      insert into public.sermon_topics (youtube_id, topic_id, rank, score)
+      select t.youtube_id, t.topic, 1,
+        t.topic_fit + 0.1 * greatest(-5, least(5, coalesce(
+          ((1 - (c.v operator(extensions.<=>) tv.embedding::extensions.vector(768))) - tv.mean) / tv.sd, 0)))
+      from tagged t
+      join public.topic_vectors tv on tv.topic_id = t.topic
+      left join c using (youtube_id);
+      commit;""")
+    counts = sql("select t.label, count(st.*) n from public.topics t left join public.sermon_topics st on st.topic_id = t.id group by t.label, t.sort order by t.sort")
+    print("tags:", ", ".join(f"{r['label']} {r['n']}" for r in counts))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("step", choices=["sample", "submit", "collect"])
+    parser.add_argument("step", choices=["sample", "submit", "collect", "save"])
     parser.add_argument("count", nargs="?", type=int, default=10)
     parser.add_argument("--out", default="docs/sermon-cards")
     parser.add_argument("--cap", type=float, default=85.0, help="dollars the whole run may cost")
@@ -269,6 +326,10 @@ def main():
             batch = json.loads(anthropic("messages/batches", {"requests": [{"custom_id": y, "params": params(texts[y])} for y in chunk]}))
             append(batches_path, [{"id": batch["id"], "count": len(chunk)}])
             print(f"  sent batch {batch['id']} with {len(chunk)} sermons", flush=True)
+        return
+
+    if args.step == "save":
+        save(load(cards_path))
         return
 
     if args.step == "collect":
