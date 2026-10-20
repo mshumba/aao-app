@@ -8,12 +8,10 @@
 --
 -- Which sermons carry a topic comes from the sermon cards, not this file: scripts/read-sermons.py reads
 -- each sermon in full, saves its card to public.sermon_cards and rebuilds public.sermon_topics (the
--- card's topic when its fit is 4 or 5). Re-running this file empties sermon_topics (the topics are
--- re-inserted), so run `python3 -I scripts/read-sermons.py save` after it.
+-- card's topic when its fit is 4 or 5). Re-running this file updates the topics in place and replaces
+-- their vectors; it never touches the cards or the tags.
 
 begin;
-
-delete from public.topics;
 
 insert into public.topics (id, label, description, need_ids, path_ids, sort) values
   ('hearing-god', 'Hearing God', 'Recognising God''s voice and learning to respond well.',
@@ -39,7 +37,15 @@ insert into public.topics (id, label, description, need_ids, path_ids, sort) val
     array['building-on-the-right-foundation', 'the-way-of-the-cross']::text[], 7),
   ('comfort-healing', 'Comfort & Healing', 'God''s healing and comfort for the sick and the weary.',
     array['healing', 'grief', 'rejection', 'discouraged', 'fear', 'anxiety']::text[],
-    array['living-by-faith', 'seeking-the-face-of-god']::text[], 8);
+    array['living-by-faith', 'seeking-the-face-of-god']::text[], 8)
+on conflict (id) do update set
+  label = excluded.label,
+  description = excluded.description,
+  need_ids = excluded.need_ids,
+  path_ids = excluded.path_ids,
+  sort = excluded.sort;
+
+delete from public.topic_vectors;
 
 insert into public.topic_vectors (topic_id, match_text, embedding) values
   ('hearing-god', 'Hear God. Recognising God''s voice and receiving clear divine direction through Scripture, inner witness, dreams, visions, and prophetic perception. Teaches how to discern between the voice of the Father, your own thoughts, and wrong spirits when making decisions or seeking God''s specific instruction.',
