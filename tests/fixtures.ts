@@ -87,6 +87,11 @@ export function tab(page: Page, name: TabName) {
  *   the tap that asked for playback came before the player existed:
  *   "silent" (no state change), "paused" (buffers, then pauses) or "stall"
  *   (buffers forever). `true` means "silent".
+ * - gate: YouTube shows its own gate in the player ("Sign in to confirm
+ *   you're not a bot") instead of the video: it becomes ready, then reports
+ *   unstarted (-1) at 0:00 whatever `start` it was given, and never plays
+ *   (play requests are logged as "play-gated") or moves; a pause still
+ *   reports paused, at 0:00.
  */
 export async function fakeYouTube(
   page: Page,
@@ -98,6 +103,7 @@ export async function fakeYouTube(
         readyAfter?: number;
         stallFirst?: boolean;
         blockAutoplay?: boolean | "silent" | "paused" | "stall";
+        gate?: boolean;
       } = {},
 ) {
   const {
@@ -106,6 +112,7 @@ export async function fakeYouTube(
     readyAfter = 50,
     stallFirst = false,
     blockAutoplay = false,
+    gate = false,
   } = typeof options === "number" ? { error: options } : options;
   let loads = 0;
   await page.route("https://www.youtube.com/iframe_api", (route) => {
@@ -119,8 +126,9 @@ export async function fakeYouTube(
       contentType: "text/javascript",
       body: `window.__yt = window.__yt || { created: 0, destroyed: 0, commands: [], starts: [] };
       window.YT = { Player: function (el, o) {
-        var yt = window.__yt, self = this, state = -1, t = (o.playerVars && o.playerVars.start) || 0, timer, pend = [], refuse = ${JSON.stringify(blockAutoplay === true ? "silent" : blockAutoplay || "")};
-        yt.created++; yt.starts.push(t);
+        var yt = window.__yt, self = this, state = -1, start = (o.playerVars && o.playerVars.start) || 0, timer, pend = [], refuse = ${JSON.stringify(blockAutoplay === true ? "silent" : blockAutoplay || "")}, gate = ${gate};
+        var t = gate ? 0 : start;
+        yt.created++; yt.starts.push(start);
         el.setAttribute("data-testid", "fake-yt");
         el.style.width = "100%"; el.style.height = "100%";
         el.innerHTML = '<iframe title="Fake YouTube player" style="width:100%;height:100%;border:0;background:#000"></iframe>';
@@ -133,6 +141,11 @@ export async function fakeYouTube(
           self.getDuration = function () { return ${duration}; };
           self.getPlayerState = function () { return state; };
           self.playVideo = function () {
+            if (gate) {
+              yt.commands.push("play-gated");
+              setTimeout(function () { emit(-1); }, 30);
+              return;
+            }
             if (refuse) {
               var how = refuse; refuse = "";
               yt.commands.push("play-refused");
@@ -146,7 +159,7 @@ export async function fakeYouTube(
             pend.push(setTimeout(function () { timer = setInterval(function () { t += 1; }, 200); emit(1); }, 80));
           };
           self.pauseVideo = function () { yt.commands.push("pause"); pend.forEach(clearTimeout); pend = []; clearInterval(timer); emit(2); };
-          self.seekTo = function (s) { yt.commands.push("seek:" + Math.round(s)); t = s; };
+          self.seekTo = function (s) { yt.commands.push("seek:" + Math.round(s)); if (!gate) t = s; };
           self.setPlaybackRate = function (r) { yt.commands.push("rate:" + r); o.events.onPlaybackRateChange({ data: r }); };
           self.loadModule = function (m) { yt.commands.push("module:load:" + m); };
           self.unloadModule = function (m) { yt.commands.push("module:unload:" + m); };
@@ -155,7 +168,9 @@ export async function fakeYouTube(
           // captions are switched off.
           self.getOption = function () { return { languageCode: "en" }; };
         }
-        setTimeout(function () { ${error ? `o.events.onError({ data: ${error} })` : "attach(); o.events.onReady()"}; }, ${readyAfter});
+        setTimeout(function () {
+          ${error ? `o.events.onError({ data: ${error} })` : "attach(); o.events.onReady(); if (gate) setTimeout(function () { emit(-1); }, 30)"};
+        }, ${readyAfter});
       } };
       window.onYouTubeIframeAPIReady && window.onYouTubeIframeAPIReady();`,
     });

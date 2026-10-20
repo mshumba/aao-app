@@ -53,6 +53,12 @@ const clamp01 = (f: number) => Math.min(1, Math.max(0, Number.isFinite(f) ? f : 
  * React commits as playback ticks). While dragging, a second fill and thumb
  * follow the finger every frame from a shared value the gesture writes on
  * the UI thread; only the elapsed time goes through React, throttled.
+ *
+ * The drag and resting views carry different keys, so letting go unmounts
+ * the drag pair. Reused in place, a view would keep its last animated width
+ * and transform on a phone (Reanimated writes settled animated values back
+ * over React's style and doesn't undo them when the animated style is
+ * detached), freezing the fill and an enlarged thumb where the finger left.
  */
 export const StageScrubber = memo(function StageScrubber({
   seconds,
@@ -323,9 +329,10 @@ export const StageScrubber = memo(function StageScrubber({
           <View style={styles.rail} />
           {/* Bright navy played fill: under the finger while dragging */}
           {dragging ? (
-            <Animated.View style={[styles.fill, dragFill]} />
+            <Animated.View key="drag-fill" style={[styles.fill, dragFill]} />
           ) : (
             <Animated.View
+              key="fill"
               style={[
                 styles.fill,
                 { width: fillWidth, transitionProperty: "width", ...motion },
@@ -349,9 +356,15 @@ export const StageScrubber = memo(function StageScrubber({
           })}
           {/* Gold thumb: under the finger while dragging */}
           {dragging ? (
-            <Animated.View style={[styles.thumb, dragThumb]} testID="scrubber-drag-thumb" />
+            <Animated.View
+              key="drag-thumb"
+              style={[styles.thumb, dragThumb]}
+              testID="scrubber-drag-thumb"
+            />
           ) : (
             <Animated.View
+              key="thumb"
+              testID="scrubber-thumb"
               style={[
                 styles.thumb,
                 {

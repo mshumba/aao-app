@@ -137,7 +137,10 @@ function statusFor(state: number) {
 
 /** How far past the resume point the "Resuming at" note stays. */
 const RESUME_NOTE_FOR = 120;
-/** How long after a seek a time far from its target is taken as stale. */
+/**
+ * How long after a seek a time far from its target is taken as stale, once
+ * the sermon has played; until then a seek stays armed (see `played`).
+ */
 const SEEK_SETTLE_MS = 1500;
 
 /**
@@ -204,6 +207,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   // The last seek sent, so a time the player polled before it moved can't
   // overwrite the new place (armSeek).
   const pendingSeek = useRef<{ target: number; until: number } | null>(null);
+  // This load has played (YouTube reported playing at least once). Until it
+  // has, the player's clock isn't the viewer's place: behind YouTube's own
+  // gate ("Sign in to confirm you're not a bot") or a start it refused, it
+  // reads 0:00, which must neither move them nor be saved over their place.
+  const played = useRef(false);
   // The loaded sermon and its length, for saves made from callbacks.
   const current = useRef<Sermon | null>(null);
   const length = useRef(0);
@@ -231,9 +239,10 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   }, []);
 
   /**
-   * Every seek the app sends goes through here first: for a moment, a time
-   * the player reported before it had moved is stale and ignored, so a quick
-   * ±15 counts from the new place rather than the old one.
+   * Every seek the app sends goes through here first: for a moment (or until
+   * the sermon has played), a time the player reported before it had moved
+   * is stale and ignored, so a quick ±15 counts from the new place rather
+   * than the old one.
    */
   const armSeek = useCallback((to: number) => {
     pendingSeek.current = { target: to, until: Date.now() + SEEK_SETTLE_MS };
@@ -243,9 +252,12 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
    * Saves the viewer's place in the loaded sermon. A "tick" (every second
    * while playing) saves at most every SAVE_EVERY; other moments save at
    * once. Nothing is sent when the place hasn't changed, before the length
-   * is known, or for a sermon only just started and never saved before.
+   * is known, for a sermon only just started and never saved before, or
+   * before this load has played (docking or leaving the app then would save
+   * the player's 0:00 over the viewer's place), unless it ended.
    */
   const persist = useCallback((reason: "tick" | "moment" | "ended") => {
+    if (!played.current && reason !== "ended") return;
     const sermon = current.current;
     const viewer = accountRef.current;
     const total = Math.floor(length.current);
@@ -360,6 +372,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const begin = useCallback((next: Sermon, from: number) => {
     // Keep the place in the sermon being replaced.
     if (current.current && current.current.id !== next.id) persist("moment");
+    played.current = false;
     // Another sermon isn't that path day.
     if (pathDayRef.current?.sermonId !== next.id) pathDayRef.current = null;
     current.current = next;
@@ -526,19 +539,23 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         clearBlockedCheck();
         starting.current = false;
         blocked.current = false;
+        played.current = true;
         setStarted(true);
       } else if (e.state === 0) {
         clearBlockedCheck();
         starting.current = false;
       }
       if (typeof e.seconds === "number") {
+        // A time far from the last seek's target, or (until this load has
+        // played) from where it was asked to start, is the player's, not the
+        // viewer's: polled before the seek reached it, or a clock that never
+        // started. Before it has played, a seek stays armed.
         const guard = pendingSeek.current;
-        const staleSeek =
-          guard != null &&
-          Date.now() < guard.until &&
-          Math.abs(e.seconds - guard.target) > 2;
-        if (!staleSeek) {
-          pendingSeek.current = null;
+        const target = guard ? guard.target : played.current ? null : position.current;
+        const holding = !played.current || (guard != null && Date.now() < guard.until);
+        const stale = target != null && holding && Math.abs(e.seconds - target) > 2;
+        if (!stale) {
+          if (played.current) pendingSeek.current = null;
           position.current = e.seconds;
           setSeconds(e.seconds);
         }

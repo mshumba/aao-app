@@ -179,6 +179,20 @@ test("dragging the scrubber sideways seeks where it's released", async ({
   await expect
     .poll(async () => (await ytLog(page)).commands.some((c) => /^seek:(47\d|48\d)$/.test(c)))
     .toBe(true);
+  // Letting go swaps the drag thumb for the resting one (a fresh view, so a
+  // phone can't keep the drag's place and size on it), which then follows
+  // the next seek at its normal size.
+  await expect(page.getByTestId("scrubber-drag-thumb")).toHaveCount(0);
+  await showControls(page);
+  await page.getByRole("slider", { name: "Playback position" }).focus();
+  await page.keyboard.press("Home");
+  await expect.poll(async () => (await ytLog(page)).commands).toContain("seek:0");
+  await expect
+    .poll(async () => {
+      const rest = (await page.getByTestId("scrubber-thumb").boundingBox())!;
+      return Math.abs(rest.x + rest.width / 2 - at(0)) <= 12 && rest.width < 18;
+    })
+    .toBe(true);
 });
 
 test("a docked failure is announced and named in the dock", async ({

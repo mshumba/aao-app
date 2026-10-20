@@ -103,6 +103,7 @@ function mountPlayer(copy: WatchProgress[] = []) {
 
   const account = { user: { id: "local:member@example.com" } as { id: string } | null };
   const answers: ((items: WatchProgress[] | null) => void)[] = [];
+  const saves: number[] = [];
   const progress = {
     progress: copy,
     progressReady: false,
@@ -111,7 +112,9 @@ function mountPlayer(copy: WatchProgress[] = []) {
       new Promise<WatchProgress[] | null>((resolve) => {
         answers.push(resolve);
       }),
-    saveProgress: () => {},
+    saveProgress: (item: { positionSeconds: number }) => {
+      saves.push(item.positionSeconds);
+    },
   };
   const native = {
     Platform: { OS: "ios" },
@@ -171,6 +174,8 @@ function mountPlayer(copy: WatchProgress[] = []) {
     playback: null as unknown as Playback,
     /** What the app asked YouTube to do, in order: "play", "seek:250". */
     commands: [] as string[],
+    /** The places saved to the account, in order. */
+    saves,
     account,
     flush() {
       for (let renders = 0; ; renders++) {
@@ -425,5 +430,71 @@ test("a saved place moved to once the player is ready isn't undone by a stale ti
   expect(player.playback.seconds).toBe(250);
   player.playback.skip(15);
   player.flush();
+  expect(player.commands).toEqual(["seek:250", "play", "seek:265"]);
+});
+
+// YouTube can load and never start: its own gate in the player ("Sign in to
+// confirm you're not a bot"), or a start the browser refused. It then reports
+// 0:00, which isn't the viewer's place.
+function state(player: Player, state: number, seconds: number) {
+  player.session.onEvent({ type: "state", state, seconds, duration: 600 });
+  player.flush();
+}
+
+test("a player that never starts keeps the viewer's place and saves nothing over it", () => {
+  const player = mountPlayer([COPY]);
+  player.session.load(SERMON);
+  player.flush();
+  player.session.onEvent({ type: "ready", duration: 600 });
+  player.flush();
+  state(player, -1, 0);
+  expect(player.playback.seconds).toBe(100);
+  // Leaving the app pauses it, and the pause reports 0:00 too.
+  player.playback.pause();
+  state(player, 2, 0);
+  expect(player.playback.seconds).toBe(100);
+  player.session.close();
+  player.flush();
+  expect(player.saves).toEqual([]);
+  // Started again at its place, +15 counts from there.
+  watchFromCopy(player, 0);
+  player.playback.skip(15);
+  player.flush();
+  expect(player.commands).toEqual(["play", "pause", "play", "seek:115"]);
+});
+
+test("once it plays, the player's time is the viewer's place and is saved", () => {
+  const player = mountPlayer([COPY]);
+  player.session.load(SERMON);
+  player.flush();
+  player.session.onEvent({ type: "ready", duration: 600 });
+  player.flush();
+  state(player, -1, 0);
+  state(player, 1, 100);
+  state(player, 2, 130);
+  expect(player.playback.seconds).toBe(130);
+  expect(player.saves).toEqual([130]);
+});
+
+test("a saved place moved to while it can't start stays, however long the player sits at 0:00", async () => {
+  const player = mountPlayer();
+  player.session.load(SERMON);
+  player.flush();
+  await player.answer([SAVED]);
+  player.session.onEvent({ type: "ready", duration: 600 });
+  player.flush();
+  expect(player.commands).toEqual(["seek:250", "play"]);
+  // Long after the seek would have settled had it played.
+  const now = Date.now;
+  Date.now = () => now() + 10_000;
+  try {
+    state(player, -1, 0);
+    expect(player.playback.seconds).toBe(250);
+    state(player, 1, 250);
+    player.playback.skip(15);
+    player.flush();
+  } finally {
+    Date.now = now;
+  }
   expect(player.commands).toEqual(["seek:250", "play", "seek:265"]);
 });
