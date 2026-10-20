@@ -83,10 +83,10 @@ test("tabs draw the concept's glyphs: outline, filled when selected", async ({ p
 });
 
 test("topic cards, topic page and sermon keep the return path", async ({ page }) => {
-  await openTopic(page, "Purpose & Calling, 2 sermons");
-  await expect(page).toHaveURL(/\/topics\/purpose-calling$/);
+  await openTopic(page, "Hearing God, 1 sermon");
+  await expect(page).toHaveURL(/\/topics\/hearing-god$/);
   await expect(shown(page.getByText(notice, { exact: true }))).toBeVisible();
-  await expect(rows(page)).toHaveCount(2);
+  await expect(rows(page)).toHaveCount(1);
   await page.getByRole("button", { name: /^Apostolic Shift: Day One\./ }).click();
   await expect(
     page.getByRole("button", { name: "Watch sermon", exact: true }),
@@ -94,7 +94,7 @@ test("topic cards, topic page and sermon keep the return path", async ({ page })
   await expect(page.locator("iframe")).toHaveCount(0);
   await page.getByRole("button", { name: "Back", exact: true }).click();
   await expect(
-    page.getByRole("heading", { level: 1, name: "Purpose & Calling" }),
+    page.getByRole("heading", { level: 1, name: "Hearing God" }),
   ).toBeVisible();
   // A second Back within 350ms counts as a double tap; pace it like a person.
   await page.waitForTimeout(400);
@@ -115,10 +115,10 @@ test("old Topics links land on Search's topics", async ({ page }) => {
 });
 
 test("empty topic recovery returns to the topics", async ({ page }) => {
-  // The bundled sample has no Hearing God sermon.
-  await openTopic(page, "Hearing God, No sermons yet");
+  // The bundled sample has no Faith & Hope sermon.
+  await openTopic(page, "Faith & Hope, No sermons yet");
   await expect(
-    page.getByRole("heading", { name: "No sermons in Hearing God yet" }),
+    page.getByRole("heading", { name: "No sermons in Faith & Hope yet" }),
   ).toBeVisible();
   await page
     .getByRole("button", { name: "Browse other topics", exact: true })
@@ -141,7 +141,7 @@ test("unknown topic links explain the problem and recover explicitly", async ({
   ).toBeVisible();
   await page.getByRole("button", { name: "Browse topics", exact: true }).click();
   await expect(
-    page.getByRole("button", { name: "Purpose & Calling, 2 sermons", exact: true }),
+    page.getByRole("button", { name: "Purpose & Calling, 1 sermon", exact: true }),
   ).toBeVisible();
   // An unknown topic in a search link says so, and the topics are there.
   await page.goto("/search?category=no-such-topic");
@@ -149,7 +149,7 @@ test("unknown topic links explain the problem and recover explicitly", async ({
     shown(page.getByText("That topic link is out of date. Browse the topics below, or ask in your own words.")),
   ).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "Purpose & Calling, 2 sermons", exact: true }),
+    page.getByRole("button", { name: "Purpose & Calling, 1 sermon", exact: true }),
   ).toBeVisible();
 });
 
@@ -226,7 +226,7 @@ test("keyboard: Space and Enter select tabs on web", async ({ page }) => {
 test("a deliberate Back soon after a swallowed double tap still works", async ({
   page,
 }) => {
-  await openTopic(page, "Purpose & Calling, 2 sermons");
+  await openTopic(page, "Hearing God, 1 sermon");
   await rows(page).first().click();
   await expect(
     page.getByRole("button", { name: "Watch sermon", exact: true }),

@@ -60,14 +60,14 @@ test("the bundled sample is what the import writes for the same videos", () => {
 
 test("the bundled sample carries its real topics, apart from the record", () => {
   const ids = fixtureTopics.map((t) => t.id);
-  expect(new Set(ids).size).toBe(8);
+  expect(new Set(ids).size).toBe(ids.length);
   // As public.sermon_topics has them: one topic a sermon, and the Grand
   // Finale has none.
   expect(sermons.map((s) => [s.id, sermonCategoryIds(s)])).toEqual([
     ["nUW8NT2Pe88", ["prayer"]],
     ["H9sRbSUt0YE", []],
     ["yUDzMcZsVk8", ["purpose-calling"]],
-    ["WYiA7rjenVI", ["purpose-calling"]],
+    ["WYiA7rjenVI", ["hearing-god"]],
   ]);
   for (const sermon of sermons) for (const id of sermonCategoryIds(sermon)) expect(ids).toContain(id);
   // Topics live in public.sermon_topics, never on the catalogue record.
@@ -79,9 +79,10 @@ const tagged = (id: string, topic: SermonTopic | null, seconds = 3600) =>
   toSermon({ ...sampleRecords[3], youtube_id: id, duration_seconds: seconds }, null, topic);
 
 test("a topic lists its sermons, the best match first", () => {
-  expect(sermonsInTopic(sermons, "purpose-calling").map((s) => s.id)).toEqual(["yUDzMcZsVk8", "WYiA7rjenVI"]);
+  expect(sermonsInTopic(sermons, "purpose-calling").map((s) => s.id)).toEqual(["yUDzMcZsVk8"]);
+  expect(sermonsInTopic(sermons, "hearing-god").map((s) => s.id)).toEqual(["WYiA7rjenVI"]);
   expect(sermonsInTopic(sermons, "prayer").map((s) => s.id)).toEqual(["nUW8NT2Pe88"]);
-  expect(sermonsInTopic(sermons, "hearing-god")).toEqual([]);
+  expect(sermonsInTopic(sermons, "faith-hope")).toEqual([]);
   // By how well each matches, whatever the order they came in (newest first).
   const list = [tagged("weak", { id: "a", score: -0.4 }), tagged("best", { id: "a", score: 2.5 }), tagged("mid", { id: "a", score: 1 })];
   expect(sermonsInTopic(list, "a").map((s) => s.id)).toEqual(["best", "mid", "weak"]);

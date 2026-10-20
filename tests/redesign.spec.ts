@@ -30,11 +30,11 @@ test.describe("All sermons", () => {
 
     await page.getByTestId("filter-topic").click();
     await page.getByRole("radio", { name: "Purpose & Calling" }).click();
-    await expect(rows(page)).toHaveCount(2);
+    await expect(rows(page)).toHaveCount(1);
 
     await page.getByTestId("filter-year").click();
     await page.getByRole("radio", { name: "2026" }).click();
-    await expect(rows(page)).toHaveCount(2);
+    await expect(rows(page)).toHaveCount(1);
 
     await page.getByTestId("sermons-search").fill("grand finale");
     await expect(rows(page)).toHaveCount(0);

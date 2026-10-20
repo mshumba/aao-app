@@ -19,9 +19,9 @@ export type Need = {
 };
 
 /**
- * One of the 8 topics people pick when they join, chosen by AI from what the
- * Apostle teaches (approved by the owner, 16 Oct 2026). About half the
- * sermons are matched to one of them (Sermon.topic).
+ * One of the topics people pick when they join, chosen by AI from what the
+ * Apostle teaches (approved by the owner, 16 Oct 2026). A sermon that
+ * clearly fits one is matched to it (Sermon.topic).
  */
 export type Topic = {
   id: string;

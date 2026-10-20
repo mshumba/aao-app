@@ -1,4 +1,5 @@
--- Saved topic picks, moved onto the 8 topics (20261016000300_topics.sql).
+-- Saved topic picks, moved onto the topics in public.topics
+-- (20261016000300_topics.sql).
 -- Until now profiles.interests held the four sample topics' ids. Each maps
 -- to the topic that holds what it covered; prayer keeps its id:
 --
@@ -14,11 +15,12 @@
 
 begin;
 
--- With no topics loaded, every list would come out empty.
+-- Without the topics the old ids map to, every list would come out empty.
 do $$
 begin
-  if (select count(*) from public.topics) <> 8 then
-    raise exception 'Load the 8 topics (supabase/seed/topics.sql) before remapping saved picks';
+  if (select count(*) from public.topics
+      where id in ('hearing-god', 'prayer', 'faith-hope', 'everyday-life')) <> 4 then
+    raise exception 'Load the topics (supabase/seed/topics.sql) before remapping saved picks';
   end if;
 end $$;
 

@@ -14,10 +14,11 @@ import {
   type WatchProgress,
 } from "./fixtures";
 
-// The 8 topics (supabase/seed/topics.sql, the test fixtures) and the bundled
+// The topics (supabase/seed/topics.sql, the test fixtures) and the bundled
 // sermons' live topics: Pray Without Ceasing (3 hr 35 min) is Prayer's, Day
-// Two Morning and Day One are Purpose & Calling's (Day Two Morning the
-// closer match), and the Grand Finale has none.
+// One is Hearing God's, Day Two Morning is Purpose & Calling's, and the
+// Grand Finale has none. The order within a topic is covered in
+// catalog.spec.ts, as no topic has two sample sermons.
 
 const SPIRIT = "knowing-the-holy-spirit";
 const FACE = "seeking-the-face-of-god";
@@ -63,11 +64,11 @@ async function railHeadlines(page: Page) {
 test.describe("onboarding", () => {
   test.use({ viewer: "new" });
 
-  test("offers the 8 topics, each with its line and icon, and ends with their paths", async ({ page }) => {
+  test("offers every topic, each with its line and icon, and ends with their paths", async ({ page }) => {
     await page.goto("/");
     await page.getByTestId("welcome-get-started").click();
     const options = page.getByRole("checkbox");
-    await expect(options).toHaveCount(8);
+    await expect(options).toHaveCount(fixtureTopics.length);
     expect(await options.evaluateAll((els) => els.map((el) => el.getAttribute("aria-label")))).toEqual(
       fixtureTopics.map((t) => t.label),
     );
@@ -108,17 +109,26 @@ test.describe("onboarding", () => {
 test.describe("Home, as a guest", () => {
   test.use({ viewer: "guest" });
 
-  test("From your topics shows the closest matches first and opens the topic", async ({ page }) => {
-    await guestPicks(page, ["purpose-calling"]);
+  test("From your topics takes each topic's sermons in turn", async ({ page }) => {
+    await guestPicks(page, ["purpose-calling", "hearing-god"]);
     await page.goto("/");
     const rail = shown(page.getByTestId("from-your-topics"));
     await expect(rail.getByRole("heading", { name: "From your topics" })).toBeVisible();
-    await expect(rail).toContainText("Purpose & Calling");
-    // The closer match first, though Day One came out a day earlier.
-    await expect.poll(() => railHeadlines(page)).toEqual(["Apostolic Shift: Day Two Morning", "Apostolic Shift: Day One"]);
+    await expect(rail).toContainText("Hearing God · Purpose & Calling");
+    // The topics in their own order, whatever order they were picked in.
+    await expect.poll(() => railHeadlines(page)).toEqual(["Apostolic Shift: Day One", "Apostolic Shift: Day Two Morning"]);
     await expect(rail).not.toContainText("sample");
+    // "See all" is for one topic's page.
+    await expect(rail.getByRole("button", { name: "See all", exact: true })).toHaveCount(0);
+  });
+
+  test("From your topics with one topic opens its page", async ({ page }) => {
+    await guestPicks(page, ["hearing-god"]);
+    await page.goto("/");
+    const rail = shown(page.getByTestId("from-your-topics"));
+    await expect.poll(() => railHeadlines(page)).toEqual(["Apostolic Shift: Day One"]);
     await rail.getByRole("button", { name: "See all", exact: true }).click();
-    await expect(page).toHaveURL(/\/topics\/purpose-calling$/);
+    await expect(page).toHaveURL(/\/topics\/hearing-god$/);
   });
 
   test("From your topics leaves out sermons over three hours, and isn't there before a pick", async ({ page }) => {
@@ -150,7 +160,7 @@ test.describe("Home, as a guest", () => {
 
 test.describe("Home, signed in", () => {
   test("From your topics leaves out what they've finished", async ({ page }) => {
-    await memberPicks(page, ["purpose-calling"], [
+    await memberPicks(page, ["purpose-calling", "hearing-god"], [
       {
         sermonId: SERMON.dayTwo,
         positionSeconds: 10190,
@@ -177,16 +187,14 @@ test.describe("Home, signed in", () => {
 test.describe("a topic's page", () => {
   test.use({ viewer: "guest" });
 
-  test("lists its sermons, the closest match first, and says how they were matched", async ({ page }) => {
+  test("lists its sermons and says how they were matched", async ({ page }) => {
     await page.goto("/topics/purpose-calling");
     const topic = shown(page.getByTestId("topic-page"));
     await expect(topic.getByRole("heading", { level: 1, name: "Purpose & Calling" })).toBeVisible();
-    await expect(topic).toContainText("Topic · 2 sermons");
+    await expect(topic).toContainText("Topic · 1 sermon");
     await expect(topic).toContainText("Finding your assignment and walking in it.");
-    await expect(rows(page)).toHaveCount(2);
     expect(await rows(page).evaluateAll((els) => els.map((el) => el.getAttribute("aria-label")?.split(".")[0]))).toEqual([
       "Apostolic Shift: Day Two Morning",
-      "Apostolic Shift: Day One",
     ]);
     // Short of a page, so there's nothing more to show.
     await expect(shown(page.getByRole("button", { name: /^Show / }))).toHaveCount(0);
@@ -198,7 +206,7 @@ test.describe("a topic's page", () => {
   test("Search's topic cards count each topic's sermons and open its page", async ({ page }) => {
     await page.goto("/search");
     await expect(shown(page.getByRole("heading", { name: "Browse by topic" }))).toBeVisible();
-    await shown(page.getByRole("button", { name: "Purpose & Calling, 2 sermons", exact: true })).click();
+    await shown(page.getByRole("button", { name: "Purpose & Calling, 1 sermon", exact: true })).click();
     await expect(page).toHaveURL(/\/topics\/purpose-calling$/);
   });
 });

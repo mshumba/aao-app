@@ -50,6 +50,7 @@ const NAMES = [
   "information-circle-outline",
   "leaf-outline",
   "lock-closed-outline",
+  "lock-open-outline",
   "log-out-outline",
   "logo-apple",
   "logo-google",

@@ -6,8 +6,8 @@ import { Icon, IconName, Notice, T, Tap, c } from "./ui";
 
 /**
  * Each topic's icon, by its id: the one thing about a topic the app itself
- * holds (the topics are public.topics). A topic added since this build
- * shows a leaf.
+ * holds (the topics are public.topics, however many there are). A topic
+ * added since this build shows a leaf.
  */
 const ICONS: Record<string, IconName> = {
   "hearing-god": "ear-outline",
@@ -17,7 +17,11 @@ const ICONS: Record<string, IconName> = {
   "grace-holiness": "sparkles-outline",
   "holy-spirit": "flame-outline",
   "everyday-life": "footsteps-outline",
+  // Comfort & Healing is becoming Healing, with Deliverance beside it; the
+  // old id goes once public.topics has the new ones.
   "comfort-healing": "heart-outline",
+  healing: "heart-outline",
+  deliverance: "lock-open-outline",
 };
 
 export function topicIcon(id: string): IconName {

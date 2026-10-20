@@ -42,9 +42,9 @@ export type Sermon = {
   thumbnail: string;
   source: string;
   /**
-   * Its main topic, as matched from its transcript. About half the library
-   * has none (no transcript, or no clear match), and none shows until the
-   * topics have loaded.
+   * Its main topic, as matched from its transcript. A sermon with no
+   * transcript or no clear fit has none, and none shows until the topics
+   * have loaded.
    */
   topic: SermonTopic | null;
 };
@@ -213,11 +213,11 @@ export const sampleSnapshot: Snapshot = {
   fullAt: 0,
 };
 
-/** The sample's topics, as public.sermon_topics has them (17 October 2026); the Grand Finale has none. */
+/** The sample's topics, as public.sermon_topics has them (20 October 2026); the Grand Finale has none. */
 export const sampleTags: TopicTags = {
-  nUW8NT2Pe88: { id: "prayer", score: 0.665 },
-  yUDzMcZsVk8: { id: "purpose-calling", score: 2.072 },
-  WYiA7rjenVI: { id: "purpose-calling", score: 0.983 },
+  nUW8NT2Pe88: { id: "prayer", score: 5.066 },
+  yUDzMcZsVk8: { id: "purpose-calling", score: 4.207 },
+  WYiA7rjenVI: { id: "hearing-god", score: 5.101 },
 };
 
 export const sampleSermons: Sermon[] = sermonsFrom(sampleSnapshot, sampleTags);

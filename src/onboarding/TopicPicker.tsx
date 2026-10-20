@@ -64,6 +64,8 @@ export function TopicPicker({
               onPress={() => toggle(topic.id)}
             />
           ))}
+          {/* An odd topic out keeps its half of the row. */}
+          {twoUp && row.length === 1 ? <View style={styles.half} /> : null}
         </View>
       ))}
     </View>
@@ -153,6 +155,7 @@ const styles = StyleSheet.create({
   list: { gap: space.md },
   // Cards in a row stretch to the taller one.
   row: { flexDirection: "row", gap: space.md },
+  half: { flex: 1 },
   // White cards lifted off the ivory page, as the app's other cards are.
   // Picking draws a 2pt navy edge (with the filled check: never colour
   // alone); the edge is always there, clear, so nothing shifts.

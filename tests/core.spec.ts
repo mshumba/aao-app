@@ -344,7 +344,7 @@ test("missing artwork falls back to the event name or an icon", async ({
   // Every list uses the same row, so a topic's rows do the same: the
   // occasion's name on the sermon's dark tile.
   await page.goto("/topics/purpose-calling");
-  await expect(rows(page)).toHaveCount(2);
+  await expect(rows(page)).toHaveCount(1);
   for (const row of await rows(page).all())
     await expect(row.getByText(/^(Lioness Conference|Apostolic Shift)$/)).toBeVisible();
 });
