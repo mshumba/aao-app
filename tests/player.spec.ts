@@ -1,8 +1,14 @@
 import {
+  HABIT,
+  LENGTH,
+  SERMON,
   expect,
   fakeYouTube,
+  pressControl,
   rows,
+  seedPathProgress,
   sendToBackground,
+  showControls,
   shown,
   tab,
   test,
@@ -127,14 +133,19 @@ test("keyboard: focus follows Watch and Close, and the scrubber is a slider", as
   );
   await page.keyboard.press("Home");
   await expect(page.getByTestId("elapsed")).toHaveText(/^0:0\d$/);
-  // A hidden skip link after Back jumps straight to the video player's Play/Pause control.
+  // A hidden skip link after Back jumps straight to the video player's
+  // Play/Pause control, bringing the controls back if they have faded.
   await page.getByRole("button", { name: "Back", exact: true }).focus();
   await page.keyboard.press("Tab");
   const skip = page.getByRole("button", { name: "Go to video player" });
   await expect(skip).toBeFocused();
   expect((await skip.boundingBox())!.width).toBeGreaterThan(48);
+  await expect(page.getByRole("button", { name: "Show video controls", exact: true })).toBeVisible({
+    timeout: 6000,
+  });
   await page.keyboard.press("Enter");
   await expect(page.getByTestId("now-playing-toggle")).toBeFocused();
+  await expect(page.getByRole("button", { name: "Hide video controls", exact: true })).toBeVisible();
   // Closing the dock returns focus to the page, not to nowhere.
   await page.getByRole("button", { name: "Back", exact: true }).click();
   const close = page.getByRole("button", { name: "Close player", exact: true });
@@ -151,6 +162,7 @@ test("dragging the scrubber sideways seeks where it's released", async ({
   await page.goto("/sermon/nUW8NT2Pe88");
   await page.getByRole("button", { name: watch, exact: true }).click();
   await expect(page.getByTestId("playback-status")).toHaveText("Playing");
+  await showControls(page);
   const bar = (await page.getByTestId("scrubber").boundingBox())!;
   const y = bar.y + bar.height / 2;
   // The rail stops 8px in from each side of the strip.
@@ -158,8 +170,11 @@ test("dragging the scrubber sideways seeks where it's released", async ({
   await page.mouse.move(at(0.2), y);
   await page.mouse.down();
   for (let i = 1; i <= 10; i++) await page.mouse.move(at(0.2 + i * 0.06), y);
-  // While dragging, the time previews the target.
+  // While dragging, the time previews the target, and the thumb is under
+  // the finger (drawn every frame, not from the throttled time).
   await expect(page.getByTestId("elapsed")).toHaveText(/^(7:5\d|8:0\d)$/);
+  const thumb = (await page.getByTestId("scrubber-drag-thumb").boundingBox())!;
+  expect(Math.abs(thumb.x + thumb.width / 2 - at(0.8))).toBeLessThanOrEqual(12);
   await page.mouse.up();
   await expect
     .poll(async () => (await ytLog(page)).commands.some((c) => /^seek:(47\d|48\d)$/.test(c)))
@@ -359,6 +374,26 @@ test("with a sermon docked, another sermon's page still has room", async ({
   ).toBeVisible();
 });
 
+test("a player that fails in full screen leaves full screen, so Try again can be reached", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await fakeYouTube(page, { error: 5, readyAfter: 1500 });
+  await page.goto("/sermon/nUW8NT2Pe88");
+  await page.getByRole("button", { name: watch, exact: true }).click();
+  // Full screen while it's still loading.
+  const fs = page.getByTestId("player-fullscreen-button");
+  await fs.click();
+  await expect(fs).toHaveAttribute("aria-label", "Exit full screen");
+  const slot = page.getByTestId("player-error");
+  await expect(slot).toBeVisible();
+  // The page isn't left hidden behind a full-screen player that's gone.
+  await expect(page.locator('[aria-hidden="true"] [data-testid="player-error"]')).toHaveCount(0);
+  await slot.getByRole("button", { name: "Try again" }).click();
+  await expect(page.getByTestId("playback-status")).toHaveText("Loading the sermon…");
+  await expect(fs).toHaveAttribute("aria-label", "Full screen");
+});
+
 test("a failed player explains itself where the video was", async ({
   page,
 }) => {
@@ -403,7 +438,7 @@ test("on a desktop window the video leaves room and the dock is a corner card", 
   expect(dock.x + dock.width).toBeGreaterThan(1280 - 40);
 });
 
-test("stage overlay controls toggle captions, rotate full screen horizontally on portrait, and stack rapid ±15 skips", async ({
+test("stage overlay controls toggle captions, fill the window in full screen on the web, and stack rapid ±15 skips", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
@@ -411,15 +446,21 @@ test("stage overlay controls toggle captions, rotate full screen horizontally on
   await page.goto("/sermon/nUW8NT2Pe88");
   await page.getByRole("button", { name: watch, exact: true }).click();
   await expect(page.getByTestId("playback-status")).toHaveText("Playing");
-  // Toggle captions on and off through YouTube's captions module.
+  // Toggle captions on and off through YouTube's captions module. The fake
+  // player, like the real one, still names the English track after captions
+  // are switched off: the badge follows what CC asked for.
   const cc = page.getByTestId("player-cc-button");
   await expect(cc).toHaveAttribute("aria-label", "Closed captions off");
-  await cc.click();
+  await pressControl(page, cc);
   await expect(cc).toHaveAttribute("aria-label", "Closed captions on");
-  await cc.click();
+  await pressControl(page, cc);
   await expect(cc).toHaveAttribute("aria-label", "Closed captions off");
+  await page.waitForTimeout(700);
+  await expect(cc).toHaveAttribute("aria-label", "Closed captions off");
+  await pressControl(page, cc);
+  await expect(cc).toHaveAttribute("aria-label", "Closed captions on");
   // Three rapid +15s taps stack to +45s instead of losing an intermediate tap.
-  await page.getByTestId(" now-playing-toggle".trim()).click();
+  await pressControl(page, page.getByTestId("now-playing-toggle"));
   await expect(page.getByTestId("playback-status")).toHaveText("Paused");
   const before = Number(
     await page.getByRole("slider", { name: "Playback position" }).getAttribute("aria-valuenow"),
@@ -436,9 +477,10 @@ test("stage overlay controls toggle captions, rotate full screen horizontally on
     )
     .toBeGreaterThanOrEqual(before + 44);
   const log = await ytLog(page);
-  expect(log.commands).toContain("captions:en");
+  expect(log.commands.filter((c) => c === "captions:en")).toHaveLength(2);
   expect(log.commands).toContain("captions:off");
-  // Toggle full screen in place on a portrait phone: rotates 90° so the video frame is 844×390.
+  // Full screen in place: a browser turns its own page, so the video fills
+  // the window as it is, without being turned.
   const fs = page.getByTestId("player-fullscreen-button");
   await expect(fs).toHaveAttribute("aria-label", "Full screen");
   await fs.click();
@@ -459,11 +501,98 @@ test("stage overlay controls toggle captions, rotate full screen horizontally on
         }
       : null;
   });
-  expect(innerSize?.offsetWidth).toBe(844);
-  expect(innerSize?.offsetHeight).toBe(390);
-  expect(innerSize?.transform).not.toBe("none");
+  expect(innerSize?.offsetWidth).toBe(390);
+  expect(innerSize?.offsetHeight).toBe(844);
+  expect(innerSize?.transform).toBe("none");
   await page.keyboard.press("Escape");
   await expect(fs).toHaveAttribute("aria-label", "Full screen");
   expect((await ytLog(page)).created).toBe(1);
 });
 
+test("the controls fade 3 s after play, but not while keyboard focus is on them", async ({
+  page,
+}) => {
+  await fakeYouTube(page);
+  await page.goto("/sermon/nUW8NT2Pe88");
+  const hide = page.getByRole("button", { name: "Hide video controls", exact: true });
+  const show = page.getByRole("button", { name: "Show video controls", exact: true });
+  // Watch by keyboard: focus moves to Pause, and the controls stay up.
+  await page.getByRole("button", { name: watch, exact: true }).focus();
+  await page.keyboard.press("Enter");
+  const toggle = page.getByTestId("now-playing-toggle");
+  await expect(page.getByTestId("playback-status")).toHaveText("Playing");
+  await expect(toggle).toBeFocused();
+  await page.waitForTimeout(4000);
+  await expect(hide).toBeVisible();
+  await expect(toggle).toBeFocused();
+  // Focus leaves the player: they fade about 3 s later.
+  const left = Date.now();
+  await page.locator("h1").filter({ visible: true }).last().click();
+  await expect(show).toBeVisible({ timeout: 8000 });
+  expect(Date.now() - left).toBeGreaterThanOrEqual(2500);
+  // A tap brings them back, and they fade again, though the tap focused
+  // the video (a pointer's focus doesn't hold them).
+  await show.click();
+  await expect(hide).toBeVisible();
+  await expect(show).toBeVisible({ timeout: 8000 });
+  await expect(page.getByTestId("playback-status")).toHaveText("Playing");
+});
+
+test("on a 320pt phone the controls keep clear of YouTube's logo corner and the times fit", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 320, height: 568 });
+  await fakeYouTube(page, { duration: LENGTH[SERMON.pray] });
+  await page.goto(`/sermon/${SERMON.pray}`);
+  await page.getByRole("button", { name: watch, exact: true }).click();
+  await expect(page.getByTestId("playback-status")).toHaveText("Playing");
+  await expect(page.getByTestId("duration")).toHaveText("3:35:14");
+  const box = (await page.getByTestId("player-full").boundingBox())!;
+  const right = box.x + box.width;
+  const bottom = box.y + box.height;
+  // The full-screen button ends before the 96pt logo corner, and the speed
+  // pill, with no room left in the bottom row, sits beside CC under the
+  // title strip.
+  const fs = (await page.getByTestId("player-fullscreen-button").boundingBox())!;
+  expect(fs.x + fs.width).toBeLessThanOrEqual(right - 96 + 0.5);
+  const speed = (await page.getByTestId("player-speed-button").boundingBox())!;
+  expect(speed.y).toBeGreaterThanOrEqual(box.y + 48);
+  expect(speed.y + speed.height).toBeLessThanOrEqual(box.y + 48 + 36 + 0.5);
+  const rail = (await page.getByTestId("scrubber").boundingBox())!;
+  expect(rail.width).toBeGreaterThanOrEqual(60);
+  // Neither time is cut short.
+  for (const id of ["elapsed", "duration"])
+    expect(
+      await page.getByTestId(id).evaluate((el) => el.scrollWidth <= el.clientWidth),
+      id,
+    ).toBe(true);
+  const hitTestId = (x: number, y: number) =>
+    page.evaluate(
+      ([px, py]) =>
+        document.elementFromPoint(px, py)?.closest("[data-testid]")?.getAttribute("data-testid") ?? null,
+      [x, y] as const,
+    );
+  expect(await hitTestId(right - 48, bottom - 22)).toBe("fake-yt");
+  expect(await hitTestId(right - 8, bottom - 4)).toBe("fake-yt");
+});
+
+test("the path's days drawer shows this day and the next, and a locked day says why", async ({
+  page,
+}) => {
+  await seedPathProgress(page, { [HABIT]: [1, 2] });
+  await page.goto(`/sermon/${SERMON.dayTwo}?path=${HABIT}&day=3`);
+  await page.getByRole("button", { name: "Path days", exact: true }).click();
+  const drawer = page.getByTestId("stage-days-drawer");
+  await expect(drawer).toBeVisible();
+  // Today's day (this one) and the next; the rest are on the path's page.
+  await expect(drawer.getByTestId("stage-drawer-day")).toHaveCount(2);
+  await expect(drawer.getByRole("menuitem", { name: /^Day 3 of 7, this day\. / })).toBeVisible();
+  await expect(drawer.getByTestId("stage-drawer-done")).toHaveText("2 of 7 days done");
+  await expect(drawer.getByRole("menuitem", { name: /^Go to / })).toBeVisible();
+  // The backdrop isn't a control of its own for assistive tech.
+  await expect(page.getByRole("button", { name: "Close drawer" })).toHaveCount(0);
+  await drawer.getByRole("menuitem", { name: /^Day 4 of 7, opens after Day 3\. / }).click();
+  await expect(drawer).toHaveCount(0);
+  await expect(page.getByTestId("locked-day")).toBeVisible();
+  await expect(page.getByTestId("locked-day")).toContainText("Day 4 opens after Day 3");
+});

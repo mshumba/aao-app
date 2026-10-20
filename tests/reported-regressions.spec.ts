@@ -4,6 +4,7 @@ import {
   finishYouTube,
   HABIT,
   LENGTH,
+  pressControl,
   seedPathProgress,
   sendToBackground,
   SERMON,
@@ -20,7 +21,7 @@ test.describe("returning to a paused path sermon", () => {
     await page.goto(`/path/${HABIT}`);
     await page.getByTestId("path-cta").click();
     await expect(page.getByTestId("playback-status")).toHaveText("Playing");
-    await page.getByTestId("now-playing-toggle").click();
+    await pressControl(page, page.getByTestId("now-playing-toggle"));
     await expect(page.getByTestId("playback-status")).toHaveText("Paused");
     await page.getByRole("button", { name: "Back", exact: true }).click();
     await expect(page).toHaveURL(new RegExp(`/path/${HABIT}$`));

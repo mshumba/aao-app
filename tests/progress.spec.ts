@@ -3,7 +3,9 @@ import {
   MEMBER,
   expect,
   fakeYouTube,
+  pressControl,
   sendToBackground,
+  showControls,
   shown,
   test,
   ytLog,
@@ -86,7 +88,7 @@ const seeded: Saved[] = [
 ];
 
 function position(page: Page) {
-  return page.getByRole("slider", { name: "Playback position" });
+  return page.getByRole("slider", { name: "Playback position", includeHidden: true });
 }
 
 async function playUntil(page: Page, seconds: number) {
@@ -175,9 +177,10 @@ test.describe("with saved progress", () => {
     await page.goto("/sermon/H9sRbSUt0YE");
     await page.getByRole("button", { name: "Resume at 4:10", exact: true }).click();
     await expect(page.getByTestId("playback-status")).toHaveText("Playing");
+    await showControls(page);
     await position(page).focus();
     await page.keyboard.press("End");
-    await page.getByTestId("now-playing-toggle").click();
+    await pressControl(page, page.getByTestId("now-playing-toggle"));
     await expect.poll(async () => (await savedFor(page, "H9sRbSUt0YE"))?.finished).toBe(true);
     await page.getByRole("button", { name: "Back", exact: true }).click();
     const cards = shown(page.getByTestId("continue-card"));
@@ -196,7 +199,7 @@ test("pausing saves the place, and the sermon resumes there after a reload", asy
   await page.goto("/sermon/WYiA7rjenVI");
   await page.getByRole("button", { name: "Watch sermon", exact: true }).click();
   await playUntil(page, 20);
-  await page.getByTestId("now-playing-toggle").click();
+  await pressControl(page, page.getByTestId("now-playing-toggle"));
   await expect(page.getByTestId("playback-status")).toHaveText("Paused");
   await expect.poll(async () => (await savedFor(page, "WYiA7rjenVI"))?.positionSeconds ?? 0)
     .toBeGreaterThanOrEqual(20);
@@ -329,7 +332,7 @@ test.describe("as a guest", () => {
       .toBeGreaterThanOrEqual(250);
     const log = await ytLog(page);
     expect(log.starts.includes(250) || log.commands.includes("seek:250")).toBe(true);
-    await page.getByTestId("now-playing-toggle").click();
+    await pressControl(page, page.getByTestId("now-playing-toggle"));
     await expect
       .poll(async () => (await savedFor(page, "H9sRbSUt0YE", apple))?.positionSeconds)
       .toBeGreaterThanOrEqual(250);

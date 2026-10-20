@@ -17,7 +17,7 @@ import { Icon, T, Tap, spokenDuration, web, type IconName } from "../../ui";
  */
 const keepLastTwo = (text: string) => text.replace(/ (\S+)$/, " $1");
 
-export type SermonMetaProps = {
+type SermonMetaProps = {
   sermon: Sermon;
   /** "Day 2", "Teaching 3", or the sermon's date ("23 Sep 2026"). */
   kicker: string;

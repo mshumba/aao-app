@@ -137,6 +137,8 @@ function statusFor(state: number) {
 
 /** How far past the resume point the "Resuming at" note stays. */
 const RESUME_NOTE_FOR = 120;
+/** How long after a seek a time far from its target is taken as stale. */
+const SEEK_SETTLE_MS = 1500;
 
 /**
  * One YouTube player for the whole app, so a sermon keeps playing (docked)
@@ -199,7 +201,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState("");
   const [started, setStarted] = useState(false);
   const position = useRef(0);
-  // Seek target guard so rapid ±15 taps add up without a stale pre-seek poll overwriting position.
+  // The last seek sent, so a time the player polled before it moved can't
+  // overwrite the new place (armSeek).
   const pendingSeek = useRef<{ target: number; until: number } | null>(null);
   // The loaded sermon and its length, for saves made from callbacks.
   const current = useRef<Sermon | null>(null);
@@ -225,6 +228,15 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   const command = useCallback((c: PlayerCommand) => {
     embed.current?.command(c);
+  }, []);
+
+  /**
+   * Every seek the app sends goes through here first: for a moment, a time
+   * the player reported before it had moved is stale and ignored, so a quick
+   * ±15 counts from the new place rather than the old one.
+   */
+  const armSeek = useCallback((to: number) => {
+    pendingSeek.current = { target: to, until: Date.now() + SEEK_SETTLE_MS };
   }, []);
 
   /**
@@ -405,9 +417,12 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       // would race the first player's own ready). After an error, Try again
       // starts there.
       if (phaseRef.current === "loading") seekOnReady.current = from;
-      else if (phaseRef.current === "ready") command({ type: "seek", seconds: from });
+      else if (phaseRef.current === "ready") {
+        armSeek(from);
+        command({ type: "seek", seconds: from });
+      }
     },
-    [command],
+    [armSeek, command],
   );
 
   const load = useCallback(
@@ -492,6 +507,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       }
       if (e.type === "ready") {
         if (seekOnReady.current != null) {
+          armSeek(seekOnReady.current);
           command({ type: "seek", seconds: seekOnReady.current });
           seekOnReady.current = null;
         }
@@ -544,7 +560,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       if (starting.current) return;
       setStatus(blocked.current ? BLOCKED : statusFor(e.state));
     },
-    [command, fail, clearBlockedCheck, persist, checkDay, setPhase, startWithCheck],
+    [armSeek, command, fail, clearBlockedCheck, persist, checkDay, setPhase, startWithCheck],
   );
 
   // Loading can't hang forever.
@@ -593,8 +609,9 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     if (phase !== "ready") return begin(loaded, 0);
     position.current = 0;
     setSeconds(0);
+    armSeek(0);
     command({ type: "seek", seconds: 0 });
-  }, [begin, command, phase]);
+  }, [armSeek, begin, command, phase]);
 
   const attach = useCallback((handle: EmbedHandle | null) => {
     embed.current = handle;
@@ -667,7 +684,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       // The player ignores commands until it's ready, so a choice made
       // while it loads is kept for then.
       seekOnReady.current = phaseRef.current === "loading" ? to : null;
-      pendingSeek.current = { target: to, until: Date.now() + 1500 };
+      armSeek(to);
       position.current = to;
       setSeconds(to);
       command({ type: "seek", seconds: to });
@@ -697,7 +714,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         command({ type: "captions", enabled: next });
       },
     };
-  }, [state, seconds, duration, rate, captionsOn, status, command, hold, playing]);
+  }, [state, seconds, duration, rate, captionsOn, status, armSeek, command, hold, playing]);
 
   return (
     <SessionContext.Provider value={session}>

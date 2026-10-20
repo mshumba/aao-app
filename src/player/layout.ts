@@ -54,11 +54,13 @@ export type StageMarks = {
   estimate: number;
 };
 
-export type StageOverlayState = {
+type StageOverlayState = {
   marks: StageMarks;
   glideKey: number;
   fullscreen: boolean;
   focusToggleKey: number;
+  /** Bumped to bring faded controls back, so focus can land on them. */
+  revealKey: number;
 };
 
 const EMPTY_MARKS: StageMarks = { moments: [], activeKey: null, estimate: 0 };
@@ -67,6 +69,7 @@ let stageOverlay: StageOverlayState = {
   glideKey: 0,
   fullscreen: false,
   focusToggleKey: 0,
+  revealKey: 0,
 };
 
 /** Shared ref to the Play/Pause button on the stage overlay, for focus management. */
@@ -81,6 +84,15 @@ export function setStageOverlay(partial: Partial<StageOverlayState>) {
 export function bumpStageFocusToggle() {
   pendingToggleFocus = true;
   stageOverlay = { ...stageOverlay, focusToggleKey: stageOverlay.focusToggleKey + 1 };
+  listeners.forEach((listener) => listener());
+}
+
+/**
+ * Brings the stage's controls back if they have faded, so focus can move to
+ * them (they're inert while faded).
+ */
+export function revealStageControls() {
+  stageOverlay = { ...stageOverlay, revealKey: stageOverlay.revealKey + 1 };
   listeners.forEach((listener) => listener());
 }
 

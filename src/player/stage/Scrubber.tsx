@@ -1,7 +1,8 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { StyleSheet, View, type LayoutChangeEvent } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
-import Animated from "react-native-reanimated";
+import Animated, { useAnimatedStyle, useSharedValue } from "react-native-reanimated";
+import { scheduleOnRN } from "react-native-worklets";
 import { useReducedMotion } from "../../motion";
 import type { BandMarks } from "../NowPlaying";
 import { spokenClock } from "../PlayerProvider";
@@ -9,7 +10,7 @@ import { c, easeOut, radius, shadows } from "../../theme";
 import { web } from "../../ui";
 
 /** 44pt touch target height so the scrubber is always easy to grab. */
-export const SCRUBBER_TOUCH_HEIGHT = 44;
+const SCRUBBER_TOUCH_HEIGHT = 44;
 const RAIL_PAD = 8;
 const RAIL_HEIGHT = 5;
 const THUMB_SIZE = 16;
@@ -17,7 +18,7 @@ const THUMB_RADIUS = THUMB_SIZE / 2;
 const GLIDE_MS = 360;
 const PREVIEW_THROTTLE_MS = 90;
 
-export type StageScrubberProps = {
+type StageScrubberProps = {
   /** Current playback position in seconds. */
   seconds: number;
   /** Preview position in seconds while dragging (null when not dragging). */
@@ -28,6 +29,11 @@ export type StageScrubberProps = {
   marks: BandMarks;
   /** Bumped when jumping to a moment so the thumb glides smoothly. */
   glideKey?: number;
+  /**
+   * The rail is turned 90° (full screen on a portrait phone), so a drag
+   * along it runs down the window, where the gesture's limits are read.
+   */
+  rotated?: boolean;
   /** Called when the viewer finishes dragging or taps along the rail. */
   onSeek: (seconds: number) => void;
   /** Called on keyboard / screen-reader step adjustments (±15s). */
@@ -42,8 +48,11 @@ const clamp01 = (f: number) => Math.min(1, Math.max(0, Number.isFinite(f) ? f : 
 
 /**
  * Inline video scrubber with a bright navy played track, small gold dots for
- * key moments, and a gold thumb. Avoids `useAnimatedStyle` so Reanimated does
- * not schedule extra React commits after every second of playback.
+ * key moments, and a gold thumb. While playing, the fill and thumb follow
+ * `seconds` with plain styles (no animated style, so Reanimated schedules no
+ * React commits as playback ticks). While dragging, a second fill and thumb
+ * follow the finger every frame from a shared value the gesture writes on
+ * the UI thread; only the elapsed time goes through React, throttled.
  */
 export const StageScrubber = memo(function StageScrubber({
   seconds,
@@ -51,6 +60,7 @@ export const StageScrubber = memo(function StageScrubber({
   duration,
   marks,
   glideKey = 0,
+  rotated = false,
   onSeek,
   onSkip,
   onPreviewChange,
@@ -61,7 +71,9 @@ export const StageScrubber = memo(function StageScrubber({
   const total = ready ? duration : marks.estimate;
 
   const [stripWidth, setStripWidth] = useState(1);
-  const stripWidthRef = useRef(1);
+  // The strip's width and the dragged fraction, for the UI thread.
+  const stripWidthSV = useSharedValue(1);
+  const dragFraction = useSharedValue(0);
   const lastPreviewSec = useRef<number | null>(null);
   const lastFlushAt = useRef(0);
   const throttleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -99,6 +111,7 @@ export const StageScrubber = memo(function StageScrubber({
     callbacksRef.current.onPreviewChange?.(rounded);
   }, []);
 
+  // The elapsed time while dragging: at most one React update per 90 ms.
   const schedulePreview = useCallback(
     (sec: number | null, immediate = false) => {
       if (sec == null) {
@@ -130,66 +143,105 @@ export const StageScrubber = memo(function StageScrubber({
     [clearThrottle, flushPreview],
   );
 
-  const onLayout = useCallback((e: LayoutChangeEvent) => {
-    const w = e.nativeEvent.layout.width || 1;
-    stripWidthRef.current = w;
-    setStripWidth((prev) => (Math.abs(prev - w) < 0.5 ? prev : w));
-  }, []);
+  // The gesture's side on the JS thread (it runs on the UI thread on a phone).
+  const startDrag = useCallback(
+    (sec: number) => {
+      callbacksRef.current.onInteract?.();
+      schedulePreview(sec, true);
+    },
+    [schedulePreview],
+  );
+  const moveDrag = useCallback((sec: number | null) => schedulePreview(sec), [schedulePreview]);
+  const seekTo = useCallback(
+    (sec: number | null) => {
+      schedulePreview(null, true);
+      if (sec == null) return;
+      callbacksRef.current.onInteract?.();
+      callbacksRef.current.onSeek(sec);
+    },
+    [schedulePreview],
+  );
+
+  const onLayout = useCallback(
+    (e: LayoutChangeEvent) => {
+      const w = e.nativeEvent.layout.width || 1;
+      stripWidthSV.set(w);
+      setStripWidth((prev) => (Math.abs(prev - w) < 0.5 ? prev : w));
+    },
+    [stripWidthSV],
+  );
 
   const gesture = useMemo(() => {
+    const length = duration;
+    // Where along the rail, 0 to 1. e.x is in the strip's own (turned) space.
     const fractionAt = (x: number) => {
-      const rail = Math.max(1, stripWidthRef.current - RAIL_PAD * 2);
-      return clamp01((x - RAIL_PAD) / rail);
+      "worklet";
+      const rail = Math.max(1, stripWidthSV.get() - RAIL_PAD * 2);
+      return Math.min(1, Math.max(0, (x - RAIL_PAD) / rail));
+    };
+    const at = (x: number) => {
+      "worklet";
+      return Math.max(0, Math.min(length, fractionAt(x) * length));
     };
 
-    const pan = Gesture.Pan()
-      .enabled(ready)
-      .activeOffsetX([-6, 6])
-      .failOffsetY([-10, 10])
-      .runOnJS(true)
+    // Turned 90°, a drag along the rail runs down the window, where these
+    // limits are read; nothing scrolls under full screen.
+    const base = Gesture.Pan().enabled(ready);
+    const pan = (
+      rotated
+        ? base.activeOffsetY([-6, 6]).failOffsetX([-10, 10])
+        : base.activeOffsetX([-6, 6]).failOffsetY([-10, 10])
+    )
       .onStart((e) => {
-        const f = fractionAt(e.x);
-        callbacksRef.current.onInteract?.();
-        schedulePreview(f * duration, true);
+        "worklet";
+        dragFraction.set(fractionAt(e.x));
+        scheduleOnRN(startDrag, at(e.x));
       })
       .onUpdate((e) => {
-        const f = fractionAt(e.x);
-        schedulePreview(f * duration, false);
+        "worklet";
+        dragFraction.set(fractionAt(e.x));
+        scheduleOnRN(moveDrag, at(e.x));
       })
       .onEnd((e, success) => {
-        const f = fractionAt(e.x);
-        schedulePreview(null, true);
-        if (success) {
-          callbacksRef.current.onInteract?.();
-          callbacksRef.current.onSeek(Math.max(0, Math.min(duration, f * duration)));
-        }
+        "worklet";
+        scheduleOnRN(seekTo, success ? at(e.x) : null);
       })
       .onFinalize(() => {
-        schedulePreview(null, true);
+        "worklet";
+        scheduleOnRN(moveDrag, null);
       });
 
     const tap = Gesture.Tap()
       .enabled(ready)
       .maxDistance(10)
-      .runOnJS(true)
       .onEnd((e, success) => {
-        if (!success) return;
-        const f = fractionAt(e.x);
-        schedulePreview(null, true);
-        callbacksRef.current.onInteract?.();
-        callbacksRef.current.onSeek(Math.max(0, Math.min(duration, f * duration)));
+        "worklet";
+        if (success) scheduleOnRN(seekTo, at(e.x));
       });
 
     return Gesture.Race(pan, tap);
-  }, [ready, duration, schedulePreview]);
+  }, [ready, duration, rotated, stripWidthSV, dragFraction, startDrag, moveDrag, seekTo]);
+
+  // The fill and thumb under the finger, every frame, without React.
+  const dragFill = useAnimatedStyle(() => ({
+    width: dragFraction.get() * Math.max(1, stripWidthSV.get() - RAIL_PAD * 2),
+  }));
+  const dragThumb = useAnimatedStyle(() => ({
+    transform: [
+      {
+        translateX:
+          RAIL_PAD + dragFraction.get() * Math.max(1, stripWidthSV.get() - RAIL_PAD * 2) - THUMB_RADIUS,
+      },
+      { scale: reduced ? 1 : 1.25 },
+    ],
+  }));
 
   const railWidth = Math.max(1, stripWidth - RAIL_PAD * 2);
   const dragging = previewSeconds != null;
-  const shown = previewSeconds ?? seconds;
-  const fraction = total > 0 ? clamp01(shown / total) : 0;
+  const fraction = total > 0 ? clamp01(seconds / total) : 0;
   const fillWidth = fraction * railWidth;
   const thumbX = RAIL_PAD + fillWidth - THUMB_RADIUS;
-  const travel = gliding && !reduced && !dragging ? GLIDE_MS : 0;
+  const travel = gliding && !reduced ? GLIDE_MS : 0;
   const motion = {
     transitionDuration: travel,
     transitionTimingFunction: easeOut,
@@ -224,7 +276,7 @@ export const StageScrubber = memo(function StageScrubber({
   };
 
   return (
-    <GestureDetector gesture={gesture} touchAction="pan-y">
+    <GestureDetector gesture={gesture} touchAction={rotated ? "none" : "pan-y"}>
       <View
         onLayout={onLayout}
         style={styles.strip}
@@ -269,13 +321,17 @@ export const StageScrubber = memo(function StageScrubber({
         >
           {/* Unplayed rail */}
           <View style={styles.rail} />
-          {/* Bright navy played fill */}
-          <Animated.View
-            style={[
-              styles.fill,
-              { width: fillWidth, transitionProperty: "width", ...motion },
-            ]}
-          />
+          {/* Bright navy played fill: under the finger while dragging */}
+          {dragging ? (
+            <Animated.View style={[styles.fill, dragFill]} />
+          ) : (
+            <Animated.View
+              style={[
+                styles.fill,
+                { width: fillWidth, transitionProperty: "width", ...motion },
+              ]}
+            />
+          )}
           {/* Small gold dots for key moments */}
           {ticks.map((t) => {
             const size = t.active ? 8 : 6;
@@ -291,20 +347,21 @@ export const StageScrubber = memo(function StageScrubber({
               />
             );
           })}
-          {/* Gold thumb */}
-          <Animated.View
-            style={[
-              styles.thumb,
-              {
-                transform: [
-                  { translateX: thumbX },
-                  { scale: dragging && !reduced ? 1.25 : 1 },
-                ],
-                transitionProperty: "transform",
-                ...motion,
-              },
-            ]}
-          />
+          {/* Gold thumb: under the finger while dragging */}
+          {dragging ? (
+            <Animated.View style={[styles.thumb, dragThumb]} testID="scrubber-drag-thumb" />
+          ) : (
+            <Animated.View
+              style={[
+                styles.thumb,
+                {
+                  transform: [{ translateX: thumbX }, { scale: 1 }],
+                  transitionProperty: "transform",
+                  ...motion,
+                },
+              ]}
+            />
+          )}
         </View>
       </View>
     </GestureDetector>
@@ -316,7 +373,8 @@ const CENTRE_Y = SCRUBBER_TOUCH_HEIGHT / 2;
 const styles = StyleSheet.create({
   strip: {
     flex: 1,
-    minWidth: 44,
+    // Shrinks rather than pushing the row into YouTube's logo corner.
+    minWidth: 0,
     height: SCRUBBER_TOUCH_HEIGHT,
     justifyContent: "center",
   },

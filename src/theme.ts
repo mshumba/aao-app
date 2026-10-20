@@ -53,8 +53,6 @@ export const c = {
   onMediaSoft: "rgba(255, 255, 255, 0.82)",
   /** Upcoming segments of a path's progress on dark. */
   onMediaTrack: "rgba(255, 255, 255, 0.18)",
-  /** The scrubber's track on the stage. */
-  onMediaRail: "rgba(255, 255, 255, 0.22)",
   /** The inner "play today" panel inside a dark path card. */
   onMediaPanel: "rgba(255, 255, 255, 0.08)",
   onMediaHairline: "rgba(255, 255, 255, 0.10)",
@@ -105,8 +103,6 @@ export const gradients = {
   /** The sermon stage's navy light. */
   stage:
     "radial-gradient(420px 300px at 70% 60%, rgba(31,58,95,0.85) 0%, rgba(31,58,95,0) 70%)",
-  /** The bottom of the video frame on the stage. */
-  videoShade: "linear-gradient(180deg, rgba(15,17,21,0) 60%, rgba(15,17,21,0.55) 100%)",
   /** Behind the floating tab bar. */
   tabFade:
     "linear-gradient(180deg, rgba(247,244,238,0) 0%, rgba(247,244,238,0.92) 55%, #f7f4ee 100%)",

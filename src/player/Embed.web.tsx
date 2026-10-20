@@ -88,18 +88,19 @@ export default function Embed({
   }, [onEvent]);
   // Whether the viewer turned captions on with CC; until then they're kept off.
   const captionsWanted = useRef(false);
+  // Reports the state CC asked for, off when YouTube has no track to show.
+  // (After captions are switched off, getOption can still name the last
+  // track, so it never turns the badge on by itself.)
   const reportCaptions = () => {
     const p = player.current;
     if (!p || !ready.current) return;
     try {
-      if (typeof p.getOption === "function") {
+      let enabled = captionsWanted.current;
+      if (enabled && typeof p.getOption === "function") {
         const track = p.getOption("captions", "track");
-        if (track && typeof track === "object") {
-          callback.current({ type: "captions", enabled: !!track.languageCode });
-          return;
-        }
+        if (track && typeof track === "object") enabled = !!track.languageCode;
       }
-      callback.current({ type: "captions", enabled: captionsWanted.current });
+      callback.current({ type: "captions", enabled });
     } catch {
       /* Ignore if captions module is unavailable. */
     }

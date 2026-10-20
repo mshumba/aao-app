@@ -9,7 +9,7 @@ export type SermonTabKey = "moments" | "about";
 
 const TAB_KEYS: readonly SermonTabKey[] = ["moments", "about"];
 
-export type SermonTabsProps = {
+type SermonTabsProps = {
   activeTab: SermonTabKey;
   onChangeTab: (tab: SermonTabKey) => void;
   /** "Part of your path · Day 2 of 6" and Mark done, shown where they appear today. */

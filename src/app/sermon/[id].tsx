@@ -30,7 +30,6 @@ import {
   fullFrame,
   setStageOverlay,
   stageColumn,
-  stageToggleRef,
   useStageOverlay,
 } from "../../player/layout";
 import { PlayerCenter, type BandMarks } from "../../player/NowPlaying";
@@ -40,6 +39,7 @@ import { DaysDrawer } from "../../player/stage/DaysDrawer";
 import { LightHeader } from "../../player/stage/LightHeader";
 import { SermonMeta } from "../../player/stage/SermonMeta";
 import { SermonDescription, SermonTabs, type SermonTabKey } from "../../player/stage/SermonTabs";
+import { focusStageToggle } from "../../player/stage/VideoOverlay";
 import { useDockInset } from "../../player/useDockInset";
 import {
   clearWatchRequest,
@@ -58,7 +58,7 @@ import { PathDayRow, useOpenPath, usePathDay } from "../../sermon/PathDay";
 import { AboutSermon, MoreSermons, TopicsSection } from "../../sermon/Sections";
 import { ErrorSlot, Poster } from "../../sermon/Stage";
 import { c, space } from "../../theme";
-import { Header, Page, StatePanel, dockScrollPadding, moveFocus, web } from "../../ui";
+import { Header, Page, StatePanel, dockScrollPadding, web } from "../../ui";
 
 export default function SermonScreen() {
   const params = useLocalSearchParams<Record<string, string | string[]>>();
@@ -438,14 +438,16 @@ function NowPlayingScreen({ sermon, link }: { sermon: Sermon; link: SermonParams
   );
 
   const headerStaticTitle = pathDay?.path.name ?? (inSeries ? seriesName : null);
-  const rightLabel = pathDay ? "Path days" : "Show moments";
+  const rightLabel = pathDay ? "Path days" : moments.length > 0 ? "Show moments" : "More";
   const rightHint = pathDay
-    ? `Opens the days in ${pathDay.path.name}`
-    : "Opens the moments and options for this sermon";
+    ? `Opens this day and the next in ${pathDay.path.name}`
+    : moments.length > 0
+      ? "Opens the moments and options for this sermon"
+      : "Open in YouTube, About this sermon";
 
   const statusNode = pinned ? (
     <View key="live">
-      <PlayerCenter toggle={stageToggleRef} fallback={centerExtra} />
+      <PlayerCenter fallback={centerExtra} />
     </View>
   ) : centerExtra ? (
     <View key="static">{centerExtra}</View>
@@ -499,6 +501,10 @@ function NowPlayingScreen({ sermon, link }: { sermon: Sermon; link: SermonParams
   return (
     <View
       style={styles.screen}
+      // In full screen the player covers the page: hidden from assistive
+      // tech, and on the web from the keyboard too.
+      accessibilityElementsHidden={overlay.fullscreen}
+      importantForAccessibility={overlay.fullscreen ? "no-hide-descendants" : "auto"}
       {...web(overlay.fullscreen ? { "aria-hidden": true, inert: true } : {})}
     >
       <FocusedStatusBar style="dark" animated={false} hidden={overlay.fullscreen} />
@@ -513,7 +519,7 @@ function NowPlayingScreen({ sermon, link }: { sermon: Sermon; link: SermonParams
         rightLabel={rightLabel}
         rightHint={rightHint}
         skipToPlayer={pinned}
-        onSkipToPlayer={() => moveFocus(stageToggleRef.current)}
+        onSkipToPlayer={focusStageToggle}
       />
 
       {/* Fixed slot the app-wide player fills while this sermon plays.
@@ -604,6 +610,7 @@ function NowPlayingScreen({ sermon, link }: { sermon: Sermon; link: SermonParams
         onClose={() => setDrawerOpen(false)}
         pathDay={pathDay}
         moments={moments}
+        sermonTitle={headline(sermon)}
         seriesName={inSeries && !pathDay ? seriesName : null}
         onSelectDay={handleSelectDay}
         onOpenPath={openPath}

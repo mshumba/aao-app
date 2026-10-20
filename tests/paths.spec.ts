@@ -232,7 +232,7 @@ test("starting a path plays Day 1, whole, from the beginning, and Home follows t
   // The sermon page knows it's Day 1 of the path; nothing marks a focus.
   await expect(page.getByLabel(/focus/i)).toHaveCount(0);
   await expect(page.getByText(/focus/i)).toHaveCount(0);
-  await expect(page.getByRole("slider", { name: "Playback position" })).toHaveAttribute(
+  await expect(page.getByRole("slider", { name: "Playback position", includeHidden: true })).toHaveAttribute(
     "aria-valuemax",
     String(LENGTH[SERMON.dayOne]),
   );

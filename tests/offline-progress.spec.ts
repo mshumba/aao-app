@@ -5,6 +5,7 @@ import {
   fakeYouTube,
   goOffline,
   goOnline,
+  pressControl,
   seedStorage,
   seedWatchProgress,
   shown,
@@ -45,7 +46,7 @@ async function copies(page: Page) {
 const clock = (seconds: number) => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 
 function position(page: Page) {
-  return page.getByRole("slider", { name: "Playback position" });
+  return page.getByRole("slider", { name: "Playback position", includeHidden: true });
 }
 
 test("opened offline, a member still has Continue watching and their place in each sermon", async ({
@@ -91,7 +92,7 @@ test("a place saved offline is kept on the device, survives a relaunch and is se
   // The connection drops, and the viewer pauses: the save can't reach the
   // account, so it waits on the device instead of being thrown away.
   await goOffline(page);
-  await page.getByTestId("now-playing-toggle").click();
+  await pressControl(page, page.getByTestId("now-playing-toggle"));
   await expect(page.getByTestId("playback-status")).toHaveText("Paused");
   await expect.poll(async () => (await waiting(page)).length).toBe(1);
   const kept = (await waiting(page))[0];
@@ -125,18 +126,18 @@ test("a newer place made while an older one waits is the one that lands", async 
     .toBeGreaterThanOrEqual(20);
   await goOffline(page);
   const toggle = page.getByTestId("now-playing-toggle");
-  await toggle.click();
+  await pressControl(page, toggle);
   await expect(page.getByTestId("playback-status")).toHaveText("Paused");
   await expect.poll(async () => (await waiting(page)).length).toBe(1);
   const older = (await waiting(page))[0].positionSeconds;
 
   // Still offline, the viewer plays on and pauses later in the sermon.
-  await toggle.click();
+  await pressControl(page, toggle);
   await expect(page.getByTestId("playback-status")).toHaveText("Playing");
   await expect
     .poll(async () => Number(await position(page).getAttribute("aria-valuenow")))
     .toBeGreaterThanOrEqual(older + 10);
-  await toggle.click();
+  await pressControl(page, toggle);
   await expect(page.getByTestId("playback-status")).toHaveText("Paused");
   await expect.poll(async () => (await waiting(page))[0]?.positionSeconds).toBeGreaterThanOrEqual(older + 10);
   // One place per sermon waits: the newest.
@@ -180,7 +181,7 @@ test.describe("another device", () => {
     await page.getByRole("button", { name: "Resume at 10:00", exact: true }).click();
     await expect(page.getByTestId("playback-status")).toHaveText("Playing");
     expect((await ytLog(page)).starts).toEqual([600]);
-    await page.getByTestId("now-playing-toggle").click();
+    await pressControl(page, page.getByTestId("now-playing-toggle"));
     await expect(page.getByTestId("playback-status")).toHaveText("Paused");
 
     // The list arrives: the viewer moves to the newer place, and nothing
@@ -207,7 +208,7 @@ test("signing out takes the account's places off the device, but a place not yet
     .poll(async () => Number(await position(page).getAttribute("aria-valuenow")))
     .toBeGreaterThanOrEqual(20);
   await goOffline(page);
-  await page.getByTestId("now-playing-toggle").click();
+  await pressControl(page, page.getByTestId("now-playing-toggle"));
   await expect.poll(async () => (await waiting(page)).length).toBe(1);
 
   await page.goto("/account");

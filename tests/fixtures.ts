@@ -151,12 +151,33 @@ export async function fakeYouTube(
           self.loadModule = function (m) { yt.commands.push("module:load:" + m); };
           self.unloadModule = function (m) { yt.commands.push("module:unload:" + m); };
           self.setOption = function (m, k, v) { yt.commands.push("captions:" + (v && v.languageCode ? v.languageCode : "off")); };
+          // Like the real player, it can still name the last track after
+          // captions are switched off.
+          self.getOption = function () { return { languageCode: "en" }; };
         }
         setTimeout(function () { ${error ? `o.events.onError({ data: ${error} })` : "attach(); o.events.onReady()"}; }, ${readyAfter});
       } };
       window.onYouTubeIframeAPIReady && window.onYouTubeIframeAPIReady();`,
     });
   });
+}
+
+/**
+ * Presses one of the controls on the video. While a sermon plays they fade
+ * 3 s after the last touch (and can't be pressed then), so a tap on the
+ * video brings them back first when they have.
+ */
+export async function pressControl(page: Page, control: Locator) {
+  await expect(async () => {
+    await showControls(page);
+    await control.click({ timeout: 1500 });
+  }).toPass({ timeout: 15_000 });
+}
+
+/** Brings the faded controls on the video back (a tap on the video), if they have faded. */
+export async function showControls(page: Page) {
+  const show = page.getByRole("button", { name: "Show video controls", exact: true });
+  if (await show.isVisible()) await show.click();
 }
 
 /** Let the currently loaded fake video report its natural end. */
@@ -337,7 +358,7 @@ export async function storedPathProgress(page: Page, owner: string = MEMBER.id) 
 export async function playhead(page: Page) {
   return Number(
     await page
-      .getByRole("slider", { name: "Playback position" })
+      .getByRole("slider", { name: "Playback position", includeHidden: true })
       .getAttribute("aria-valuenow"),
   );
 }

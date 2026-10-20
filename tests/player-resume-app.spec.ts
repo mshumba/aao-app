@@ -1,5 +1,14 @@
 import type { Page } from "@playwright/test";
-import { expect, fakeYouTube, seedStorage, seedWatchProgress, test, ytLog } from "./fixtures";
+import {
+  expect,
+  fakeYouTube,
+  pressControl,
+  seedStorage,
+  seedWatchProgress,
+  showControls,
+  test,
+  ytLog,
+} from "./fixtures";
 
 // A saved place that arrives after Watch, in the app: the on-device account
 // service sends slow@example.com's progress 6 s after it's asked for (when
@@ -36,7 +45,7 @@ async function watchThenPause(page: Page, before: () => Promise<void> = async ()
   // Started from the beginning: the saved place hadn't arrived.
   expect((await ytLog(page)).starts).toEqual([0]);
   await before();
-  await page.getByTestId("now-playing-toggle").click();
+  await pressControl(page, page.getByTestId("now-playing-toggle"));
   await expect(page.getByTestId("playback-status")).toHaveText("Paused");
 }
 
@@ -51,8 +60,9 @@ test("a saved place that arrives after Watch still resumes the sermon there", as
 test("seeking back to the start before the saved place arrives keeps the viewer there", async ({
   page,
 }) => {
-  const slider = page.getByRole("slider", { name: "Playback position" });
+  const slider = page.getByRole("slider", { name: "Playback position", includeHidden: true });
   await watchThenPause(page, async () => {
+    await showControls(page);
     await slider.focus();
     await page.keyboard.press("Home");
     await expect.poll(async () => (await ytLog(page)).commands).toContain("seek:0");

@@ -383,3 +383,47 @@ test("the same place on the server changes nothing, and a sermon finished elsewh
   expect(finished.playback.seconds).toBe(0);
   expect(finished.session.resumedFrom).toBe(0);
 });
+
+// A time the player polled before a seek reached it arrives just after the
+// seek: it mustn't put the viewer back, or the next ±15 counts from there.
+function stale(player: Player, seconds: number) {
+  player.session.onEvent({ type: "state", state: 1, seconds, duration: 600 });
+  player.flush();
+}
+
+test("after Start over, a stale time doesn't move the viewer back, so +15 counts from the start", () => {
+  const player = mountPlayer();
+  watchFourSeconds(player, 300);
+  player.session.startOver();
+  player.flush();
+  stale(player, 305);
+  expect(player.playback.seconds).toBe(0);
+  player.playback.skip(15);
+  player.flush();
+  expect(player.commands).toEqual(["play", "seek:0", "seek:15"]);
+});
+
+test("after the server's newer place moves the viewer, a stale time doesn't move them back", async () => {
+  const player = mountPlayer([COPY]);
+  watchFromCopy(player, 4);
+  await player.answer([SAVED]);
+  stale(player, 105);
+  expect(player.playback.seconds).toBe(250);
+  player.playback.skip(15);
+  player.flush();
+  expect(player.commands).toEqual(["play", "seek:250", "seek:265"]);
+});
+
+test("a saved place moved to once the player is ready isn't undone by a stale time", async () => {
+  const player = mountPlayer();
+  player.session.load(SERMON);
+  player.flush();
+  await player.answer([SAVED]);
+  player.session.onEvent({ type: "ready", duration: 600 });
+  player.flush();
+  stale(player, 0);
+  expect(player.playback.seconds).toBe(250);
+  player.playback.skip(15);
+  player.flush();
+  expect(player.commands).toEqual(["seek:250", "play", "seek:265"]);
+});

@@ -3,16 +3,24 @@ import { Modal, Platform, Pressable, ScrollView, StyleSheet, View } from "react-
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Kicker, RoundButton, RouteIcon, clockText } from "../../kit";
 import type { Moment } from "../../learning";
-import { pathWords } from "../../paths/model";
+import { pathWords, stateOf } from "../../paths/model";
 import type { PathDayContext } from "../../sermon/PathDay";
 import { c, font, radius, shadows, space, tabular, type } from "../../theme";
-import { Heading, Icon, T, Tap, moveFocus, returnFocus } from "../../ui";
+import { Heading, Icon, T, Tap, moveFocus, returnFocus, web } from "../../ui";
 
-export type DaysDrawerProps = {
+/** How long iOS gets to report the drawer gone before its row's action runs anyway. */
+const DISMISS_FALLBACK_MS = 1000;
+
+/** VoiceOver says "button" for a row; the web keeps the menu's own roles. */
+const rowRole = Platform.OS === "ios" ? "button" : "menuitem";
+
+type DaysDrawerProps = {
   visible: boolean;
   onClose: () => void;
   pathDay: PathDayContext | null;
   moments: readonly Moment[];
+  /** The sermon's headline, the heading when it has no path or moments. */
+  sermonTitle: string;
   seriesName?: string | null;
   onSelectDay?: (dayNumber: number, sermonId: string) => void;
   onOpenPath?: (pathId: string) => void;
@@ -23,10 +31,11 @@ export type DaysDrawerProps = {
 };
 
 /**
- * Sheet opened by the top-right playlist button in LightHeader:
- * - On a path/series sermon: lists the path's days (with Done / Today / Upcoming
- *   status) and a link to the full path page.
- * - On a standalone sermon: lists the sermon's key moments to jump straight to.
+ * Sheet opened by the top-right button in LightHeader:
+ * - On a path/series sermon: this day and the next (with done / today /
+ *   upcoming status), how many are done, and a link to the full path page
+ *   for the rest (the owner: see your day and the next).
+ * - On a standalone sermon: the sermon's key moments to jump straight to.
  * Also keeps "Go to <series>", "Open in YouTube", and "About this sermon" reachable.
  */
 export const DaysDrawer = memo(function DaysDrawer({
@@ -34,6 +43,7 @@ export const DaysDrawer = memo(function DaysDrawer({
   onClose,
   pathDay,
   moments,
+  sermonTitle,
   seriesName,
   onSelectDay,
   onOpenPath,
@@ -49,6 +59,22 @@ export const DaysDrawer = memo(function DaysDrawer({
   useEffect(() => {
     latestClose.current = onClose;
   }, [onClose]);
+  // A row's action waiting for the drawer to finish closing (iOS).
+  const pending = useRef<(() => void) | null>(null);
+  const fallback = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const runPending = () => {
+    if (fallback.current) clearTimeout(fallback.current);
+    fallback.current = null;
+    const run = pending.current;
+    pending.current = null;
+    run?.();
+  };
+  useEffect(
+    () => () => {
+      if (fallback.current) clearTimeout(fallback.current);
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!visible) return;
@@ -74,13 +100,31 @@ export const DaysDrawer = memo(function DaysDrawer({
     returnFocus(triggerRef.current);
   };
 
+  // iOS drops a sheet presented while this one is still fading out (a
+  // locked day's), so there a row's action waits for onDismiss. Web and
+  // Android present nothing natively, so it runs at once.
+  const closeThen = (action: () => void) => {
+    handleClose();
+    if (Platform.OS !== "ios") return action();
+    pending.current = action;
+    if (fallback.current) clearTimeout(fallback.current);
+    fallback.current = setTimeout(runPending, DISMISS_FALLBACK_MS);
+  };
+
   const words = pathDay ? pathWords(pathDay.path) : null;
-  const heading = pathDay
-    ? pathDay.path.name
-    : "Moments in this sermon";
+  const hasMoments = moments.length > 0;
+  const heading = pathDay ? pathDay.path.name : hasMoments ? "Moments in this sermon" : sermonTitle;
   const eyebrow = pathDay && words
     ? `${words.unit} ${pathDay.day.day} of ${pathDay.total}`
-    : `${moments.length} moment${moments.length === 1 ? "" : "s"}`;
+    : hasMoments
+      ? `${moments.length} moment${moments.length === 1 ? "" : "s"}`
+      : null;
+
+  // This day and the next; every other day is on the path's own page.
+  const todayNum = pathDay ? (pathDay.enrolled ? pathDay.today : pathDay.total ? 1 : null) : null;
+  const shownDays = pathDay
+    ? pathDay.days.filter((d) => d.day === pathDay.day.day || d.day === pathDay.day.day + 1)
+    : [];
 
   return (
     <Modal
@@ -88,24 +132,31 @@ export const DaysDrawer = memo(function DaysDrawer({
       transparent
       animationType="fade"
       onRequestClose={handleClose}
+      onDismiss={runPending}
       statusBarTranslucent
     >
       <View style={styles.backdrop}>
+        {/* Closes on a tap outside the sheet. Hidden from assistive tech:
+            VoiceOver would activate it by tapping its centre, which the
+            sheet covers. Close, Escape and Back close it instead. */}
         <Pressable
           style={StyleSheet.absoluteFill}
           onPress={handleClose}
-          accessibilityRole="button"
-          accessibilityLabel="Close drawer"
+          accessible={false}
+          focusable={false}
+          importantForAccessibility="no"
+          {...web({ "aria-hidden": true, tabIndex: -1 })}
         />
         <View
           style={[styles.sheet, { paddingBottom: Math.max(space.xl, insets.bottom + space.md) }]}
+          accessibilityViewIsModal
           accessibilityRole="menu"
           accessibilityLabel={heading}
           testID="stage-days-drawer"
         >
           <View style={styles.sheetHeader}>
             <View style={styles.sheetHeaderText}>
-              <Kicker tone="gold">{eyebrow}</Kicker>
+              {eyebrow ? <Kicker tone="gold">{eyebrow}</Kicker> : null}
               <Heading level={2} style={styles.sheetTitle} numberOfLines={2}>
                 {heading}
               </Heading>
@@ -125,21 +176,32 @@ export const DaysDrawer = memo(function DaysDrawer({
           <ScrollView style={styles.list} showsVerticalScrollIndicator={false}>
             {pathDay && words ? (
               <View style={styles.daysList}>
-                {pathDay.days.map((d) => {
-                  const isDone = pathDay.done.includes(d.day);
+                {shownDays.map((d) => {
                   const isCurrent = d.day === pathDay.day.day;
+                  const state = stateOf(d.day, pathDay.done, todayNum);
+                  const isDone = state === "done";
+                  const locked = !isCurrent && state === "upcoming";
+                  const unit = words.unit;
+                  const where = isCurrent
+                    ? `this ${unit.toLowerCase()}${isDone ? ", done" : ""}`
+                    : isDone
+                      ? "done"
+                      : locked
+                        ? `opens after ${unit} ${d.day - 1}`
+                        : "today";
                   return (
                     <Tap
                       key={d.day}
-                      accessibilityRole="menuitem"
-                      accessibilityLabel={`${words.unit} ${d.day}: ${d.theme}${isCurrent ? ", playing now" : isDone ? ", completed" : ""}`}
+                      accessibilityRole={rowRole}
+                      accessibilityLabel={`${unit} ${d.day} of ${pathDay.total}, ${where}. ${d.theme}`}
                       onPress={() => {
-                        handleClose();
-                        if (!isCurrent) onSelectDay?.(d.day, d.youtubeId);
+                        if (isCurrent) return handleClose();
+                        closeThen(() => onSelectDay?.(d.day, d.youtubeId));
                       }}
                       feedback="highlight"
                       highlightColor={c.feature}
                       style={[styles.dayItem, isCurrent && styles.dayItemCurrent]}
+                      testID="stage-drawer-day"
                     >
                       <View
                         style={[
@@ -163,32 +225,32 @@ export const DaysDrawer = memo(function DaysDrawer({
                       </View>
                       <View style={styles.dayTextCol}>
                         <T style={styles.dayUnit}>
-                          {`${words.unit} ${d.day}${isCurrent ? " · Current" : ""}`}
+                          {`${unit} ${d.day}${isCurrent ? " · Current" : isDone ? " · Done" : locked ? "" : " · Today"}`}
                         </T>
                         <T style={styles.dayTheme} numberOfLines={2}>
                           {d.theme}
                         </T>
                       </View>
                       <Icon
-                        name="chevron-forward"
-                        size={18}
+                        name={locked ? "lock-closed-outline" : "chevron-forward"}
+                        size={locked ? 16 : 18}
                         color={isCurrent ? c.accent : c.muted}
                       />
                     </Tap>
                   );
                 })}
+                <T style={styles.doneLine} testID="stage-drawer-done">
+                  {`${pathDay.done.length} of ${words.count(pathDay.total)} done`}
+                </T>
               </View>
-            ) : (
+            ) : hasMoments ? (
               <View style={styles.daysList}>
                 {moments.map((m) => (
                   <Tap
                     key={m.id}
-                    accessibilityRole="menuitem"
+                    accessibilityRole={rowRole}
                     accessibilityLabel={`${clockText(m.at)}: ${m.title}`}
-                    onPress={() => {
-                      handleClose();
-                      onSelectMoment?.(m.at);
-                    }}
+                    onPress={() => closeThen(() => onSelectMoment?.(m.at))}
                     feedback="highlight"
                     highlightColor={c.feature}
                     style={styles.dayItem}
@@ -204,17 +266,14 @@ export const DaysDrawer = memo(function DaysDrawer({
                   </Tap>
                 ))}
               </View>
-            )}
+            ) : null}
 
-            <View style={styles.footerLinks}>
+            <View style={[styles.footerLinks, !pathDay && !hasMoments && styles.footerOnly]}>
               {pathDay && onOpenPath ? (
                 <Tap
-                  accessibilityRole="menuitem"
+                  accessibilityRole={rowRole}
                   accessibilityLabel={`Go to ${pathDay.path.name}`}
-                  onPress={() => {
-                    handleClose();
-                    onOpenPath(pathDay.path.id);
-                  }}
+                  onPress={() => closeThen(() => onOpenPath(pathDay.path.id))}
                   feedback="highlight"
                   highlightColor={c.feature}
                   style={styles.footerItem}
@@ -224,12 +283,9 @@ export const DaysDrawer = memo(function DaysDrawer({
                 </Tap>
               ) : !pathDay && seriesName && onOpenSeries ? (
                 <Tap
-                  accessibilityRole="menuitem"
+                  accessibilityRole={rowRole}
                   accessibilityLabel={`Go to ${seriesName}`}
-                  onPress={() => {
-                    handleClose();
-                    onOpenSeries();
-                  }}
+                  onPress={() => closeThen(onOpenSeries)}
                   feedback="highlight"
                   highlightColor={c.feature}
                   style={styles.footerItem}
@@ -240,12 +296,9 @@ export const DaysDrawer = memo(function DaysDrawer({
               ) : null}
               {onOpenYouTube ? (
                 <Tap
-                  accessibilityRole="menuitem"
+                  accessibilityRole={rowRole}
                   accessibilityLabel="Open in YouTube"
-                  onPress={() => {
-                    handleClose();
-                    onOpenYouTube();
-                  }}
+                  onPress={() => closeThen(onOpenYouTube)}
                   feedback="highlight"
                   highlightColor={c.feature}
                   style={styles.footerItem}
@@ -256,12 +309,9 @@ export const DaysDrawer = memo(function DaysDrawer({
               ) : null}
               {onShowAbout ? (
                 <Tap
-                  accessibilityRole="menuitem"
+                  accessibilityRole={rowRole}
                   accessibilityLabel="About this sermon"
-                  onPress={() => {
-                    handleClose();
-                    onShowAbout();
-                  }}
+                  onPress={() => closeThen(onShowAbout)}
                   feedback="highlight"
                   highlightColor={c.feature}
                   style={styles.footerItem}
@@ -367,6 +417,12 @@ const styles = StyleSheet.create({
     color: c.text,
     marginTop: 1,
   },
+  doneLine: {
+    ...type.metaSmall,
+    color: c.muted,
+    paddingHorizontal: 12,
+    marginTop: space.xs,
+  },
   momentStamp: {
     minWidth: 64,
     paddingVertical: 4,
@@ -386,6 +442,12 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: c.border,
     gap: 4,
+  },
+  // Straight under the heading's own rule: no second one.
+  footerOnly: {
+    marginTop: 0,
+    paddingTop: 0,
+    borderTopWidth: 0,
   },
   footerItem: {
     flexDirection: "row",

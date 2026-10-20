@@ -57,7 +57,7 @@ Development build with the app's own identity; evidence in `artifacts/ux-pass/na
 | Check | Result | Evidence / limitation |
 | --- | --- | --- |
 | Expo Go | Error 153, handled | YouTube refuses the embed in Expo Go (not the app's identity); the app shows the error with Watch on YouTube, no dead controls. |
-| Native playback | Pass | One tap on Watch plays (no second tap in YouTube). App Pause, Forward 30 and Play drive the provider through the injected channel; YouTube's own controls show uncovered and its time matches the app's. |
+| Native playback | Pass | One tap on Watch plays (no second tap in YouTube). The app's Pause, skip and Play drive the provider through the injected channel, and its time matches the app's. (At the time the transport sat under the video with YouTube's controls uncovered; since October 2026 YouTube's controls are off and the app's, with ±15, sit on the video, clear of its title strip and logo corner: [architecture](architecture.md#media).) |
 | Scrubber | Pass | A sideways drag with vertical wobble seeks to the release point (57% → 2:03:56, YouTube 2:03:57) without moving the page; a vertical swipe starting on the scrubber scrolls the page and seeks nothing. |
 | Dock | Pass | Back docks the same player above the tab bar, still playing; it keeps playing across tabs; tapping it returns the player to Now Playing at the same time. |
 | Background | Pass | Home button pauses; returning shows Paused with the same player. |
@@ -70,7 +70,7 @@ Development build with the app's own identity; evidence in `artifacts/ux-pass/na
 ### Browser review follow-up (30 September 2026)
 
 A reviewer's desktop-browser pass led to calmer controls, feedback in the video area, headlines, a capped desktop video (45% of the window height) and a corner mini-player on wide windows. An independent review of that change confirmed 4 defects, all fixed with tests:
-- A start that buffers or falls back to paused no longer goes silent. It says "Still loading", then "Tap play in the video".
+- A start that buffers or falls back to paused no longer goes silent. It says "Still loading", then "Tap Play to start" (the app's Play on the video).
 - Focus moves to the error's first action when a failure removes the focused control.
 - The error area grows with large text instead of clipping.
 - A poster scrolls with the page, so another sermon's page keeps room when one is docked.

@@ -67,14 +67,13 @@ export function PlayerHost() {
   const pathname = usePathname();
   const full = !!sermon && session.stage === sermon.id;
   const isFullscreen = full && overlay.fullscreen;
-  const rotateFullscreen = isFullscreen && window.height > window.width;
-  const nativeSafeSpan =
-    Platform.OS !== "web" && rotateFullscreen
-      ? Math.min(
-          window.height - (insets.top > 0 ? insets.top + 4 : 0) - insets.bottom,
-          Math.ceil(window.width * (16 / 9)),
-        )
-      : window.height;
+  const rotateFullscreen = isFullscreen && turnsFullscreen(window);
+  const nativeSafeSpan = rotateFullscreen
+    ? Math.min(
+        window.height - (insets.top > 0 ? insets.top + 4 : 0) - insets.bottom,
+        Math.ceil(window.width * (16 / 9)),
+      )
+    : window.height;
   const fsWidth = rotateFullscreen ? nativeSafeSpan : window.width;
   const fsHeight = rotateFullscreen ? window.width : window.height;
   const d = dockFrame(window, insets, aboveTabs, chrome);
@@ -92,10 +91,11 @@ export function PlayerHost() {
   useEffect(() => {
     if (!sermon || phase === "error") clearStageFocusToggle();
   }, [sermon, phase]);
-  // Exit fullscreen if the sermon docks or on Escape (web) / hardware Back (Android).
+  // Exit fullscreen if the sermon docks or fails (its error panel and Try
+  // again are on the page), or on Escape (web) / hardware Back (Android).
   useEffect(() => {
-    if (!full && overlay.fullscreen) setStageOverlay({ fullscreen: false });
-  }, [full, overlay.fullscreen]);
+    if ((!full || phase === "error") && overlay.fullscreen) setStageOverlay({ fullscreen: false });
+  }, [full, phase, overlay.fullscreen]);
   useEffect(() => {
     if (!isFullscreen) return;
     if (Platform.OS === "web") {
@@ -123,7 +123,13 @@ export function PlayerHost() {
   return (
     // box-none must stay a prop: react-native-web only honours it there, and
     // as a style this full-screen layer would swallow every tap in the app.
-    <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
+    // In full screen VoiceOver keeps to the player; the sermon screen under
+    // it is hidden from assistive tech too.
+    <View
+      pointerEvents="box-none"
+      style={StyleSheet.absoluteFill}
+      accessibilityViewIsModal={isFullscreen}
+    >
       {isFullscreen ? <StatusBar hidden animated /> : null}
       <View
         testID={full ? "player-full" : "player-dock"}
@@ -139,12 +145,8 @@ export function PlayerHost() {
                 top: 0,
                 width: window.width,
                 height: window.height,
-                paddingTop:
-                  rotateFullscreen && Platform.OS !== "web" && insets.top > 0
-                    ? insets.top + 4
-                    : 0,
-                paddingBottom:
-                  rotateFullscreen && Platform.OS !== "web" ? insets.bottom : 0,
+                paddingTop: rotateFullscreen && insets.top > 0 ? insets.top + 4 : 0,
+                paddingBottom: rotateFullscreen ? insets.bottom : 0,
                 backgroundColor: "#000",
                 zIndex: 100,
                 alignItems: "center",
@@ -231,6 +233,14 @@ export function PlayerHost() {
 }
 
 /**
+ * Full screen on a portrait phone turns the video 90° (the app is locked to
+ * portrait). A browser turns its own page, so the web never does.
+ */
+function turnsFullscreen(window: { width: number; height: number }) {
+  return Platform.OS !== "web" && window.height > window.width;
+}
+
+/**
  * Connects the Mindvalley VideoOverlay to the active player session when the
  * player is shown full-size on the sermon screen.
  */
@@ -240,7 +250,7 @@ function StageFullOverlay() {
   const overlay = useStageOverlay();
   const window = useWindowDimensions();
   const insets = useSafeAreaInsets();
-  const rotateFullscreen = overlay.fullscreen && window.height > window.width;
+  const rotateFullscreen = overlay.fullscreen && turnsFullscreen(window);
 
   useEffect(() => {
     if (consumeStageFocusToggle()) {
@@ -253,7 +263,7 @@ function StageFullOverlay() {
       ? {
           top: Math.max(insets.left, 8),
           bottom: Math.max(insets.right, 8),
-          side: Platform.OS !== "web" ? space.sm : Math.max(insets.top, insets.bottom, 16),
+          side: space.sm,
         }
       : {
           top: Math.max(insets.top, 8),
@@ -271,9 +281,11 @@ function StageFullOverlay() {
       rate={p.rate}
       captionsOn={p.captionsOn}
       fullscreen={overlay.fullscreen}
+      rotated={rotateFullscreen}
       fullscreenInsets={fullscreenInsets}
       marks={overlay.marks}
       glideKey={overlay.glideKey}
+      revealKey={overlay.revealKey}
       toggleRef={stageToggleRef}
       allowPassthroughTap={p.status === BLOCKED || p.status === STILL}
       onTogglePlay={p.toggle}

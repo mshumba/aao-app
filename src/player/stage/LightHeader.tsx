@@ -7,7 +7,7 @@ import { c, easeOut, radius, space, type } from "../../theme";
 import { T, Tap } from "../../ui";
 import { PlaylistIcon } from "./icons";
 
-export type LightHeaderProps = {
+type LightHeaderProps = {
   /** Column width on wide viewports. */
   width?: number;
   /** Path or series name centred in the header (null/empty for a lone sermon). */

@@ -1,6 +1,7 @@
 import {
   expect,
   fakeYouTube,
+  pressControl,
   rows,
   sendToBackground,
   shown,
@@ -229,14 +230,17 @@ test("faded overlay doesn't take taps and YouTube's title strip and logo corner 
   expect(await hitTestId(box.x + box.width - 48, box.y + box.height - 22)).toBe("fake-yt");
 
   const toggleBox = (await page.getByTestId("now-playing-toggle").boundingBox())!;
+  const hide = page.getByRole("button", { name: "Hide video controls", exact: true });
+  const show = page.getByRole("button", { name: "Show video controls", exact: true });
+  // Tapping the stage backdrop hides the custom overlay controls (unless
+  // they have already faded by themselves).
+  const hideControls = () =>
+    expect(async () => {
+      if (await hide.isVisible()) await hide.click({ position: { x: 24, y: 24 }, timeout: 1000 });
+      await expect(show).toBeVisible({ timeout: 500 });
+    }).toPass();
 
-  // Tapping the stage backdrop hides the custom overlay controls.
-  await page
-    .getByRole("button", { name: "Hide video controls", exact: true })
-    .click({ position: { x: 24, y: 24 } });
-  await expect(
-    page.getByRole("button", { name: "Show video controls", exact: true }),
-  ).toBeVisible();
+  await hideControls();
 
   // While faded to opacity 0, the invisible Pause button does not intercept taps:
   // tapping where Pause was hits the backdrop to show controls again without pausing.
@@ -251,13 +255,21 @@ test("faded overlay doesn't take taps and YouTube's title strip and logo corner 
     toggleBox.y + toggleBox.height / 2,
   );
   await expect(page.getByTestId("playback-status")).toHaveText("Playing");
-  await expect(
-    page.getByRole("button", { name: "Hide video controls", exact: true }),
-  ).toBeVisible();
+  await expect(hide).toBeVisible();
+
+  // The bottom strip beside the logo corner, where the times and rail were,
+  // brings the controls back too instead of reaching YouTube's player; the
+  // logo corner itself stays YouTube's.
+  await hideControls();
+  expect(await hitTestId(box.x + 24, box.y + box.height - 22)).toBe("video-overlay-strip");
+  await page.mouse.click(box.x + 24, box.y + box.height - 22);
+  await expect(page.getByTestId("playback-status")).toHaveText("Playing");
+  await expect(hide).toBeVisible();
+  expect(await hitTestId(box.x + box.width - 48, box.y + box.height - 22)).toBe("fake-yt");
 
   // While paused, our shading and full-frame backdrop drop away so YouTube's
   // pause overlay is unobstructed outside our centre transport and bottom bar.
-  await page.getByTestId("now-playing-toggle").click();
+  await pressControl(page, page.getByTestId("now-playing-toggle"));
   await expect(page.getByTestId("playback-status")).toHaveText("Paused");
   await expect(page.getByTestId("video-overlay-backdrop")).toHaveCount(0);
   expect(await hitTestId(box.x + 24, box.y + 72)).toBe("fake-yt");
@@ -269,7 +281,7 @@ test("Now Playing controls drive the provider player", async ({ page }) => {
   await page.goto("/sermon/nUW8NT2Pe88");
   await page.getByRole("button", { name: "Watch sermon", exact: true }).click();
   await expect(page.getByTestId("playback-status")).toHaveText("Playing");
-  await page.getByRole("button", { name: "Pause", exact: true }).click();
+  await pressControl(page, page.getByRole("button", { name: "Pause", exact: true }));
   await expect(page.getByTestId("playback-status")).toHaveText("Paused");
   await page
     .getByRole("button", { name: "Forward 15 seconds", exact: true })

@@ -1,7 +1,7 @@
-import type { ReactNode, RefObject } from "react";
+import type { ReactNode } from "react";
 import { AccessibilityInfo, StyleSheet, View } from "react-native";
 import { c, font, radius, tabular, textCap, type } from "../theme";
-import { T, Tap, moveFocus, web } from "../ui";
+import { T, Tap, web } from "../ui";
 import {
   asksViewer,
   clock,
@@ -9,6 +9,7 @@ import {
   usePlayback,
   usePlayerSession,
 } from "./PlayerProvider";
+import { focusStageToggle } from "./stage/VideoOverlay";
 
 /** Moments on the band, in seconds (the band turns them into ticks). */
 export type BandMarks = {
@@ -27,14 +28,7 @@ export type BandMarks = {
  * (`fallback`). Every status is announced; playing and paused aren't shown,
  * since they're plain to see.
  */
-export function PlayerCenter({
-  toggle,
-  fallback,
-}: {
-  /** Play/Pause, where focus goes after Start over. */
-  toggle: RefObject<View | null>;
-  fallback?: ReactNode;
-}) {
+export function PlayerCenter({ fallback }: { fallback?: ReactNode }) {
   const session = usePlayerSession();
   const p = usePlayback();
   if (session.phase === "error") return fallback ?? null;
@@ -70,7 +64,7 @@ export function PlayerCenter({
             onPress={() => {
               session.startOver();
               // The note and its button go; carry on from Play/Pause.
-              moveFocus(toggle.current);
+              focusStageToggle();
               AccessibilityInfo.announceForAccessibility("Starting from the beginning.");
             }}
             feedback="dim"
