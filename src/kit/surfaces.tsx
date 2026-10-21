@@ -122,6 +122,59 @@ export const ListRow = memo(function ListRow({
   );
 });
 
+/**
+ * A setting that's on or off: a row like ListRow with a switch, navy when
+ * on, where the chevron would be. The whole row flips it, and it's
+ * announced as a switch.
+ */
+export const SwitchRow = memo(function SwitchRow({
+  icon,
+  title,
+  value,
+  onChange,
+  hint,
+  disabled = false,
+  testID,
+  first = true,
+  last = true,
+}: EdgeProps & {
+  icon: IconName;
+  title: string;
+  value: boolean;
+  onChange: (value: boolean) => void;
+  hint?: string;
+  disabled?: boolean;
+  testID?: string;
+}) {
+  return (
+    <Tap
+      testID={testID}
+      accessibilityRole="switch"
+      accessibilityLabel={title}
+      accessibilityHint={hint}
+      accessibilityState={{ checked: value, disabled }}
+      // aria-* rather than accessibilityState: react-native-web only maps these.
+      aria-checked={value}
+      aria-disabled={disabled}
+      disabled={disabled}
+      onPress={() => onChange(!value)}
+      feedback="highlight"
+      highlightColor={c.featureOnSurface}
+      style={[styles.row, first && styles.first, last && styles.last]}
+    >
+      <View style={styles.well}>
+        <Icon name={icon} size={18} color={c.accent} />
+      </View>
+      <View style={styles.rowText}>
+        <T style={styles.rowTitle}>{title}</T>
+      </View>
+      <View style={[styles.track, value && styles.trackOn]}>
+        <View style={[styles.knob, value && styles.knobOn]} />
+      </View>
+    </Tap>
+  );
+});
+
 const styles = StyleSheet.create({
   card: { padding: space.s20 },
   surface: {
@@ -173,4 +226,16 @@ const styles = StyleSheet.create({
   rowText: { flex: 1, minWidth: 0, gap: 2 },
   rowTitle: { ...type.label, color: c.text },
   rowValue: { ...type.meta, color: c.muted },
+  // The switch: 51×31, as the phones draw theirs.
+  track: {
+    width: 51,
+    height: 31,
+    borderRadius: 16,
+    padding: 2,
+    backgroundColor: c.track,
+    justifyContent: "center",
+  },
+  trackOn: { backgroundColor: c.accent },
+  knob: { width: 27, height: 27, borderRadius: 14, backgroundColor: c.white, boxShadow: shadows.art },
+  knobOn: { alignSelf: "flex-end" },
 });

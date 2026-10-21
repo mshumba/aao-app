@@ -47,6 +47,12 @@
       "expo-secure-store",
       "expo-apple-authentication",
       [
+        "expo-notifications",
+        {
+          "color": "#1f3a5f"
+        }
+      ],
+      [
         "expo-video",
         {
           "supportsBackgroundPlayback": true,
