@@ -4,6 +4,7 @@ import { StyleSheet, View } from "react-native";
 import { useCatalogue } from "../../catalogue/CatalogueProvider";
 import { sermonsInTopic } from "../../data/sermons";
 import { CoverPage } from "../../kit";
+import { useStatusBar } from "../../kit/statusBar";
 import { useTopics } from "../../learning";
 import { exitTo, firstParam } from "../../navigation";
 import { MoreButton } from "../../search/parts";
@@ -34,10 +35,11 @@ export default function TopicScreen() {
   const { sermons } = useCatalogue();
   const inTopic = useMemo(() => (topic ? sermonsInTopic(sermons, topic.id) : []), [sermons, topic]);
   const [shown, setShown] = useState(PAGE);
+  // The ivory page's own while there's no topic; then its cover's (CoverNav).
+  useStatusBar(topic ? null : "dark");
   if (!topic)
     return (
-      <Page>
-        <Header back />
+      <Page header={<Header back />}>
         {/* A first visit's topics are still on their way. */}
         {loading ? null : (
           <StatePanel

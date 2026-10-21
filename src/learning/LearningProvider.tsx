@@ -15,6 +15,7 @@ import { registerPathStarter } from "../auth/intent";
 import { useCatalogue } from "../catalogue/CatalogueProvider";
 import { readJSON, writeJSON } from "../lib/storage";
 import { noteDayDone } from "../paths/seen";
+import { NATIVE_VIDEO } from "../player/videoPlatform";
 import { CompleteDayContext } from "./completeDay";
 import { fixtureDays, fixtureMoments, fixtureNeeds, fixturePaths, fixtureTopics } from "./fixtures";
 import {
@@ -598,13 +599,22 @@ export function useMyTopics() {
 /**
  * Up to three paths for the viewer's topics (see suggestPaths), once their
  * progress is known: until then none, so a path they're on never shows.
+ * The phones list only sermons whose video is on R2 (CatalogueProvider), so
+ * they suggest only paths whose sermons all are; the Paths tab still lists
+ * every path.
  */
 export function usePathSuggestions() {
   const mine = useMyTopics();
   const progress = need(useContext(ProgressContext), "usePathSuggestions");
-  const { paths } = need(useContext(PathsContext), "usePathSuggestions");
+  const { paths, daysByPath } = need(useContext(PathsContext), "usePathSuggestions");
+  const { find } = useCatalogue();
   const { read, state } = progress;
-  return useMemo(() => (read ? suggestPaths(mine, paths, state) : []), [read, mine, paths, state]);
+  return useMemo(() => {
+    if (!read) return [];
+    const offered = (path: Path) =>
+      !NATIVE_VIDEO || (daysByPath.get(path.id) ?? []).every((day) => !!find(day.youtubeId)?.videoReady);
+    return suggestPaths(mine, paths, state, offered);
+  }, [read, mine, paths, state, daysByPath, find]);
 }
 
 /**

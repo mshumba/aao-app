@@ -159,6 +159,17 @@ test.describe("path progress", () => {
     // Never more than three, and none without topics.
     expect(suggested(emptyProgress, "grace-holiness", "holy-spirit", "faith-hope", "prayer")).toHaveLength(3);
     expect(suggested(emptyProgress)).toEqual([]);
+    // One this device can't offer (on the phones, a path with a sermon not
+    // on R2 yet) is skipped, and the next takes its turn.
+    expect(suggested(emptyProgress, "purpose-calling", "holy-spirit")).toEqual([
+      WAIT,
+      "knowing-the-holy-spirit",
+      "seeking-the-face-of-god",
+    ]);
+    const offered = (path: { id: string }) => path.id !== "knowing-the-holy-spirit";
+    expect(
+      suggestPaths(topics("purpose-calling", "holy-spirit"), fixturePaths, emptyProgress, offered).map((p) => p.id),
+    ).toEqual([WAIT, "seeking-the-face-of-god"]);
   });
 });
 

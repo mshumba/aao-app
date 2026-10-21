@@ -98,7 +98,6 @@ type Gathering = { grouped: boolean; days: SessionDay[] };
 
 const idsOf = (sessions: Gathering) => sessions.days.flatMap((d) => d.rows.map((row) => row.sermon.id));
 
-
 /** Begun and not finished: 0 to 1 of the way through, else 0. */
 function begun(watch: WatchProgress | null) {
   return watch && !watched(watch) && resumePoint(watch) > 0 ? fraction(watch) : 0;

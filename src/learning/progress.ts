@@ -131,13 +131,15 @@ export function activePath(
  * Paths to suggest for these topics (the viewer's, in the order they're
  * offered): each topic's paths in the order it lists them, the topics
  * taking turns, so every topic's best fit comes before any topic's second.
- * A path that isn't loaded, or that the viewer has started or finished,
- * is skipped, and one two topics share is suggested once.
+ * A path that isn't loaded, that the viewer has started or finished, or
+ * that this device can't offer (`offered`) is skipped, and one two topics
+ * share is suggested once.
  */
 export function suggestPaths(
   topics: readonly Pick<Topic, "pathIds">[],
   paths: readonly Path[],
   state: ProgressState,
+  offered: (path: Path) => boolean = () => true,
   count = 3,
 ): Path[] {
   const byId = new Map(paths.map((p) => [p.id, p]));
@@ -145,7 +147,7 @@ export function suggestPaths(
     topics.map((topic) =>
       topic.pathIds.flatMap((id) => {
         const path = byId.get(id);
-        return path && !state.enrollments[id] ? [path] : [];
+        return path && !state.enrollments[id] && offered(path) ? [path] : [];
       }),
     ),
     count,
