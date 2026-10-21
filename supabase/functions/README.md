@@ -59,6 +59,16 @@ Optional secrets:
 Supabase provides `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEYS`, `SUPABASE_SECRET_KEYS` (or the legacy `SUPABASE_ANON_KEY`
 / `SUPABASE_SERVICE_ROLE_KEY`) and `SUPABASE_JWKS` automatically.
 
+## video-ready
+
+Marks sermons whose own video is on R2. For every sermon with `public.sermons.video_ready_at` still null, it asks
+`https://audio.aaolearning.com/video/<youtube_id>/master.m3u8` (public, no keys) and sets `video_ready_at` for each one
+that answers, path-day sermons first. Apps from version 0.2.0 list only sermons with it set, so uploads from the video
+pipeline appear on their own. `POST {}` with the publishable key answers `{"ok":true}`; the log line has the counts and
+how R2 answered. A pg_cron job, `video-ready`, calls it every 10 minutes, with the publishable key read from the Vault
+secret `apple_tokens_apikey` (the same key). Deploy with `npx supabase functions deploy video-ready --project-ref
+tkyzinjphxjwhfagoypm --no-verify-jwt`. Migration: `20261021000100_sermon_video_ready.sql`.
+
 ## Deploy
 
 The project uses `sb_publishable_…` keys, which aren't JWTs, so the platform's JWT check must be off. Each function
