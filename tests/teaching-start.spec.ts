@@ -14,6 +14,7 @@ import {
   test,
   ytLog,
 } from "./fixtures";
+import { MIN_RESUME } from "../src/player/progress";
 
 // A day of a guided path or teaching series plays its whole sermon from
 // where the Apostle starts preaching (path_days.teaching_start), unless the
@@ -150,10 +151,14 @@ test.describe("a saved place that arrives after Watch", () => {
     await watch(page).click();
     await expect(page.getByTestId("playback-status")).toHaveText("Playing");
     expect((await ytLog(page)).starts).toEqual([FINALE_TEACHING]);
-    // The account's answer lands meanwhile, with no place to move to.
+    // Paused, so the account's late answer gets the full comparison: with no
+    // place to move to, the day stays where the preaching starts.
+    await pressControl(page, page.getByTestId("now-playing-toggle"));
+    await expect(page.getByTestId("playback-status")).toHaveText("Paused");
     await page.waitForTimeout(6500);
     expect((await ytLog(page)).commands.filter((c) => c.startsWith("seek:"))).toEqual([]);
-    expect(await playhead(page)).toBeGreaterThan(FINALE_TEACHING);
+    expect(await playhead(page)).toBeGreaterThanOrEqual(FINALE_TEACHING);
+    expect(await playhead(page)).toBeLessThan(FINALE_TEACHING + MIN_RESUME);
     await expect(page.getByTestId("resume-note")).toHaveCount(0);
   });
 });
@@ -173,4 +178,21 @@ test.describe("as a guest", () => {
     await expect(page.getByTestId("playback-status")).toHaveText("Playing");
     expect((await ytLog(page)).starts).toEqual([DAY_ONE_TEACHING]);
   });
+});
+
+test("a few seconds of a path day leave no place: next time it starts where the preaching starts again", async ({ page }) => {
+  await fakeYouTube(page, { duration: LENGTH[SERMON.dayOne] });
+  await page.goto(`/sermon/${SERMON.dayOne}?path=${HABIT}&day=1`);
+  await watch(page).click();
+  await expect(page.getByTestId("playback-status")).toHaveText("Playing");
+  await pressControl(page, page.getByTestId("now-playing-toggle"));
+  await expect(page.getByTestId("playback-status")).toHaveText("Paused");
+  expect(await playhead(page)).toBeLessThan(DAY_ONE_TEACHING + MIN_RESUME);
+  // Leave and come back: no "Resuming at", and it starts at the teaching again.
+  await page.goto(`/path/${HABIT}`);
+  await page.goto(`/sermon/${SERMON.dayOne}?path=${HABIT}&day=1`);
+  await expect(page.getByTestId("resume-note")).toHaveCount(0);
+  await watch(page).click();
+  await expect(page.getByTestId("playback-status")).toHaveText("Playing");
+  expect((await ytLog(page)).starts.at(-1)).toBe(DAY_ONE_TEACHING);
 });

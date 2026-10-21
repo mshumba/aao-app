@@ -642,8 +642,8 @@ export function useEnrollment() {
       }
       const first = daysByPath.get(pathId)?.[0];
       // A guest is asked for an account first; signing up then starts the
-      // path and plays Day 1, whole, from where the Apostle starts preaching
-      // unless the account has a place in it (the intent carries both).
+      // path and opens Day 1, whose sermon page starts it where the Apostle
+      // starts preaching unless the account has a place in it.
       // Closing the sheet drops it, so nothing starts later.
       if (
         !first ||
@@ -651,7 +651,6 @@ export function useEnrollment() {
           kind: "watch",
           sermonId: first.youtubeId,
           path: { id: pathId, day: first.day },
-          opening: first.teachingStart ?? undefined,
         })
       ) {
         // Guests who may watch keep their progress on this device.
