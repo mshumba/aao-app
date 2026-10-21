@@ -277,8 +277,10 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const current = useRef<Sermon | null>(null);
   const length = useRef(0);
   const savedAt = useRef(0);
-  // Where this load began: a path day starts where the preaching starts.
-  const startedAt = useRef(0);
+  // Where a path day opened, at its teaching start, when the viewer had no
+  // place in it: "only just started" counts from there, not from 0. Moments
+  // and shared links keep counting from 0, so a short look still keeps its spot.
+  const openedAt = useRef(0);
   const resumeNote = useRef(0);
   // A saved place that arrived while the player was still loading: moved to
   // as soon as it's ready.
@@ -331,7 +333,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     const finished = reason === "ended" || isFinished(at, total);
     const before = viewer.progressFor(sermon.id);
     // Only just started (counted from where this load began, not from 0) leaves no place.
-    if (!before && !finished && at - startedAt.current < MIN_RESUME) return;
+    if (!before && !finished && at - openedAt.current < MIN_RESUME) return;
     if (
       before &&
       before.finished === finished &&
@@ -437,7 +439,6 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     // Keep the place in the sermon being replaced.
     if (current.current && current.current.id !== next.id) persist("moment");
     played.current = false;
-    startedAt.current = from;
     reloadOnReturn.current = false;
     // Another sermon isn't that path day.
     if (pathDayRef.current?.sermonId !== next.id) pathDayRef.current = null;
@@ -557,6 +558,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       if (asked != null) {
         resumeNote.current = 0;
         setResumedFrom(0);
+        openedAt.current = 0;
         begin(next, asked);
         return;
       }
@@ -580,6 +582,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       }
       resumeNote.current = saved;
       setResumedFrom(saved);
+      openedAt.current = saved ? 0 : openAt;
       begin(next, saved || openAt);
     },
     [begin, catchUp, sermon],
