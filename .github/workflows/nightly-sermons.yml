@@ -1,0 +1,62 @@
+name: Nightly sermon discovery
+on:
+  schedule:
+    - cron: "37 8 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Preview candidate IDs without writing catalogue rows"
+        type: boolean
+        required: true
+        default: true
+      allow_backlog:
+        description: "Allow more than 25 candidates after reviewing a dry run"
+        type: boolean
+        required: true
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: nightly-sermon-discovery
+  cancel-in-progress: false
+jobs:
+  import:
+    # This repository variable is available before the job starts; an
+    # Environment variable would be too late for the schedule opt-in check.
+    if: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && vars.NIGHTLY_SERMON_IMPORT_ENABLED == 'true')) }}
+    environment: catalogue-import
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+      # Standard-library Node script: no install, lifecycle scripts, or app build.
+      - name: Import new public videos
+        shell: bash
+        env:
+          # Both secrets must exist only in the main-only catalogue-import
+          # Environment, never as repository or organization secrets.
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+          YOUTUBE_CHANNEL_ID: ${{ vars.YOUTUBE_CHANNEL_ID }}
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+          DRY_RUN: ${{ github.event_name == 'schedule' && 'false' || toJSON(inputs.dry_run) }}
+          ALLOW_BACKLOG: ${{ github.event_name == 'schedule' && 'false' || toJSON(inputs.allow_backlog) }}
+        run: |
+          set -euo pipefail
+          args=()
+          case "$DRY_RUN" in
+            true) args+=(--dry-run) ;;
+            false) args+=(--apply) ;;
+            *) echo "Invalid dry_run input; expected true or false" >&2; exit 1 ;;
+          esac
+          case "$ALLOW_BACKLOG" in
+            true) args+=(--allow-backlog) ;;
+            false) ;;
+            *) echo "Invalid allow_backlog input; expected true or false" >&2; exit 1 ;;
+          esac
+          node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/nightly-sermons.mts "${args[@]}"

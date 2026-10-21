@@ -1,15 +1,88 @@
 {
   "expo": {
-    "name": "AAO · The Viewing Room",
-    "slug": "aao-viewing-room",
-    "version": "0.1.0",
+    "name": "AAO",
+    "slug": "aao-app",
+    "version": "0.2.0",
     "scheme": "aao",
     "orientation": "portrait",
-    "userInterfaceStyle": "dark",
-    "ios": { "bundleIdentifier": "com.aao.prototype", "supportsTablet": true },
-    "android": { "package": "com.aao.prototype" },
-    "web": { "output": "single", "name": "AAO · The Viewing Room" },
-    "plugins": ["expo-router", "expo-font"],
-    "experiments": { "typedRoutes": true }
+    "userInterfaceStyle": "light",
+    "backgroundColor": "#f7f4ee",
+    "icon": "./assets/icon.png",
+    "ios": {
+      "bundleIdentifier": "com.mshumba.aao",
+      "supportsTablet": false,
+      "config": {
+        "usesNonExemptEncryption": false
+      },
+      "infoPlist": {
+        "UIViewControllerBasedStatusBarAppearance": true
+      }
+    },
+    "android": {
+      "package": "com.mshumba.aao",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "monochromeImage": "./assets/adaptive-icon-monochrome.png",
+        "backgroundColor": "#000000"
+      }
+    },
+    "web": {
+      "output": "single",
+      "name": "AAO",
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "./plugins/with-ios-scene-lifecycle",
+      "expo-router",
+      "expo-font",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#f7f4ee",
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 200
+        }
+      ],
+      "expo-web-browser",
+      "expo-secure-store",
+      "expo-apple-authentication",
+      [
+        "expo-video",
+        {
+          "supportsBackgroundPlayback": true,
+          "supportsPictureInPicture": true
+        }
+      ],
+      [
+        "@react-native-google-signin/google-signin",
+        {
+          "iosUrlScheme": "com.googleusercontent.apps.1035154047913-24b695fdbbv0s1g6tng9g6ulq109jmcf"
+        }
+      ],
+      [
+        "@sentry/react-native/expo",
+        {
+          "url": "https://sentry.io/",
+          "organization": "mufaro",
+          "project": "aao-app"
+        }
+      ]
+    ],
+    "updates": {
+      "url": "https://u.expo.dev/22f97c2b-42d9-4e87-8237-d953a169e5e1"
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "22f97c2b-42d9-4e87-8237-d953a169e5e1"
+      }
+    },
+    "owner": "mshumba"
   }
 }

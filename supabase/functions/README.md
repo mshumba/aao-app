@@ -1,0 +1,410 @@
+# Edge Functions: need-based search and quotes
+
+Two Supabase Edge Functions (Deno) behind "What are you going through?". The app calls them from
+`src/learning/client.ts`.
+
+| Function | Does                                                                                   | Calls OpenAI                                                               |
+| -------- | -------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| `search` | Finds sermon moments by meaning for a question of 1–200 characters.                    | A small chat model reads the question; `text-embedding-3-large` embeds it. |
+| `quotes` | Picks a clean verbatim quote for each moment `search` returned without one (up to 14). | One batched chat call for the passages not yet cached.                     |
+
+A third function, `apple-tokens`, keeps Sign in with Apple refresh tokens and revokes them when an account is
+deleted. It doesn't call OpenAI; its secrets, deployment and requests are in
+[Apple token revocation](../../docs/development/apple-token-revocation.md).
+
+Both functions need the tables and SQL functions from `migrations/20261015000000_need_search.sql` and the index from
+`migrations/20261015000300_passages_hnsw.sql`. `search` also needs `migrations/20261015000600_search_polish.sql`
+(`needs.query`/`related`, hidden passages, the clean-up job) and `migrations/20261017000000_search_safety.sql`
+(`search_open()` and the stored embeddings in `need_vectors` and `search_vectors`), and reads
+`paths`/`path_days` (`20261015000100_paths.sql`, with `kind` from `20261015001000_teaching_series.sql`).
+
+## Files
+
+- `search/index.ts`, `quotes/index.ts`: the two entry points.
+- `quotes/pick.ts`: the quote model task (a quote and a backup per passage).
+- `_shared/http.ts`: CORS, the publishable-key check, JSON responses.
+- `_shared/auth.ts`: who is calling, for rate limits (user id from a valid session token, else a keyed hash of the
+  client's address, read from the right of `x-forwarded-for`; see [Limits](#limits)).
+- `_shared/limits.ts`: the rate limits and their defaults (each can be set as a secret).
+- `_shared/distress.ts` (+ `distress_test.ts`): the one list of distress wordings, "care" and "maybe", with the
+  devotional phrases that are neither, and `normalise()`. The app imports this same file (`src/search/care.ts`); the
+  phrase table in `tests/search-care.spec.ts` checks every wording both ways.
+- `_shared/db.ts`: the service-role client, the `search_rate_ok()` wrapper (used by `quotes`) and `withRetry()`, which
+  retries a database call once after a connection error or timeout.
+- `_shared/openai.ts`: embeddings and JSON-schema chat calls, with hard timeouts; a chat answer can be streamed, and
+  `embedHedged()` sends a second embedding request when the first is slow.
+- `_shared/prompts.ts`: the search model task and how its answer is cleaned, and the fixed comfort phrasing
+  (`CARE_QUERY`) searched for someone in distress.
+- `_shared/verbatim.ts` (+ `verbatim_test.ts`): the clean-verbatim quote rule, building a quote from the model's pick,
+  and caption timing. `verbatim_cases.json` holds the cases shared with the transcript pipeline's Python port and
+  `public.is_clean_verbatim()` in SQL.
+- `deno.json`: local tooling only (no lock file, no `node_modules`, lint and format settings). It isn't needed to
+  deploy.
+
+## The OpenAI key
+
+The key lives only in Supabase as the Edge Function secret `OPENAI_API_KEY`. Never put it in the app, in an
+`EXPO_PUBLIC_` variable, or in source.
+
+To set or rotate it, use **Dashboard → Edge Functions → Secrets** (or
+`supabase secrets set OPENAI_API_KEY=… --project-ref tkyzinjphxjwhfagoypm`). Functions pick up a new value without
+redeploying.
+
+Optional secrets:
+
+- `SEARCH_MODEL`: the model that reads the question. Default `gpt-5.4-nano`.
+- `QUOTES_MODEL`: the model that picks quotes. Default `gpt-5.4-mini`, which is more faithful to the captions than nano.
+- The rate limits in [Limits](#limits), and `CLIENT_IP_SOURCE`.
+
+Supabase provides `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEYS`, `SUPABASE_SECRET_KEYS` (or the legacy `SUPABASE_ANON_KEY`
+/ `SUPABASE_SERVICE_ROLE_KEY`) and `SUPABASE_JWKS` automatically.
+
+## video-ready
+
+Marks sermons whose own video is on R2. For every sermon with `public.sermons.video_ready_at` still null, it asks
+`https://audio.aaolearning.com/video/<youtube_id>/master.m3u8` (public, no keys) and sets `video_ready_at` for each one
+that answers, path-day sermons first. Apps from version 0.2.0 list only sermons with it set, so uploads from the video
+pipeline appear on their own. `POST {}` with the publishable key answers `{"ok":true}`; the log line has the counts and
+how R2 answered. A pg_cron job, `video-ready`, calls it every 10 minutes, with the publishable key read from the Vault
+secret `apple_tokens_apikey` (the same key). Deploy with `npx supabase functions deploy video-ready --project-ref
+tkyzinjphxjwhfagoypm --no-verify-jwt`. Migration: `20261021000100_sermon_video_ready.sql`.
+
+## Deploy
+
+The project uses `sb_publishable_…` keys, which aren't JWTs, so the platform's JWT check must be off. Each function
+checks instead that the `apikey` header is one of the project's publishable keys (or the legacy anon key), and answers
+401 otherwise.
+
+With the Supabase CLI, from the app folder:
+
+```sh
+npx supabase functions deploy search --project-ref tkyzinjphxjwhfagoypm --no-verify-jwt
+npx supabase functions deploy quotes --project-ref tkyzinjphxjwhfagoypm --no-verify-jwt
+```
+
+The CLI bundles `_shared/` automatically. Without the CLI, the Management API endpoint
+`POST /v1/projects/{ref}/functions/deploy?slug=<name>` takes the same files as multipart form data. Send them with paths
+such as `supabase/functions/search/index.ts` and `supabase/functions/_shared/http.ts`, plus `metadata` set to
+`{"name":"search","entrypoint_path":"supabase/functions/search/index.ts","verify_jwt":false}`. Authenticate with a
+personal access token.
+
+Check locally before deploying:
+
+```sh
+cd supabase/functions
+deno check search/index.ts quotes/index.ts
+deno lint
+deno test --allow-env --allow-read _shared/
+```
+
+## Requests
+
+Send `apikey: <publishable key>` and `Authorization: Bearer <user access token, or the publishable key for guests>`.
+
+**search.** `POST /functions/v1/search` with body `{"q": "I keep going back to the same sin"}`. The response:
+
+```
+{
+  "query": "...",
+  "understood": { "theme": "breaking a habit of sin", "related": ["Temptation", "Shame after falling", "Self-control"] },
+  "path": { "id": "breaking-free-from-habitual-sin", "name": "...", "italic": "habitual sin", "days": 6, "status": "draft" } | null,
+  "care": false,
+  "moments": [ { "id": "1882", "youtubeId": "...", "at": 3834.38, "end": 3889.45, "quote": null | "...", "excerpt": "...", "score": 0.474, "sermon": { ... } } ],
+  "sermons": [ { ...sermon, "moments": 3 } ],
+  "total": { "moments": 79, "sermons": 58 },
+  "cached": false,
+  "tookMs": 1356
+}
+```
+
+It returns at most 14 moments, at most 2 per sermon, and at most 10 sermons.
+
+Added on 15 October 2026 (older app builds can ignore both):
+
+- `care`: `true` when the person may want to die or to harm themselves: the "care" list in `_shared/distress.ts`
+  matches, or the model says so, or the "maybe" list matches and the model couldn't read the search (see
+  [Failing closed](#failing-closed)); otherwise `false`. The app should show crisis help (a person to talk to now) above
+  the moments, and no path is offered. A `care` search answers `200` even when nothing could be searched, with
+  `moments: []`, so the help still shows.
+- `path.status`: `"draft"` or `"published"`, from `paths.status`. The app labels drafts.
+
+Added on 17 October 2026: `fallback: "curated"`, set only when nothing could be searched by meaning: the moments are
+the needs' hand-picked ones from `public.moments` (a chip whose phrases couldn't be embedded, or someone in distress
+when the comfort phrasing couldn't be searched).
+
+A `care` answer with nothing in it (`moments: []`, `sermons: []`) means search couldn't reach the database: the app
+says the teaching couldn't load, offers Try again and doesn't keep the answer.
+
+Errors:
+
+- `400 {"error":"bad_query"}`: the question is empty or longer than 200 characters.
+- `401 {"error":"unauthorized"}`: no publishable key on `apikey`.
+- `403 {"error":"origin_not_allowed"}`: the request came from a browser origin that isn't allowed.
+- `429 {"error":"rate_limited","retryAfter":N,"scope":"caller"|"everyone"}`: over a limit. `scope` is `"everyone"` when
+  the allowance everyone shares is used up (the app says "Search is busy for everyone right now") and `"caller"` when it
+  is this account's or address's own. A `Retry-After` header is sent too. Someone in distress, or whose words may mean
+  it, is never refused (they get the care answer), and a need chip gets its curated moments instead.
+- `503 {"error":"unavailable"}`: search can't run right now (after one retry of the database call that failed).
+
+How it works:
+
+1. **Distress first.** Before the cache or the limits, the question is read against `_shared/distress.ts`: "care" (they
+   plainly say they want to die or to harm themselves), "maybe" (despair that may mean it) or neither.
+2. One database call, `search_open()`, reads the cache, then looks for a chip with stored embeddings, then checks the
+   rate limits. The published needs and the guided paths (`kind = 'path'`; teaching series aren't offered) load at the
+   same time.
+   - The cache holds answers for 24 hours, keyed on a SHA-256 hash of the question in lower case without punctuation,
+     and on the distress list's version (`search:v5:d2:<hash>`), so an answer given under an older list isn't served
+     after the list changes. The stored answer leaves out the question. A cache hit doesn't count towards the limits,
+     and quotes found after the answer was cached are added on the way out. A cached answer without `care` is never
+     served to someone whose words say "care".
+   - A need chip whose embeddings are stored and current comes back before the limits and isn't counted: it needs no
+     OpenAI call.
+   - Otherwise the caller's own allowance is checked, then everyone's ([Limits](#limits)). Someone in distress is never
+     refused: their search counts only against `SEARCH_CARE_PER_HOUR`, an allowance for the model's reading, and past it
+     they get the care answer without the model. A "maybe" search past the limits gets the care answer too, and a chip
+     past the limits its curated moments. Only anything else gets the 429.
+   - The care answer without the model is the same whatever was typed, so it is cached once, under
+     `search:v5:d2:care-default`: past the limits, each distress search costs one cache read, not a `match_passages`
+     call of its own. A cached answer refused for someone in distress is replaced from the same entry.
+   - A chip that `search_open()` let through uncounted is never searched with the model: if the needs fail to load, it
+     answers with its curated moments (or a 503).
+3. **Need chips.** When the question is a published need's label or short name ("I'm struggling with fear", "Fear"),
+   compared after `normalise()`, and the need has a `needs.query`, no chat model is used. The fixed teaching phrase and
+   the need's label are searched with their embeddings from `need_vectors`; the first time a chip is used (or after its
+   label, short name or query changes) they are embedded in one call and stored. `POST {"warm": true}` stores them all
+   at once ([Stored embeddings](#stored-embeddings)). The theme is `needs.theme`, `related` is the short names of
+   `needs.related` (3 need ids, in order), and `path` is the first guided path whose `paths.needs` holds the need. The
+   same chip always gets the same answer.
+4. **Anything else.** Two steps run in parallel, each with a hard timeout:
+   - The chat model (4.5 s, streamed) returns `{theme, teaching_query, related, path_id, care}`. `path_id` must be the
+     id of a guided path. `related` must be 3 `short` names from the published `needs` (each shown to the model with its
+     label); the need whose label or short name is the search itself is left out, so a chip never repeats the search.
+   - The question as typed is embedded (`text-embedding-3-large`, 768 dimensions, 4 s) and searched with
+     `match_passages`.
+   - As soon as `teaching_query` has streamed in (it comes second, before the related needs and path), it is embedded
+     and searched too. The lists are fused by reciprocal rank (k = 60). A row found only by the question as typed with a
+     score under 0.47 ranks after every row the teaching phrasing found (these were mostly passages that share the
+     question's words without teaching on it).
+5. `care`: when the "care" list matches what was typed, the question as typed is never searched; the fixed comfort
+   phrasing `CARE_QUERY` is searched instead (with its stored embedding from `search_vectors`), alongside the model's
+   teaching phrasing (which the model words about God's comfort and hope, avoiding depression, suicide, die and death).
+   When only the model sees distress, the question's list is dropped, and if the model's phrasing failed, `CARE_QUERY`
+   is searched. If the model is unavailable, the theme is "finding hope and comfort in God" and the related needs are
+   Discouragement, God's presence and Rejection. No path is offered. The question as typed found sermons that speak of
+   depression harshly ("a believer cannot be depressed").
+6. `match_passages` skips passages with `passages.hidden_from_search` and returns each row's twins, sermon and cached
+   quote. Twins are collapsed, and a sermon gets at most 2 moments, which can't overlap.
+7. `at` is the cached quote's start when there is one. Otherwise it is 3 s before the excerpt, never before the passage
+   start.
+8. If the chat model fails or times out (and there is no distress), search answers from the question alone. The theme is
+   the question, `related` is `[]` and `path` is `null`, and that answer isn't cached. Nor is an answer where any search
+   failed.
+9. **When OpenAI fails** (nothing could be embedded): a chip answers with its curated moments from `public.moments`
+   (best first, at most 2 per sermon, never a hidden passage); someone in distress with the comfort list from the stored
+   embedding, or else the curated moments of Discouragement, God's presence and Rejection, or else `moments: []`; any
+   other question with a 503 (the app's "isn't answering" state lists its own sermon-title matches). These answers
+   aren't cached, and those with curated moments carry `fallback`.
+10. Database calls that fail with a connection error, a timeout, a 502-504 from the gateway, `PGRST000`-`PGRST003` or a
+    Postgres start-up/shut-down code are retried once after 0.4-0.7 s (`withRetry` in `_shared/db.ts`), so a brief
+    connection drop, or the end of a database restart, doesn't reach the app as a 503. A longer outage still does.
+    Retries are named in the log line (`retries`). An embedding request that hasn't answered after 1 s, or fails with a
+    timeout or a 5xx, is sent once more (`embedHedged`).
+
+### Failing closed
+
+The distress list (`_shared/distress.ts`) is one file, used by this function and by the app. It is read on the question
+in lower case, without punctuation or accents, after taking out devotional phrases ("die to my flesh / to the world / to
+self / daily", "die for Christ", "ready to die for Jesus", "I want to die empty", "to die is gain", "suicide prevention
+sermon", "killing myself slowly with sin", "I don't want to die", "God makes a way where there is no way"); the rest of
+the sentence is still read. Each is only as wide as its teaching use: "I want to die every day", "I want to die for
+God's sake" (or "for God sake") and "suicide prevention hotline" are still care.
+
+- **care**: they plainly say it, in English, Nigerian Pidgin, French, Portuguese, Spanish or Swahili ("I'm tired of
+  living", "I can't go on", "nobody would miss me", "I wan die", "I don tire for this life", "je veux mourir", "quero
+  morrer", "nataka kufa", "najiua"). Always care, whatever the model says; never refused by the limits. Some only as
+  the whole thought: "I'm tired of living" is care, "I'm tired of living in sin" is maybe.
+- **maybe**: despair that may mean it ("I can't go on like this", "hopeless", "depressed", "je n'en peux plus", "não
+  aguento mais", "nimechoka"). The model decides; when it can't (it failed, timed out, or the limits stopped it), the
+  search is care. The app does the same when search itself fails: the card shows above "The Apostle's teaching couldn't
+  load just now."
+- The model is told that any language counts, that indirect statements count, and that when unsure, care is true.
+
+`DISTRESS_LIST_VERSION` is part of the cache key: bump it whenever the list changes.
+
+### Limits
+
+Every limit is an Edge Function secret; unset, it has the default below. Only calls that would reach OpenAI count:
+cached answers, chips with stored embeddings and cached quotes are free. Signed-in people are counted by user id, guests
+by a keyed hash of their address.
+
+| Secret                   | Default | What it bounds                                                                          |
+| ------------------------ | ------- | --------------------------------------------------------------------------------------- |
+| `SEARCH_GLOBAL_PER_HOUR` | 3000    | Uncached searches an hour, everyone together                                            |
+| `SEARCH_USER_PER_5MIN`   | 30      | Uncached searches per signed-in person, per 5 minutes                                   |
+| `SEARCH_GUEST_PER_5MIN`  | 120     | Uncached searches per guest address, per 5 minutes (a church's Wi-Fi, a mobile network) |
+| `SEARCH_CARE_PER_HOUR`   | 300     | Distress searches an hour that get the model's reading (past it: care without it)       |
+| `QUOTES_GLOBAL_PER_HOUR` | 600     | `quotes` calls that reach the model, an hour, everyone together                         |
+| `QUOTES_USER_PER_5MIN`   | 30      | Those per signed-in person, per 5 minutes                                               |
+| `QUOTES_GUEST_PER_5MIN`  | 30      | Those per guest address, per 5 minutes (so no one address uses up everyone's)           |
+
+How the defaults follow from a budget (October 2026 list prices, see [Cost](#cost)), assuming an OpenAI hard monthly
+spending limit of about $100 as the real ceiling:
+
+- An uncached typed search costs about $0.0004, so 3,000 an hour is at most $1.20 an hour, and a whole day at the
+  ceiling about $29: a launch-day peak gets through (a church of 500 making 3 searches each, half of them chips or
+  repeats, is about 750 an hour), and a day of abuse on search alone can't spend the month. Chips with stored
+  embeddings and repeats cost nothing.
+- A `quotes` call costs at most about $0.008 (14 new passages), so 600 an hour is at most $4.80 an hour, and one guest
+  address at most $2.88 an hour. Only passages search can show are quoted, each once, ever, so quoting the whole archive
+  costs about $73 in all. That is spent once, not every month, but abuse can bring it forward: at the ceiling it takes
+  about 15 hours. So the worst day is about $29 of search plus that one-time $73. Leave room for it in OpenAI's limit in
+  the month of launch, or lower `QUOTES_GLOBAL_PER_HOUR` (at 120 an hour the archive takes about 3 days, and a day costs
+  at most about $23).
+- Distress searches: at most 300 model readings an hour, about $0.12 an hour.
+- To fit another budget, scale `SEARCH_GLOBAL_PER_HOUR` with it (about 30 an hour per $1 a month) and set OpenAI's
+  monthly limit to the budget. When OpenAI's limit is reached, chips, distress searches and title matches keep working
+  ([step 9](#requests)).
+
+**Guests' addresses.** A client can write its own `x-forwarded-for`; the proxies in front of the function append the
+address they received the request from. So the function reads the right-most entry that isn't a private, loopback or
+carrier-NAT address (`clientIp()` in `_shared/auth.ts`), never the left-most. Supabase doesn't document a client-IP
+header for Edge Functions; reports from its API show `x-forwarded-for: <the client's own value>, <real address>` with
+the real address also in `cf-connecting-ip`. The log line says, for each guest search, which header was used, how many
+entries `x-forwarded-for` had, and whether `cf-connecting-ip` agreed (`"ip":{"from":"xff","hops":1,"cf":true}`; `null`
+when there is no such header), never the address. If `cf` is false for ordinary requests, the right-most entry is a
+proxy: set the secret `CLIENT_IP_SOURCE=cf` to read `cf-connecting-ip` first.
+
+### Stored embeddings
+
+`need_vectors` holds each published need's `query` and `label` embedded, with the label, short name and query they were
+made from; a row counts only while those still match `public.needs` and the need is published. `search_vectors` holds
+the comfort phrasing (key `care`). Search fills both itself the first time each is needed. To fill them all after a
+deploy, or after editing needs:
+
+```sh
+curl -s -X POST "https://<project>.supabase.co/functions/v1/search" \
+  -H "apikey: <publishable key>" -H "Authorization: Bearer <secret key, sb_secret_…>" \
+  -H "Content-Type: application/json" -d '{"warm": true}'
+# {"needs":36,"embedded":36,"care":"embedded"}; run again: {"needs":36,"embedded":0,"care":"stored"}
+```
+
+Only a request whose bearer token is one of the project's secret keys is accepted (401 otherwise); run it from a
+terminal, never from the app.
+
+**Privacy.** `search_cache` rows hold the answers (theme, moments) to what people typed, but not the question; they are
+deleted after 24 hours. `search_hits` rows (user ids and IP hashes) are deleted after an hour, the longest rate-limit
+window. Both by `public.search_cleanup()`, which `pg_cron` runs every 15 minutes (job `search-cleanup`). The question
+itself still goes to OpenAI (chat model and embeddings) for every uncached search that isn't a need chip.
+
+**Hiding a passage from search.**
+`update public.passages set hidden_from_search = true, hidden_note = '<why>' where id
+= <id>;` and `false` to undo. A
+trigger empties `search_cache` when the flag changes, so the next search reflects it. Hidden on 15 October 2026 from the
+search judge's report: 50685 ("illegal grief", shown to the bereaved) and 139549 (a warning about delaying children,
+shown to couples waiting for a child).
+
+**Need phrases.** `needs.query` (the fixed teaching phrase, 20-300 characters) and `needs.related` (up to 3 need ids)
+were written in `20261015000600_search_polish.sql` for all 36 needs. Edit them with SQL; a need whose `query` is null
+goes to the chat model like any other search. `supabase/seed/needs.sql` doesn't set them, so a database rebuilt from the
+seed needs that migration's update run again after seeding.
+
+**quotes.** `POST /functions/v1/quotes` with body `{"ids": ["1882", "18057"]}`. The response is
+`{"quotes": {"1882": {"quote": "...", "at": 3777.69}, "18057": null}}`. An optional `"q"` from older app builds is still
+accepted (and refused when over 200 characters) but ignored: a passage's quote is cached once and shown for every
+search, so it is chosen without the search text and no caller can steer what is stored.
+
+The quote rule (clean verbatim, approved 15 October 2026): a contiguous run of the passage's caption words with capitals
+and punctuation added, where only filler sounds (uh, um, er, erm, ah, hmm, mm) and an immediate repeat of 1-3 words may
+be left out. No word is changed, added or reordered, and a suspected caption mistake is never corrected (another stretch
+is chosen). A quote is 8-45 words and ends a sentence. A repeat said on purpose stays (`isStutter`, migration
+`20261015000700_clean_verbatim_fix.sql`): a 2-3 word repeat goes only when it restarts on a small word ("we are we
+are"); "very very", "no no", "had had", a word that isn't small said three times ("holy holy holy") and "that that"
+before a noun ("that that deliverance") always stay. The model may not leave them out either: such a sentence is not
+used.
+
+1. Cached rows in `passage_quotes` are returned first. Of the rest, only passages search can show (not a twin, not
+   hidden, at least 120 words) go on; any other id is `null`.
+2. They go to one batched chat call (`quotes/pick.ts`, 20 s timeout). For each passage the model gives a quote and a
+   backup from another stretch, and says whether each is clear (every word correct, makes sense on its own); an unclear
+   one is not used.
+3. Each pick is rebuilt in code (`buildQuote` in `_shared/verbatim.ts`):
+   - Its words are aligned with the caption words. The stretch is rebuilt from the caption tokens with the model's
+     capitals and punctuation, leaving out fillers and stutters (`isStutter`: a 2-3 word repeat only when it restarts on
+     a small word such as "it's a it's a"; "what is passed is passed" stays).
+   - A sentence where the model changed, added or left out a real word, or whose opening words don't match, is not used;
+     nor is a sentence across a caption pause of more than 3 s between words (music, a long break).
+   - The result is the whole pick, or else its longest run of whole sentences that is 8-45 words, ends a sentence, does
+     not end on a word like "of", "the" or "I've", and has no broken one- or two-letter word ("li", "St").
+   - The first pick that passes is used, and the word rule is checked once more (`matchClean`).
+4. The `passage_quotes` trigger checks the words again in the database (`public.is_clean_verbatim()`).
+5. `at` is 3 s before the quote's first word, using the caption-line timings (`seg_words`/`seg_times`, the same formula
+   as `public.passage_word_time()`). Only 0 limits it: a quote that opens its passage still gets its lead-in from before
+   the passage.
+6. A passage with no passing quote is stored as `null`, so it isn't sent to the model again, and the app shows the
+   excerpt. If the model call itself fails, nothing is stored and the next call retries.
+7. Each caller gets `QUOTES_USER_PER_5MIN` (signed in) or `QUOTES_GUEST_PER_5MIN` calls per 5 minutes that need the
+   model, and all callers together get `QUOTES_GLOBAL_PER_HOUR` an hour ([Limits](#limits)). Calls answered fully from
+   the cache are free.
+
+## CORS
+
+These origins are allowed:
+
+- `http://localhost:<port>`, `http://127.0.0.1:<port>` and `http://[::1]:<port>`
+- `https://aaolearning.com` and `https://www.aaolearning.com`
+- `https://aao-app.expo.app` and this project's EAS Hosting previews and aliases,
+  `https://aao-app--<id or alias>.expo.app` (other `*.expo.app` sites are other people's projects and are refused)
+- Native apps, which send no `Origin` header
+
+Other origins get 403. To add an origin, edit `ALLOWED_ORIGINS` in `_shared/http.ts` and redeploy both functions.
+
+## Cost
+
+These are approximate OpenAI list prices, October 2026.
+
+- **An uncached search:** one `gpt-5.4-nano` call (about 1,480 tokens in with the needs list, 60 out) and two short
+  embeddings. That's about $0.0004.
+- **An uncached need chip:** nothing once its embeddings are stored; the first time, two short embeddings and no chat
+  call, about $0.000004.
+- **A `quotes` batch of 14 new passages:** one `gpt-5.4-mini` call (about 6,000 tokens in, 800 out with the backups).
+  That's about $0.008, or about $0.0006 a passage.
+- **Repeats:** each passage is sent to the model at most once, and repeated searches are served from the cache.
+
+## Speed
+
+Measured from a Mac on the US east coast on 15 October 2026, on Medium compute, with the function running in us-east-1
+(the database's region). Server time is `tookMs`; the Mac adds about 0.3 s. Before is `search` v8 and after is v14, on
+the same 10 new typed questions; need chips are the 72 labels and short names.
+
+| Request                  | Server p50 before | Server p50 after | Range after |
+| ------------------------ | ----------------- | ---------------- | ----------- |
+| Typed question, uncached | 1.81 s            | 1.27 s           | 1.17–2.05 s |
+| Need chip, uncached      | 1.81 s            | 0.6–0.8 s        | 0.55–3.7 s  |
+| Cached (typed or chip)   | 0.22–0.42 s       | 0.12 s           | 0.11–0.35 s |
+
+Where an uncached typed search's time goes now:
+
+- `search_start()` (now `search_open()`), with the needs and paths loading in parallel: about 0.15 s.
+- The chat model, until `teaching_query` has streamed in: about 0.65–0.75 s more. The rest of its answer, about 0.2 s,
+  overlaps the next step.
+- Embedding and searching the teaching phrasing: about 0.25–0.45 s.
+
+A need chip takes 0.15 s, then its embedding (usually 0.2–0.5 s), then two `match_passages` calls in parallel (about
+0.25 s). One `match_passages` call takes 40–110 ms in the database; each call through the API gateway adds about 0.1 s.
+
+OpenAI's embedding latency has a long tail. Between 20:08 and 20:16 UTC on 15 October, embeddings took 1–3.5 s, and 6 of
+57 chips timed out at 4 s and answered 503. Since then a second embedding request goes out after 1 s (`embedHedged`).
+
+The function runs in the Supabase region nearest the caller. Forced to eu-west-2, a cached search took 0.37–0.46 s on
+the server instead of 0.12–0.14 s, because every database call crosses the Atlantic. Callers far from us-east-1, such as
+in Nigeria, would be faster if the app sent the `x-region: us-east-1` header with `search` and `quotes`.
+
+## Logs
+
+Each request logs one JSON line: timings per step (`ms_start`, then `steps`: `teaching` is when the teaching phrasing
+streamed in), token counts, row counts, the need id for a chip, `care`, retried calls and errors. Since 17 October 2026
+also: `distress` (`"care"` or `"maybe"`), `care_closed` (a maybe search the model couldn't read), `recheck` (a cached
+answer refused for someone in distress), `vectors` / `care_vector` (`"stored"`: no embedding call), `limited` (`"care"`,
+`"chip"`, `"caller"` or `"everyone"`), `fallback`, and `ip` for guests (see [Limits](#limits)). Question text and IPs
+are never logged. View them in **Dashboard → Edge Functions → Logs**.

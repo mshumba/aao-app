@@ -1,0 +1,44 @@
+/* The holding site for aaolearning.com while the app is in private testing.
+   Same voice as the app: ivory page, navy, a little gold, Newsreader for the
+   voice and Manrope for everything else. */
+:root {
+  --bg: #f7f4ee;
+  --ink: #1b1e24;
+  --muted: #5b616a;
+  --navy: #1f3a5f;
+  --gold: #85672a;
+  --line: #e2dcd0;
+  --serif: "Newsreader", Georgia, "Times New Roman", serif;
+  --sans: "Manrope", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 400 17px/1.6 var(--sans);
+}
+a { color: var(--navy); }
+a:focus-visible { outline: 2px solid var(--navy); outline-offset: 3px; border-radius: 4px; }
+.page { max-width: 680px; margin: 0 auto; padding: 48px 24px 64px; }
+.mark { display: inline-flex; align-items: center; gap: 12px; font-weight: 700; font-size: 18px; color: var(--ink); text-decoration: none; }
+.mark::before { content: ""; width: 4px; height: 22px; border-radius: 2px; background: var(--navy); }
+footer { margin-top: 56px; padding-top: 20px; border-top: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 8px 20px; font-size: 15px; color: var(--muted); }
+
+/* Home */
+.home { min-height: 100vh; display: flex; flex-direction: column; }
+.home main { flex: 1; display: flex; flex-direction: column; justify-content: center; padding-block: 56px; }
+h1 { font: 500 clamp(40px, 9vw, 64px)/1.05 var(--serif); letter-spacing: -0.02em; margin: 0 0 20px; text-wrap: balance; }
+h1 em { font-style: italic; }
+.lead { font-size: 19px; color: var(--muted); max-width: 34em; margin: 0 0 28px; }
+.soon { display: inline-block; background: var(--navy); color: #fff; border-radius: 999px; padding: 12px 22px; font-weight: 600; font-size: 16px; }
+
+/* Policies */
+.kicker { font: 700 13px/1.3 var(--sans); letter-spacing: 0.08em; text-transform: uppercase; color: var(--gold); margin: 40px 0 6px; }
+.policy h1 { font-size: clamp(34px, 7vw, 44px); margin-bottom: 12px; }
+.policy h2 { font: 500 24px/1.25 var(--serif); margin: 36px 0 8px; }
+.policy p, .policy li { color: var(--ink); }
+.policy ul { padding-left: 22px; margin: 8px 0 16px; }
+.policy li { margin: 4px 0; }
+.note { color: var(--muted); font-size: 15px; }

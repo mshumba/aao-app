@@ -30,3 +30,4 @@ docs/*
 *.mobileprovision
 *.keystore
 *.jks
+.claude/

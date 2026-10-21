@@ -1,6 +1,6 @@
-# AAO · The Viewing Room
+# AAO App
 
-A local React Native / Expo prototype for finding and watching public sermons. Direction B uses dark teal surfaces, mint actions and Manrope. Browse as a guest, explore demo edification topics, search within a topic, watch a message, or try the simulated account flows.
+A React Native / Expo app for finding and watching public sermons, on TestFlight. Browse as a guest, pick the topics you want to grow in, follow a guided path and watch a message; a free account saves sermons and keeps your topics. The palette is ivory and navy, chosen by the owner in October 2026: a warm ivory page, white surfaces, one deep navy accent for actions and selection, a little gold for editorial labels, and video kept dark. Type is Manrope, with a Newsreader serif for a few headlines. Other design choices remain open. The app isn't endorsed by the ministry whose sermons it shows.
 
 ## Get started
 
@@ -8,28 +8,31 @@ Use Node **24.20.0** (see `.nvmrc`) and npm. From this project directory:
 
 ```sh
 npm ci
-npm start -- --go --lan
-```
-
-Expo prints a QR code and the current LAN address. Keep the computer and phone on the same Wi-Fi with Metro running. Install an Expo Go version supporting **SDK 57** and scan the QR. Physical iPhone Expo Go currently requires the CLI and phone to use the same Expo account; see [Expo’s phone setup](https://docs.expo.dev/get-started/start-developing/). No developer account was created or signed into by this prototype work.
-
-For a local browser preview:
-
-```sh
 npm run web
 ```
 
 Open the local URL printed by Expo, normally `http://localhost:8081`.
 
-**This is an actual Expo project; physical phone behavior is still unverified.** Android/iOS JavaScript exports compile, and browser navigation and playback have been exercised. A native export is not a signed binary or a device test. See [setup and troubleshooting](docs/development/getting-started.md) for the remaining phone checks and native-build prerequisites.
+Accounts use [Supabase](supabase/README.md). Without a project, development uses an on-device stand-in account service: any email works and the code is always `123456`. To use a real project, copy `.env.example` to `.env` and fill in the Supabase URL and publishable key, then restart Metro. [Setup](docs/development/getting-started.md#environment) lists every variable and test value.
+
+On a phone, use a development build: Expo Go can't play sermons from YouTube (error 153), the fallback for sermons not on R2 yet, and has no background playback. `npm start -- --go --lan` still opens the app in Expo Go for quick layout checks; physical iPhone Expo Go requires the CLI and phone to use the same Expo account ([Expo’s phone setup](https://docs.expo.dev/get-started/start-developing/)). [Setup and troubleshooting](docs/development/getting-started.md) covers simulator and device builds, including free Personal Team builds (`AAO_PERSONAL_TEAM=1`).
+
+**Device status:** the app has run on the iOS Simulator, where playback was checked, as a locally built install on an iPhone (September 2026, before accounts), and from TestFlight since October 2026 (build 3 and later sign in with Google's own sheet). Android devices are not yet verified. Browser behaviour is covered by the automated tests.
 
 ## What is here
 
-- Browse → topic library → category → scoped search → sermon/detail/watch, with back and menu paths.
-- Stable local category IDs, one primary topic plus optional secondary topics and tags per sermon. Assignments are explicitly **demo / unreviewed**; source titles, channel, duration and thumbnails are separate.
-- Four public-source messages with consistent real titles and source thumbnails. YouTube is provisional; final catalog and rights remain open.
-- Official provider playback loaded after Play, provider controls, minimum 200×200 viewport, retry and external fallback. Leaving or backgrounding stops the media; there is no download or background audio.
-- Welcome/sign-in/sign-up/reset **simulations only**. Use `viewer@example.com` / `demo-password` through **Use demo values**. No GPT auth, account backend, email, credential logging or persistence. Watching stays open to guests.
+- **First-run onboarding:** a welcome, topic choice, a free account and your name, then a sermon and up to three guided paths for your topics. Guests can skip it and browse.
+- **Real accounts on Supabase:** Continue with Apple or Google, the two main ways in, side by side. Email is a quieter fallback (**Use email instead**): a 6-digit code, or a password if you prefer. There is no phone or text-message sign-in. Sessions are kept in the iPhone Keychain / Android Keystore. Account deletion is in the app.
+- **Guest browsing with a gate:** guests open every screen. Watch (except from a shared link) and Save ask for a free account, then carry on with what was tapped. A remote `guest_watch` setting can open watching to everyone without a new build.
+- **Shared links:** `/s/<id>` lets anyone watch that sermon without an account.
+- **Saved sermons** and an Account tab for your name, topics, sign-out and Delete account.
+- **Resume where you left off:** for signed-in viewers, a sermon picks up where they stopped ("Resuming at 42:10 · Start over"), and Home has a **Continue watching** rail of unfinished sermons, each with its progress. Progress is kept with the account, so it follows the viewer across devices. A place saved offline waits on the device and is sent when the connection returns, and an offline launch shows the account's places as last seen.
+- A floating tab bar (Home, Paths, Search, Account). Topic pages, paths and sermons open over the tabs with Back. Topic pages open from a sermon's topic tags, Home's **From your topics** rail and links; Search's **Browse by topic** lists only topics with at least 6 sermons in the full library.
+- One app-wide player: **Watch sermon** starts the sermon on its page, with the app's controls on the video: play/pause, back and forward 15s, a scrubber, speed, captions (YouTube only, off until CC is pressed) and full screen. They fade while it plays and, over YouTube's player, keep its title strip and logo corner clear. Going back docks the video above the tabs and it keeps playing while you browse; close it from the dock.
+- **The full Apostle Arome Osayi channel library** (about 2,800 long-form videos, including sermons by other ministers on the channel), served from Supabase so new sermons appear without an app update. Short headlines, events, series, days and preaching dates are read from each YouTube title; the exact title is always kept and shown. Home has the newest sermon, the latest ones and rails for recent series; Search covers the whole library. The app keeps a copy on the device and syncs only what changed; offline on first launch, four bundled sermons stand in.
+- **Topics** (Hearing God, Prayer, Purpose & Calling and so on), picked by AI from the Apostle's teaching and approved by the owner, live in Supabase (`public.topics`). About 1,700 sermons are matched to one of them from a full read of each sermon's transcript (`public.sermon_topics`); the rest stay in the library and search. Home's **From your topics** shows the best matches for the topics you picked, each topic's page lists its sermons best match first, and each topic suggests its guided paths. On the phones, which list only sermons already on R2, these too come from those sermons, and a path is suggested once all its sermons are there. The app holds only an icon for each topic (`src/topics.tsx`).
+- On iPhone and Android, sermons play from the ministry's own copies on Cloudflare R2 (HLS) in the app's own video player, which keeps playing in the background, on the lock screen and in picture in picture. Sermons not uploaded yet, and the web, use YouTube's IFrame API (its own controls off, its title strip and logo corner never covered); the phone apps keep YouTube's sign-in pages out of the player and offer Watch on YouTube and Try again when YouTube holds a sermon back. Minimum 200×200 viewport full or docked. Leaving the app pauses a sermon playing from YouTube; there are no downloads.
+- TestFlight configuration: bundle ID `com.mshumba.aao`, EAS build profiles and EAS Update channels; builds are on TestFlight. The app icon is a plain black square until the owner's logo is added.
 
 ## Verify
 
@@ -42,14 +45,18 @@ npx playwright install chromium
 npm test
 ```
 
-The suite starts a local web server if needed. Remote thumbnails are stubbed to their fallback in deterministic tests. To use an existing Chrome installation, run `PLAYWRIGHT_CHANNEL=chrome npm test`. The optional `node scripts/verify-playback.mjs` contacts live YouTube and requires local Chrome, Metro on port 8081 and network access.
+The suite starts a local web server if needed and always uses the on-device account stand-in, and with it the four bundled sermons rather than the live library. Remote thumbnails are stubbed to their fallback in deterministic tests. To use an existing Chrome installation, run `PLAYWRIGHT_CHANNEL=chrome npm test`. The optional `node scripts/verify-playback.mjs` contacts live YouTube and requires local Chrome, Metro on port 8081 and network access.
 
 ## Developer guide
 
-- [Setup, commands, troubleshooting and device checklist](docs/development/getting-started.md)
-- [Architecture, catalog and future storage](docs/development/architecture.md)
+- [Setup, environment, commands, troubleshooting and device checklist](docs/development/getting-started.md)
+- [Architecture, catalog and storage](docs/development/architecture.md)
+- [Accounts, onboarding and the guest gate](docs/development/accounts.md)
+- [Sign in with Apple token revocation on account deletion](docs/development/apple-token-revocation.md)
+- [Supabase project setup](supabase/README.md)
 - [Contributing and verification](docs/development/contributing.md)
-- [GitHub CI, app refresh and prospective release/rollback](docs/development/releasing.md)
+- [CI, EAS builds, TestFlight, updates and rollback](docs/development/releasing.md)
+- [Failure alerts: what the app reports to Sentry and how to be told](docs/development/failure-alerts.md)
 - [UI audit and its verification limits](docs/development/ui-audit.md)
 
-Source: [mshumba/aao-app](https://github.com/mshumba/aao-app). The [GitHub workflow](https://github.com/mshumba/aao-app/actions/workflows/ci.yml) validates code only; inspect the run for the exact commit before treating a change as checked. No app update channel or deployment is configured. The desired app-refresh path still needs a product decision.
+Source: [mshumba/aao-app](https://github.com/mshumba/aao-app). The [GitHub workflow](https://github.com/mshumba/aao-app/actions/workflows/ci.yml) validates code only; inspect the run for the exact commit before treating a change as checked. While the app is in private testing the public web addresses show a holding page and the web app goes to unlisted previews ([team testing](docs/development/getting-started.md#team-testing-expo-free-plan)). Android test builds come from EAS and iPhone builds go to TestFlight. JavaScript-only fixes reach TestFlight builds as EAS Updates on the `production` channel ([releasing](docs/development/releasing.md#over-the-air-updates-eas-update)); native changes need a new build.

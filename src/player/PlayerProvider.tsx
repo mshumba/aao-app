@@ -1,0 +1,911 @@
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import { AccessibilityInfo, AppState, Linking, Platform } from "react-native";
+import { useAccount, useWatchProgress } from "../auth/AccountProvider";
+import type { WatchProgress } from "../auth/types";
+import { Sermon } from "../data/sermons";
+import { useCompleteDay } from "../learning/completeDay";
+import { chooseEngine, hasHls, knownHls, prefetchHls, type Engine } from "./media";
+import { NATIVE_VIDEO } from "./videoPlatform";
+import { MIN_RESUME, SAVE_EVERY, isFinished, resumePoint } from "./progress";
+import { EmbedHandle, PlayerCommand, PlayerEvent, playerError } from "./types";
+import { youtubeAt } from "./youtube";
+
+export type Phase = "idle" | "loading" | "ready" | "error";
+
+/** The day of a path (or teaching series) the loaded sermon plays as. */
+export type PlayingDay = { pathId: string; day: number; sermonId: string };
+
+export const RATES = [1, 1.25, 1.5, 2, 0.75];
+
+
+/**
+ * Asks ahead whether a sermon is on R2 (its page has opened), so pressing
+ * Watch needn't wait for the answer. Loading a sermon asks too, so the
+ * dock's sermon is always known.
+ */
+export function prefetchVideo(id: string) {
+  if (NATIVE_VIDEO) prefetchHls(id);
+}
+
+/** Slow-changing session facts: which sermon is loaded and where it shows. */
+type Session = {
+  sermon: Sermon | null;
+  /**
+   * What plays it: the app's own player (from R2) or the YouTube embed; null
+   * while it's still being asked whether the sermon is on R2.
+   */
+  engine: Engine | null;
+  phase: Phase;
+  error: number | null;
+  attempt: number;
+  start: number;
+  /**
+   * Where this sermon picked up from the viewer's saved progress, until they
+   * start over or are well past it; 0 when it started from the beginning.
+   */
+  resumedFrom: number;
+  /** Back to the beginning of a resumed sermon. */
+  startOver: () => void;
+  cover: "on" | "fading" | "off";
+  /** The sermon screen currently showing (and ready for) the full player. */
+  stage: string | null;
+  setStage: (update: (current: string | null) => string | null) => void;
+  /**
+   * Set while a sermon screen is closing back onto the tabs (an iOS
+   * swipe-back is mid-gesture), so the dock takes its place above the tab bar
+   * straight away instead of jumping up when the gesture ends.
+   */
+  dockAboveTabs: boolean;
+  setDockAboveTabs: (value: boolean) => void;
+  /**
+   * Loads and starts a sermon. A signed-in viewer picks up where they left
+   * off, unless `from` (seconds) asks for a place: a moment, a shared time.
+   * Without a place of their own (guests never have one), it starts at
+   * `opening` (seconds), a path day's teaching start, or the beginning.
+   */
+  load: (sermon: Sermon, from?: number, opening?: number) => void;
+  /** Plays the loaded sermon, waiting for readiness when it is still loading. */
+  playWhenReady: () => void;
+  retry: () => void;
+  close: () => void;
+  /** Pause, and cancel a start still waiting for the player to load. */
+  hold: () => void;
+  /**
+   * Which path day the loaded sermon plays as. The sermon's page sets it;
+   * it stays while the sermon plays on docked, so finishing it there still
+   * marks the day done. Loading another sermon (or closing) clears it.
+   */
+  setPathDay: (day: PlayingDay | null) => void;
+  /** The last day playback marked done (`key` tells repeats apart), for a quiet notice. */
+  dayDone: { pathId: string; day: number; key: number } | null;
+  watchOnYouTube: () => void;
+  onEvent: (event: PlayerEvent) => void;
+  /** Callback ref for the embed, so the context holds no ref object. */
+  attach: (handle: EmbedHandle | null) => void;
+};
+
+/** Fast-changing playback facts, updated every second while playing. */
+type Playback = {
+  state: number; // YouTube: -1 unstarted, 0 ended, 1 playing, 2 paused, 3 buffering, 5 cued
+  /** Playing, or buffering after it has started (not the first buffer of a start). */
+  playing: boolean;
+  seconds: number;
+  duration: number;
+  rate: number;
+  captionsOn: boolean;
+  status: string;
+  play: () => void;
+  pause: () => void;
+  toggle: () => void;
+  seek: (seconds: number) => void;
+  skip: (delta: number) => void;
+  cycleRate: () => void;
+  toggleCaptions: () => void;
+};
+
+const SessionContext = createContext<Session | null>(null);
+const PlaybackContext = createContext<Playback | null>(null);
+
+// Kept with the provider's own record of the loaded sermon, for callbacks
+// that only need its id when they run (Home's Watch), so the screens they
+// belong to needn't re-render with every change to the session.
+let loadedId: string | null = null;
+
+/** The id of the sermon loaded in the player (playing, paused or docked), if any. */
+export function loadedSermonId() {
+  return loadedId;
+}
+
+const LOADING = "Loading the sermon…";
+const READY = "Press play to start";
+// Some browsers (Safari, for one) won't start sound they didn't see the tap
+// for, and the tap on Watch happened before the player existed. Point the
+// viewer at our Play button on the video while letting taps pass through too.
+const BLOCKED = "Tap Play to start";
+const STILL = "Still loading. If it doesn’t start, tap Play.";
+const ENDED = "Sermon ended";
+
+/** Statuses that ask something of the viewer, so they're shown, not just announced. */
+export function asksViewer(status: string) {
+  return [LOADING, READY, BLOCKED, STILL, ENDED].includes(status);
+}
+
+/**
+ * Whether taps on the video go through to the player under the app's
+ * controls: only to YouTube's, and only while the app is pointing the viewer
+ * at Play (BLOCKED, STILL), so YouTube's own play button can start it. The
+ * app's own player has no controls of its own, so its tap catcher stays and
+ * the controls can always be brought back.
+ */
+export function tapsReachPlayer(engine: Engine | null, status: string) {
+  return engine !== "native" && (status === BLOCKED || status === STILL);
+}
+
+function statusFor(state: number) {
+  switch (state) {
+    case 1:
+      return "Playing";
+    case 2:
+      return "Paused";
+    case 0:
+      return ENDED;
+    case 3:
+      return "Buffering…";
+    default:
+      return READY;
+  }
+}
+
+/** How far past the resume point the "Resuming at" note stays. */
+const RESUME_NOTE_FOR = 120;
+/**
+ * How long after a seek a time far from its target is taken as stale, once
+ * the sermon has played; until then a seek stays armed (see `played`).
+ */
+const SEEK_SETTLE_MS = 1500;
+/**
+ * How soon after the app comes back a failure of the app's own player still
+ * counts as one from while it was away.
+ */
+const RETURN_GRACE_MS = 3000;
+
+/**
+ * One player for the whole app, so a sermon keeps playing (docked) while the
+ * viewer browses. On a phone a sermon on R2 plays in the app's own player,
+ * which keeps playing in the background and on the lock screen; anything
+ * else plays in the YouTube embed, which pauses when the app goes to the
+ * background. If the app's own player fails before the sermon has started,
+ * it plays from YouTube instead for the rest of the session, from the same
+ * place; Try again (if YouTube fails too) gives the app's own player another
+ * go. If the app's own player fails while the app is away after the sermon
+ * has played (iOS can drop a paused video's decoder in the background), it
+ * loads again at the viewer's place, paused, when they come back.
+ *
+ * For a signed-in viewer it also keeps their place: a sermon starts where
+ * they left it, and the position is saved every 15 seconds while playing,
+ * on pause, when the player docks or closes, when another sermon loads and
+ * when the app goes to the background. Saving never waits on the network.
+ *
+ * Playing a day of a path, it marks the day done once the sermon has been
+ * watched (95%, the rule Continue watching uses, or played to the end),
+ * wherever the viewer is in the app by then.
+ */
+export function PlayerProvider({ children }: { children: ReactNode }) {
+  const embed = useRef<EmbedHandle>(null);
+  const { user } = useAccount();
+  const progress = useWatchProgress();
+  // Read when saving, so saves never re-create the player's callbacks.
+  const accountRef = useRef({ user, ...progress });
+  // The load still waiting on the account's progress for its saved place
+  // (catchUp), as a ticket only that load holds, with the place it started
+  // from and where it starts without a saved place. Anything that settles
+  // the place first drops it: the viewer seeking, skipping or starting over,
+  // closing, another load, or another viewer signing in.
+  const lateResume = useRef<{ from: number; opening: number } | null>(null);
+  useEffect(() => {
+    if (accountRef.current.user?.id !== user?.id) lateResume.current = null;
+    accountRef.current = { user, ...progress };
+  }, [user, progress]);
+  const [sermon, setSermon] = useState<Sermon | null>(null);
+  const [engine, setEngineState] = useState<Engine | null>(null);
+  // Kept in step with every change too, for the event handlers.
+  const engineRef = useRef<Engine | null>(null);
+  const setEngine = useCallback((next: Engine | null) => {
+    engineRef.current = next;
+    setEngineState(next);
+  }, []);
+  // Sermons the app's own player failed on this session: YouTube plays them
+  // (until Try again).
+  const youtubeOnly = useRef(new Set<string>());
+  // The app's own player failed while the app was away, after the sermon had
+  // played: it loads again, paused at the place, once the viewer is back.
+  const reloadOnReturn = useRef(false);
+  // When the app last came back to the foreground. A player that failed
+  // while it was away may only say so as it comes back.
+  const backAt = useRef(0);
+  // The load still waiting to hear whether its sermon is on R2, as a ticket
+  // only that load holds.
+  const engineAsk = useRef<object | null>(null);
+  const [phase, setPhaseState] = useState<Phase>("idle");
+  // Kept in step with every change, not after the next render: progress
+  // arriving just after a load starts must see that it's loading (catchUp).
+  const phaseRef = useRef<Phase>("idle");
+  const setPhase = useCallback((next: Phase) => {
+    phaseRef.current = next;
+    setPhaseState(next);
+  }, []);
+  const [error, setError] = useState<number | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  const [start, setStart] = useState(0);
+  const [resumedFrom, setResumedFrom] = useState(0);
+  const [cover, setCover] = useState<"on" | "fading" | "off">("off");
+  const [stage, setStageState] = useState<string | null>(null);
+  const [dockAboveTabs, setDockAboveTabs] = useState(false);
+  const pathDayRef = useRef<PlayingDay | null>(null);
+  const [dayDone, setDayDone] = useState<Session["dayDone"]>(null);
+  const completeDay = useCompleteDay();
+  const completeRef = useRef(completeDay);
+  useEffect(() => {
+    completeRef.current = completeDay;
+  }, [completeDay]);
+  const [state, setState] = useState(-1);
+  const [seconds, setSeconds] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [rate, setRate] = useState(1);
+  const [captionsOn, setCaptionsOn] = useState(false);
+  const [status, setStatus] = useState("");
+  const [started, setStarted] = useState(false);
+  const position = useRef(0);
+  // The last seek sent, so a time the player polled before it moved can't
+  // overwrite the new place (armSeek).
+  const pendingSeek = useRef<{ target: number; until: number } | null>(null);
+  // This load has played (YouTube reported playing at least once). Until it
+  // has, the player's clock isn't the viewer's place: behind YouTube's own
+  // gate ("Sign in to confirm you're not a bot") or a start it refused, it
+  // reads 0:00, which must neither move them nor be saved over their place.
+  const played = useRef(false);
+  // The loaded sermon and its length, for saves made from callbacks.
+  const current = useRef<Sermon | null>(null);
+  const length = useRef(0);
+  const savedAt = useRef(0);
+  // Where a path day opened, at its teaching start, when the viewer had no
+  // place in it: "only just started" counts from there, not from 0. Moments
+  // and shared links keep counting from 0, so a short look still keeps its spot.
+  const openedAt = useRef(0);
+  const resumeNote = useRef(0);
+  // A saved place that arrived while the player was still loading: moved to
+  // as soon as it's ready.
+  const seekOnReady = useRef<number | null>(null);
+  const autoplay = useRef(false);
+  // A second tap on Watch before the first one renders must not load twice.
+  const pending = useRef(false);
+  const latestState = useRef(-1);
+  // The app's own start (after Watch) hasn't resolved yet.
+  const starting = useRef(false);
+  // The browser refused that start; only a direct tap on Play will work.
+  const blocked = useRef(false);
+  const blockedCheck = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clearBlockedCheck = useCallback(() => {
+    if (blockedCheck.current) clearTimeout(blockedCheck.current);
+    blockedCheck.current = null;
+  }, []);
+
+  const command = useCallback((c: PlayerCommand) => {
+    embed.current?.command(c);
+  }, []);
+
+  /**
+   * Every seek the app sends goes through here first: for a moment (or until
+   * the sermon has played), a time the player reported before it had moved
+   * is stale and ignored, so a quick ±15 counts from the new place rather
+   * than the old one.
+   */
+  const armSeek = useCallback((to: number) => {
+    pendingSeek.current = { target: to, until: Date.now() + SEEK_SETTLE_MS };
+  }, []);
+
+  /**
+   * Saves the viewer's place in the loaded sermon. A "tick" (every second
+   * while playing) saves at most every SAVE_EVERY; other moments save at
+   * once. Nothing is sent when the place hasn't changed, before the length
+   * is known, for a sermon only just started and never saved before, or
+   * before this load has played (docking or leaving the app then would save
+   * the player's 0:00 over the viewer's place), unless it ended.
+   */
+  const persist = useCallback((reason: "tick" | "moment" | "ended") => {
+    if (!played.current && reason !== "ended") return;
+    const sermon = current.current;
+    const viewer = accountRef.current;
+    const total = Math.floor(length.current);
+    if (!sermon || !viewer.user || !total) return;
+    const now = Date.now();
+    if (reason === "tick" && now - savedAt.current < SAVE_EVERY) return;
+    const at = Math.min(total, Math.floor(reason === "ended" ? total : position.current));
+    const finished = reason === "ended" || isFinished(at, total);
+    const before = viewer.progressFor(sermon.id);
+    // Only just started (counted from where this load began, not from 0) leaves no place.
+    if (!before && !finished && at - openedAt.current < MIN_RESUME) return;
+    if (
+      before &&
+      before.finished === finished &&
+      Math.abs(before.positionSeconds - at) < 1
+    )
+      return;
+    savedAt.current = now;
+    viewer.saveProgress({
+      sermonId: sermon.id,
+      positionSeconds: at,
+      durationSeconds: total,
+      finished,
+    });
+  }, []);
+
+  /**
+   * Marks the playing path day done once its sermon has been watched (or
+   * played to the end). Learning only marks the next day due on a path
+   * the viewer is on, and only once, so this can run on every tick.
+   */
+  const checkDay = useCallback((ended = false) => {
+    const day = pathDayRef.current;
+    const loaded = current.current;
+    if (!day || !loaded || loaded.id !== day.sermonId) return;
+    if (!ended && !isFinished(position.current, length.current)) return;
+    if (!completeRef.current(day.pathId, day.day)) return;
+    setDayDone({ pathId: day.pathId, day: day.day, key: Date.now() });
+  }, []);
+
+  const setPathDay = useCallback(
+    (next: PlayingDay | null) => {
+      if (next && current.current?.id !== next.sermonId) return;
+      pathDayRef.current = next;
+      // Already watched past the line (a place far into it): done now.
+      checkDay();
+    },
+    [checkDay],
+  );
+
+  // Shared helper that sends play and watches for refused autoplay so both
+  // initial ready-autoplay and playWhenReady surface the "Tap Play to start" /
+  // "Still loading..." guidance when the browser blocks playback.
+  const startWithCheck = useCallback(() => {
+    clearBlockedCheck();
+    if (latestState.current !== 1) starting.current = true;
+    blocked.current = false;
+    const check = (first: boolean) => {
+      blockedCheck.current = setTimeout(
+        () => {
+          const s = latestState.current;
+          if (s === 1 || s === 0) {
+            starting.current = false;
+            return;
+          }
+          if (s === 3 && first) {
+            setStatus(STILL);
+            return check(false);
+          }
+          starting.current = false;
+          blocked.current = true;
+          setStatus(BLOCKED);
+        },
+        first ? 3000 : 5000,
+      );
+    };
+    check(true);
+    command({ type: "play" });
+  }, [clearBlockedCheck, command]);
+
+  // An explicit play request can arrive after hold cancelled the initial
+  // start, while the same embed is still loading. Keep that intent for ready;
+  // another hold (backgrounding or hiding the video) can still cancel it.
+  const playWhenReady = useCallback(() => {
+    // A route's transition can settle after the app has already left focus.
+    if (AppState.currentState === "background") return;
+    if (phaseRef.current === "loading") autoplay.current = true;
+    else if (phaseRef.current === "ready") startWithCheck();
+  }, [startWithCheck]);
+
+  // The provider drops commands until it's ready, so a pause while loading
+  // must also cancel the start that Watch queued.
+  const hold = useCallback(() => {
+    autoplay.current = false;
+    starting.current = false;
+    blocked.current = false;
+    clearBlockedCheck();
+    command({ type: "pause" });
+  }, [command, clearBlockedCheck]);
+
+  const fail = useCallback((code: number) => {
+    clearBlockedCheck();
+    pending.current = false;
+    autoplay.current = false;
+    pendingSeek.current = null;
+    setPhase("error");
+    setError(code);
+    setStatus("");
+    setCover("off");
+    AccessibilityInfo.announceForAccessibility(playerError(code));
+  }, [clearBlockedCheck, setPhase]);
+
+  const begin = useCallback((next: Sermon, from: number, play = true) => {
+    // Keep the place in the sermon being replaced.
+    if (current.current && current.current.id !== next.id) persist("moment");
+    played.current = false;
+    reloadOnReturn.current = false;
+    // Another sermon isn't that path day.
+    if (pathDayRef.current?.sermonId !== next.id) pathDayRef.current = null;
+    current.current = next;
+    loadedId = next.id;
+    length.current = 0;
+    savedAt.current = Date.now();
+    clearBlockedCheck();
+    latestState.current = -1;
+    starting.current = false;
+    blocked.current = false;
+    setStarted(false);
+    pending.current = true;
+    autoplay.current = play;
+    position.current = from;
+    pendingSeek.current = null;
+    seekOnReady.current = null;
+    // Which engine plays it. Unknown yet: the cover stays up for the answer
+    // (at most a couple of seconds), and the load's time limit covers it.
+    const fellBack = youtubeOnly.current.has(next.id);
+    const choice = NATIVE_VIDEO ? chooseEngine(knownHls(next.id), fellBack) : "youtube";
+    const ask = {};
+    engineAsk.current = choice ? null : ask;
+    setEngine(choice);
+    if (!choice)
+      hasHls(next.id).then((has) => {
+        if (engineAsk.current !== ask) return;
+        engineAsk.current = null;
+        setEngine(has ? "native" : "youtube");
+      });
+    setSermon(next);
+    setError(null);
+    setPhase("loading");
+    setStart(Math.floor(from));
+    setAttempt((a) => a + 1);
+    setCover("on");
+    setState(-1);
+    setSeconds(Math.floor(from));
+    setDuration(0);
+    setRate(1);
+    setCaptionsOn(false);
+    setStatus(LOADING);
+    // iOS has no live regions, so the loading step is announced there.
+    if (Platform.OS === "ios")
+      AccessibilityInfo.announceForAccessibility("Loading the sermon.");
+  }, [clearBlockedCheck, persist, setEngine, setPhase]);
+
+  /**
+   * A failed player. If it was the app's own player and the sermon hadn't
+   * started, YouTube plays it instead (for the rest of the session), from
+   * the same place: still the viewer's start, or where they moved to. If it
+   * had played and the app is away, or has only just come back, it loads
+   * again at the place, paused, rather than show an error: iOS can drop a
+   * paused video's decoder while the app is in the background.
+   */
+  const failOrFallBack = useCallback(
+    (code: number) => {
+      const loaded = current.current;
+      if (engineRef.current === "native" && loaded) {
+        if (!played.current) {
+          youtubeOnly.current.add(loaded.id);
+          return begin(loaded, position.current);
+        }
+        if (AppState.currentState !== "active") {
+          reloadOnReturn.current = true;
+          return;
+        }
+        if (Date.now() - backAt.current < RETURN_GRACE_MS)
+          return begin(loaded, position.current, false);
+      }
+      fail(code);
+    },
+    [begin, fail],
+  );
+
+  /**
+   * The account's progress arrived from the server after this sermon started
+   * loading: from the start (a Watch straight after signing in), or from
+   * this device's older copy of the place (see load). Jump to the saved
+   * place (or, with none, to the load's opening), unless that's where it
+   * started, the viewer has already watched on from there or chose a place
+   * meanwhile (even the start itself), or this load has been replaced.
+   */
+  const catchUp = useCallback(
+    (ticket: { from: number; opening: number }, id: string, items: WatchProgress[]) => {
+      if (lateResume.current !== ticket) return;
+      lateResume.current = null;
+      const loaded = current.current;
+      if (!loaded || loaded.id !== id) return;
+      const saved = resumePoint(items.find((item) => item.sermonId === id) ?? null);
+      const from = saved || ticket.opening;
+      if (from === ticket.from || position.current - ticket.from >= MIN_RESUME) return;
+      resumeNote.current = saved;
+      setResumedFrom(saved);
+      position.current = from;
+      setSeconds(from);
+      // Still loading: it moves there once ready (starting the load again
+      // would race the first player's own ready). After an error, Try again
+      // starts there.
+      if (phaseRef.current === "loading") seekOnReady.current = from;
+      else if (phaseRef.current === "ready") {
+        armSeek(from);
+        command({ type: "seek", seconds: from });
+      }
+    },
+    [armSeek, command],
+  );
+
+  const load = useCallback(
+    (next: Sermon, at?: number, opening?: number) => {
+      if (pending.current && sermon?.id === next.id) return;
+      // An earlier load's saved place, still on its way, isn't for this one.
+      lateResume.current = null;
+      const place = (s?: number) => (s != null && Number.isFinite(s) && s >= 0 ? Math.floor(s) : null);
+      // Asked for a place: start there, with no "Resuming at" note.
+      const asked = place(at);
+      if (asked != null) {
+        resumeNote.current = 0;
+        setResumedFrom(0);
+        openedAt.current = 0;
+        begin(next, asked);
+        return;
+      }
+      // A signed-in viewer picks up where they left off. Until the account's
+      // progress has been read from the server, that's where this device
+      // last knew (all an offline launch has), and the server's place, if
+      // another device saved a newer one, follows (catchUp). Without a
+      // place, it starts at the opening.
+      const openAt = place(opening) ?? 0;
+      const viewer = accountRef.current;
+      let saved = 0;
+      if (viewer.user) {
+        saved = resumePoint(viewer.progressFor(next.id));
+        if (!viewer.progressReady) {
+          const ticket = { from: saved || openAt, opening: openAt };
+          lateResume.current = ticket;
+          viewer
+            .whenProgressReady()
+            .then((items) => items && catchUp(ticket, next.id, items));
+        }
+      }
+      resumeNote.current = saved;
+      setResumedFrom(saved);
+      openedAt.current = saved ? 0 : openAt;
+      begin(next, saved || openAt);
+    },
+    [begin, catchUp, sermon],
+  );
+
+  const retry = useCallback(() => {
+    if (!sermon || pending.current) return;
+    // The app's own player gets another go: what made it fail (a moment
+    // offline, a slow start) may have passed.
+    youtubeOnly.current.delete(sermon.id);
+    begin(sermon, position.current);
+  }, [begin, sermon]);
+
+  const close = useCallback(() => {
+    persist("moment");
+    pathDayRef.current = null;
+    current.current = null;
+    loadedId = null;
+    lateResume.current = null;
+    engineAsk.current = null;
+    reloadOnReturn.current = false;
+    pendingSeek.current = null;
+    resumeNote.current = 0;
+    setResumedFrom(0);
+    clearBlockedCheck();
+    pending.current = false;
+    autoplay.current = false;
+    setSermon(null);
+    setEngine(null);
+    setPhase("idle");
+    setError(null);
+    setCover("off");
+    setCaptionsOn(false);
+    setStatus("");
+    setState(-1);
+  }, [clearBlockedCheck, persist, setEngine, setPhase]);
+
+  // The YouTube app (or site) at the viewer's place in the sermon.
+  const watchOnYouTube = useCallback(() => {
+    if (!sermon) return;
+    hold();
+    Linking.openURL(youtubeAt(sermon.source, position.current)).catch(() =>
+      AccessibilityInfo.announceForAccessibility("Couldn’t open YouTube."),
+    );
+  }, [hold, sermon]);
+
+  const onEvent = useCallback(
+    (e: PlayerEvent) => {
+      if (e.type === "error") return failOrFallBack(e.code);
+      if (e.type === "rate") return setRate(e.rate);
+      if (e.type === "captions") return setCaptionsOn(e.enabled);
+      pending.current = false;
+      setCover((c) => (c === "on" ? "fading" : c));
+      setPhase("ready");
+      if (e.duration) {
+        length.current = e.duration;
+        setDuration(e.duration);
+      }
+      if (e.type === "ready") {
+        if (seekOnReady.current != null) {
+          armSeek(seekOnReady.current);
+          command({ type: "seek", seconds: seekOnReady.current });
+          seekOnReady.current = null;
+        }
+        // The viewer pressed Watch, so start as soon as the provider can,
+        // unless the app has gone to the background meanwhile. Until it
+        // actually plays, keep saying it's loading; if it hasn't played after
+        // a few seconds, say what to do.
+        if (autoplay.current && AppState.currentState !== "background") {
+          startWithCheck();
+        } else setStatus(READY);
+        autoplay.current = false;
+        return;
+      }
+      latestState.current = e.state;
+      if (e.state === 1) {
+        clearBlockedCheck();
+        starting.current = false;
+        blocked.current = false;
+        played.current = true;
+        setStarted(true);
+      } else if (e.state === 0) {
+        clearBlockedCheck();
+        starting.current = false;
+      }
+      if (typeof e.seconds === "number") {
+        // A time far from the last seek's target, or (until this load has
+        // played) from where it was asked to start, is the player's, not the
+        // viewer's: polled before the seek reached it, or a clock that never
+        // started. Before it has played, a seek stays armed.
+        const guard = pendingSeek.current;
+        const target = guard ? guard.target : played.current ? null : position.current;
+        const holding = !played.current || (guard != null && Date.now() < guard.until);
+        const stale = target != null && holding && Math.abs(e.seconds - target) > 2;
+        if (!stale) {
+          if (played.current) pendingSeek.current = null;
+          position.current = e.seconds;
+          setSeconds(e.seconds);
+        }
+        // Well past the resume point: the "Resuming at" note has done its job.
+        if (resumeNote.current && position.current > resumeNote.current + RESUME_NOTE_FOR) {
+          resumeNote.current = 0;
+          setResumedFrom(0);
+        }
+      }
+      if (e.state === 1) persist("tick");
+      else if (e.state === 2) persist("moment");
+      else if (e.state === 0) persist("ended");
+      checkDay(e.state === 0);
+      setState(e.state);
+      if (Platform.OS === "ios" && e.state === 0)
+        AccessibilityInfo.announceForAccessibility("Sermon ended.");
+      // A start still resolving keeps its message; a refused one keeps its
+      // advice until the video really plays.
+      if (starting.current) return;
+      setStatus(blocked.current ? BLOCKED : statusFor(e.state));
+    },
+    [armSeek, command, failOrFallBack, clearBlockedCheck, persist, checkDay, setPhase, startWithCheck],
+  );
+
+  // Loading can't hang forever.
+  useEffect(() => {
+    if (phase !== "loading") return;
+    const timer = setTimeout(() => failOrFallBack(0), 15000);
+    return () => clearTimeout(timer);
+  }, [phase, attempt, failOrFallBack]);
+
+  useEffect(() => clearBlockedCheck, [clearBlockedCheck]);
+
+  useEffect(() => {
+    if (cover !== "fading") return;
+    const timer = setTimeout(() => setCover("off"), 220);
+    return () => clearTimeout(timer);
+  }, [cover]);
+
+  // Leaving the app pauses a sermon playing from YouTube; the app's own
+  // player plays on, in the background and on the lock screen. iOS also
+  // reports "inactive" for Control Center and Notification Center, which
+  // isn't leaving. Coming back loads the app's own player again if it
+  // failed meanwhile (failOrFallBack).
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (next) => {
+      if (next === "active") {
+        backAt.current = Date.now();
+        const loaded = current.current;
+        if (reloadOnReturn.current && loaded) begin(loaded, position.current, false);
+        return;
+      }
+      if (next !== "background") return;
+      // Saved straight away: the app may be suspended before the pause lands.
+      persist("moment");
+      if (engineRef.current !== "native") hold();
+    });
+    return () => sub.remove();
+  }, [begin, hold, persist]);
+
+  // Docking (leaving the sermon's screen) is a natural place to stop.
+  const full = !!sermon && stage === sermon.id;
+  const wasFull = useRef(false);
+  useEffect(() => {
+    if (wasFull.current && !full) persist("moment");
+    wasFull.current = full;
+  }, [full, persist]);
+
+  const startOver = useCallback(() => {
+    lateResume.current = null;
+    pendingSeek.current = null;
+    resumeNote.current = 0;
+    setResumedFrom(0);
+    const loaded = current.current;
+    if (!loaded) return;
+    // The provider drops commands while it loads, so start it again from 0.
+    if (phase !== "ready") return begin(loaded, 0);
+    position.current = 0;
+    setSeconds(0);
+    armSeek(0);
+    command({ type: "seek", seconds: 0 });
+  }, [armSeek, begin, command, phase]);
+
+  const attach = useCallback((handle: EmbedHandle | null) => {
+    embed.current = handle;
+  }, []);
+
+  const setStage = useCallback(
+    (update: (current: string | null) => string | null) =>
+      setStageState(update),
+    [],
+  );
+
+  const session = useMemo<Session>(
+    () => ({
+      sermon,
+      engine,
+      phase,
+      error,
+      attempt,
+      start,
+      resumedFrom,
+      startOver,
+      cover,
+      stage,
+      setStage,
+      dockAboveTabs,
+      setDockAboveTabs,
+      load,
+      playWhenReady,
+      retry,
+      close,
+      hold,
+      setPathDay,
+      dayDone,
+      watchOnYouTube,
+      onEvent,
+      attach,
+    }),
+    [
+      sermon,
+      engine,
+      phase,
+      error,
+      attempt,
+      start,
+      resumedFrom,
+      startOver,
+      cover,
+      stage,
+      setStage,
+      dockAboveTabs,
+      load,
+      playWhenReady,
+      retry,
+      close,
+      hold,
+      setPathDay,
+      dayDone,
+      watchOnYouTube,
+      onEvent,
+      attach,
+    ],
+  );
+
+  const playing = state === 1 || (state === 3 && started);
+  const playback = useMemo<Playback>(() => {
+    const clamp = (s: number) =>
+      Math.max(0, duration ? Math.min(s, duration - 1) : s);
+    // The viewer's own choice of place: a saved one arriving late (or
+    // waiting for the player to be ready) mustn't move them afterwards.
+    const moveTo = (to: number) => {
+      lateResume.current = null;
+      // The player ignores commands until it's ready, so a choice made
+      // while it loads is kept for then.
+      seekOnReady.current = phaseRef.current === "loading" ? to : null;
+      armSeek(to);
+      position.current = to;
+      setSeconds(to);
+      command({ type: "seek", seconds: to });
+    };
+    return {
+      state,
+      playing,
+      seconds,
+      duration,
+      rate,
+      captionsOn,
+      status,
+      play: () => command({ type: "play" }),
+      pause: hold,
+      toggle: () => (playing ? hold() : command({ type: "play" })),
+      seek: (s) => moveTo(clamp(s)),
+      skip: (delta) => moveTo(clamp(position.current + delta)),
+      cycleRate: () => {
+        const next = RATES[(RATES.indexOf(rate) + 1) % RATES.length] ?? 1;
+        setRate(next);
+        command({ type: "rate", rate: next });
+      },
+      toggleCaptions: () => {
+        if (phaseRef.current !== "ready") return;
+        const next = !captionsOn;
+        setCaptionsOn(next);
+        command({ type: "captions", enabled: next });
+      },
+    };
+  }, [state, seconds, duration, rate, captionsOn, status, armSeek, command, hold, playing]);
+
+  return (
+    <SessionContext.Provider value={session}>
+      <PlaybackContext.Provider value={playback}>
+        {children}
+      </PlaybackContext.Provider>
+    </SessionContext.Provider>
+  );
+}
+
+export function usePlayerSession() {
+  const value = useContext(SessionContext);
+  if (!value) throw new Error("usePlayerSession needs PlayerProvider.");
+  return value;
+}
+
+export function usePlayback() {
+  const value = useContext(PlaybackContext);
+  if (!value) throw new Error("usePlayback needs PlayerProvider.");
+  return value;
+}
+
+/** "1:05:09" or "4:07". */
+export function clock(total: number) {
+  const s = Math.max(0, Math.floor(total));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = String(s % 60).padStart(2, "0");
+  return h ? `${h}:${String(m).padStart(2, "0")}:${sec}` : `${m}:${sec}`;
+}
+
+/** "1 hour 5 minutes" for screen readers. */
+export function spokenClock(total: number) {
+  const s = Math.max(0, Math.floor(total));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  const parts = [];
+  if (h) parts.push(`${h} hour${h === 1 ? "" : "s"}`);
+  if (m) parts.push(`${m} minute${m === 1 ? "" : "s"}`);
+  if (!h && sec) parts.push(`${sec} second${sec === 1 ? "" : "s"}`);
+  return parts.join(" ") || "0 seconds";
+}
