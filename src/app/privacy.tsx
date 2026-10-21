@@ -101,6 +101,12 @@ export default function Privacy() {
           here again, when it’s saved. The rest stays until you change it or
           remove the app.
         </P>
+        <P>
+          If you turn on the daily reminder in the iPhone or Android app, its
+          time and the day your path is on are kept on the device too, and
+          the phone itself shows the reminders: nothing about them is sent
+          anywhere. Signing out turns them off.
+        </P>
       </Section>
 
       <Section title="How it’s used">

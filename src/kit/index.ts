@@ -26,7 +26,7 @@ export { MomentCard, MomentRow, QuotePlaceholder, type MomentCardProps, type Mom
 export { PartOfPathRow, PathCardNavy, type PathCardNavyProps } from "./paths";
 export { DayRow, DayTimeline, type DayRowProps, type DayState } from "./DayTimeline";
 export { RouteIcon } from "./RouteIcon";
-export { Card, ListGroup, ListRow, type CardTone } from "./surfaces";
+export { Card, ListGroup, ListRow, SwitchRow, type CardTone } from "./surfaces";
 export { CoverPage } from "./CoverPage";
 export { Wash } from "./Wash";
 export {

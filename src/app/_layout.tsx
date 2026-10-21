@@ -18,6 +18,7 @@ import { MotionProvider, useReducedMotion } from "../motion";
 import { TAB_PATHS } from "../player/layout";
 import { PlayerHost } from "../player/PlayerHost";
 import { PlayerProvider } from "../player/PlayerProvider";
+import { ReminderTaps, RemindersProvider } from "../reminders";
 import { c } from "../theme";
 import { ToastProvider } from "../toast";
 
@@ -83,10 +84,15 @@ function RootLayout() {
                 {fontsReady ? (
                   // The scrubber's drag and the page's scroll share touches.
                   <GestureHandlerRootView style={{ flex: 1, backgroundColor: c.bg }}>
-                    <Screens />
+                    {/* The daily path reminder's setting, for the screens. */}
+                    <RemindersProvider>
+                      <Screens />
+                    </RemindersProvider>
                     {/* One player for the whole app, above every screen. */}
                     <PlayerHost />
                     <IntentRunner />
+                    {/* A tapped reminder opens its day. */}
+                    <ReminderTaps />
                     <FirstRun />
                   </GestureHandlerRootView>
                 ) : (
