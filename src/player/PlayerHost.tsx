@@ -1,5 +1,4 @@
 import { usePathname } from "expo-router";
-import { StatusBar } from "expo-status-bar";
 import { useEffect } from "react";
 import {
   AccessibilityInfo,
@@ -97,6 +96,7 @@ export function PlayerHost() {
   }, [sermon, phase]);
   // Exit fullscreen if the sermon docks or fails (its error panel and Try
   // again are on the page), or on Escape (web) / hardware Back (Android).
+  // The sermon screen hides the status bar meanwhile (its screen options).
   useEffect(() => {
     if ((!full || phase === "error") && overlay.fullscreen) setStageOverlay({ fullscreen: false });
   }, [full, phase, overlay.fullscreen]);
@@ -109,15 +109,11 @@ export function PlayerHost() {
       document.addEventListener("keydown", onKey);
       return () => document.removeEventListener("keydown", onKey);
     }
-    StatusBar.setHidden(true, "fade");
     const sub = BackHandler.addEventListener("hardwareBackPress", () => {
       setStageOverlay({ fullscreen: false });
       return true;
     });
-    return () => {
-      StatusBar.setHidden(false, "fade");
-      sub.remove();
-    };
+    return () => sub.remove();
   }, [isFullscreen]);
   if (!sermon) return null;
   // The Now Playing screen shows its own error panel and poster.
@@ -134,7 +130,6 @@ export function PlayerHost() {
       style={StyleSheet.absoluteFill}
       accessibilityViewIsModal={isFullscreen}
     >
-      {isFullscreen ? <StatusBar hidden animated /> : null}
       <View
         testID={full ? "player-full" : "player-dock"}
         {...web({

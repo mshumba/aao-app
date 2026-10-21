@@ -20,7 +20,7 @@ import { useCatalogue } from "../../catalogue/CatalogueProvider";
 import { headline } from "../../data/display";
 import { Sermon, seriesSermons } from "../../data/sermons";
 import { Wash, clockText, parseDuration } from "../../kit";
-import { FocusedStatusBar } from "../../kit/FocusedStatusBar";
+import { useStatusBar } from "../../kit/statusBar";
 import { useMoments } from "../../learning";
 import { LockedDaySheet } from "../../paths/LockedDaySheet";
 import { pathWords, stateOf } from "../../paths/model";
@@ -174,6 +174,8 @@ function NowPlayingScreen({ sermon, link }: { sermon: Sermon; link: SermonParams
   const about = useRef<View>(null);
   const { moments } = useMoments(sermon.id);
   const pathDay = usePathDay(sermon.id, link);
+  // Full screen hides the status bar.
+  useStatusBar("dark", overlay.fullscreen);
   // Whether it's on R2, asked now so Watch starts straight away.
   useEffect(() => prefetchVideo(sermon.id), [sermon.id]);
 
@@ -509,7 +511,6 @@ function NowPlayingScreen({ sermon, link }: { sermon: Sermon; link: SermonParams
       importantForAccessibility={overlay.fullscreen ? "no-hide-descendants" : "auto"}
       {...web(overlay.fullscreen ? { "aria-hidden": true, inert: true } : {})}
     >
-      <FocusedStatusBar style="dark" animated={false} hidden={overlay.fullscreen} />
       <View style={{ height: insets.top, backgroundColor: c.bg }} />
       <LightHeader
         width={column}

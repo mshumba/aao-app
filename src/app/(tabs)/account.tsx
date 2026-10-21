@@ -13,6 +13,7 @@ import { AccountBenefits, FormAlert, useAuthTask } from "../../auth/ui";
 import { useCatalogue } from "../../catalogue/CatalogueProvider";
 import { getCategory } from "../../data/categories";
 import { Card, ListGroup, ListRow } from "../../kit";
+import { useStatusBar } from "../../kit/statusBar";
 import { useGo, usePageTitle } from "../../navigation";
 import { font, radius, space, textCap, type } from "../../theme";
 import { useToast } from "../../toast";
@@ -61,6 +62,8 @@ const version = Constants.expoConfig?.version;
  */
 export default function AccountTab() {
   usePageTitle("Account");
+  // A tab says what its status bar is (Home's and Paths' are light).
+  useStatusBar("dark");
   const account = useAccount();
   const toast = useToast();
   const task = useAuthTask();

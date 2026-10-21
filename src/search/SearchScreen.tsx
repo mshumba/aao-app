@@ -70,6 +70,7 @@ import {
 import { careText, inDistress, maybeDistress } from "./care";
 import { CareCalm, CareCard } from "./CareCard";
 import { FAN_MAX, SearchLoader, loaderText, warmArt, type LoaderStep } from "./Loader";
+import { useStatusBar } from "../kit/statusBar";
 import { AlsoRow, ResultCard } from "./ResultCard";
 import { Reveal, RevealProvider, useResultsReveal } from "./reveal";
 
@@ -193,6 +194,8 @@ export function SearchScreen() {
 
 function SearchView({ initialQuery, unknownTopic }: { initialQuery: string; unknownTopic: boolean }) {
   usePageTitle("Search");
+  // A tab says what its status bar is (Home's and Paths' are light).
+  useStatusBar("dark");
   const insets = useSafeAreaInsets();
   const dock = useDockInset();
   const reduced = useReducedMotion();

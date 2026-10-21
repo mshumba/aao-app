@@ -16,7 +16,7 @@ import {
   spokenText,
   type ArtSource,
 } from "../../kit";
-import { FocusedStatusBar } from "../../kit/FocusedStatusBar";
+import { useStatusBar } from "../../kit/statusBar";
 import { keepLastWord } from "../../kit/paths";
 import {
   doneLabel,
@@ -94,6 +94,8 @@ type Row =
  */
 export default function PathsTab() {
   usePageTitle("Paths");
+  // Light over the dark cover at the top.
+  useStatusBar("light");
   const go = useGo();
   const play = usePlayDay();
   const openTeaching = useOpenTeaching();
@@ -300,7 +302,6 @@ export default function PathsTab() {
 
   return (
     <View style={styles.screen}>
-      <FocusedStatusBar style="light" />
       <FlatList
         testID="paths-list"
         data={list}

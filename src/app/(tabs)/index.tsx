@@ -46,7 +46,7 @@ import {
 } from "../../home";
 import { SearchField } from "../../kit";
 import { Confetti } from "../../kit/Confetti";
-import { FocusedStatusBar } from "../../kit/FocusedStatusBar";
+import { useStatusBar } from "../../kit/statusBar";
 import { useEnrollment, useNeeds, usePaths } from "../../learning";
 import { useReducedMotion } from "../../motion";
 import { requestSearchFocus, useGo, usePageTitle } from "../../navigation";
@@ -324,17 +324,14 @@ type Chrome = { setPastHero: (past: boolean) => void };
  * Home's status bar, light over the hero and dark once it has scrolled by,
  * and the ivory shade under it then. Its own component, so neither a
  * navigation nor crossing the hero's edge re-renders the rest of Home.
- * Under a cold start's cover the bar changes at once: it animates only
- * once Home can be seen.
  */
 const HomeChrome = memo(function HomeChrome({ ref }: { ref: Ref<Chrome> }) {
   const insets = useSafeAreaInsets();
-  const covered = useCovered();
   const [pastHero, setPastHero] = useState(false);
   useImperativeHandle(ref, () => ({ setPastHero }), []);
+  useStatusBar(pastHero ? "dark" : "light");
   return (
     <>
-      <FocusedStatusBar style={pastHero ? "dark" : "light"} animated={!covered} />
       {/* Under the status bar once the hero has gone, so the time stays
           legible: ivory fading out below it, never a band with a hard edge
           over the dark path card. */}

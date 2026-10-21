@@ -1,5 +1,4 @@
 import { Redirect } from "expo-router";
-import { StatusBar } from "expo-status-bar";
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { ScrollView, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -39,6 +38,7 @@ import {
 } from "../kit";
 import { fixtureDays, fixtureNeeds, fixturePaths, fixtureProgress } from "../learning/fixtures";
 import { messagesLabel, useSearch, type SearchMoment } from "../learning";
+import { useStatusBar } from "../kit/statusBar";
 import { usePageTitle } from "../navigation";
 import { c, font, radius, textCap, type } from "../theme";
 import { Heading, T } from "../ui";
@@ -57,6 +57,7 @@ const noop = () => {};
 
 function Gallery() {
   usePageTitle("Kit");
+  useStatusBar("light");
   const insets = useSafeAreaInsets();
   const ctaSpace = useStickyCTASpace();
   const { sermons, find } = useCatalogue();
@@ -102,7 +103,6 @@ function Gallery() {
 
   return (
     <View style={styles.screen}>
-      <StatusBar style="light" />
       <ScrollView contentContainerStyle={{ paddingBottom: ctaSpace }}>
         {/* ---- 01 Home -------------------------------------------------------- */}
         <View style={[styles.hero, { paddingTop: insets.top + 14 }]}>

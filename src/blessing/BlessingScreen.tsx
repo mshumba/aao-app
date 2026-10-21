@@ -1,5 +1,4 @@
 import { router, useIsFocused, useNavigation } from "expo-router";
-import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Platform,
@@ -215,7 +214,6 @@ export function BlessingScreen({ opening }: { opening: Opening | null }) {
 
   return (
     <GestureHandlerRootView style={styles.fill}>
-      {focused ? <StatusBar style="dark" animated /> : null}
       <GestureDetector gesture={fling}>
         <Animated.View
           ref={root}

@@ -1,6 +1,5 @@
 import * as Haptics from "expo-haptics";
 import { router, useFocusEffect, useIsFocused, useLocalSearchParams } from "expo-router";
-import { StatusBar } from "expo-status-bar";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AccessibilityInfo, Platform, StyleSheet, View, useWindowDimensions } from "react-native";
 import Animated from "react-native-reanimated";
@@ -9,6 +8,7 @@ import { useAccount, useProgressOf } from "../../auth/AccountProvider";
 import { useCatalogue } from "../../catalogue/CatalogueProvider";
 import { Kicker, RoundButton, StickyCTA, useStickyCTASpace } from "../../kit";
 import { BAND, CoverBand, CoverNav, CoverRoom, useCoverScroll } from "../../kit/CoverPage";
+import { useStatusBar } from "../../kit/statusBar";
 import { nextDay, trustLine, useEnrollment, usePath, type PathDayWithSermon } from "../../learning";
 import { firstParam, useGo, usePageTitle } from "../../navigation";
 import { DayCompleteSheet } from "../../paths/DayCompleteSheet";
@@ -263,13 +263,16 @@ export default function PathScreen() {
 
   // ---- States --------------------------------------------------------------------------
 
+  // The status bar: the page's own while it loads (or isn't there), then its
+  // cover's (CoverNav), light or dark as the cover scrolls by.
+  useStatusBar(!path || !ready || single ? (missing ? "dark" : "light") : null);
+
   // Until the viewer's progress is read, the page can't say which day is
   // today: it never offers Day 1 to someone on Day 3, even for a moment. A
   // single teaching holds here while it opens.
   if (!path || !ready || single) {
     return (
       <View style={styles.screen}>
-        {focused ? <StatusBar style={missing ? "dark" : "light"} /> : null}
         {missing ? (
           <View style={[styles.missing, { paddingTop: top + BAND + space.lg }]}>
             <StatePanel

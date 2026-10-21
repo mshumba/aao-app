@@ -1,7 +1,6 @@
 // First, so crashes during start-up are reported too.
 import { Sentry } from "../lib/monitoring";
 import { Stack, router, usePathname } from "expo-router";
-import { StatusBar } from "expo-status-bar";
 import * as SplashScreen from "expo-splash-screen";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Platform, StyleSheet, View } from "react-native";
@@ -82,19 +81,14 @@ function RootLayout() {
             <PlayerProvider>
               <ToastProvider>
                 {fontsReady ? (
-                  <>
-                    {/* Dark clock and icons on the ivory page. A screen drawn under
-                        the status bar over dark artwork sets its own. */}
-                    <StatusBar style="dark" />
-                    {/* The scrubber's drag and the page's scroll share touches. */}
-                    <GestureHandlerRootView style={{ flex: 1, backgroundColor: c.bg }}>
-                      <Screens />
-                      {/* One player for the whole app, above every screen. */}
-                      <PlayerHost />
-                      <IntentRunner />
-                      <FirstRun />
-                    </GestureHandlerRootView>
-                  </>
+                  // The scrubber's drag and the page's scroll share touches.
+                  <GestureHandlerRootView style={{ flex: 1, backgroundColor: c.bg }}>
+                    <Screens />
+                    {/* One player for the whole app, above every screen. */}
+                    <PlayerHost />
+                    <IntentRunner />
+                    <FirstRun />
+                  </GestureHandlerRootView>
                 ) : (
                   <View style={{ flex: 1, backgroundColor: c.bg }} />
                 )}
@@ -197,6 +191,9 @@ function Screens() {
       screenOptions={{
         headerShown: false,
         contentStyle: { backgroundColor: c.bg },
+        // Dark clock and icons on the ivory page. A screen drawn under the
+        // status bar over dark artwork sets its own (src/kit/statusBar.ts).
+        statusBarStyle: "dark",
         // Platform push transitions (and iOS swipe-back) unless the system
         // asks for reduced motion, which gets a plain fade.
         animation: reduced ? "fade" : "default",

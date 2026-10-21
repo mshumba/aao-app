@@ -19,7 +19,7 @@ import type { ArtSource } from "./Artwork";
 import { T, web } from "./base";
 import { RoundButton, useStickyCTASpace } from "./buttons";
 import { CardFan } from "./CardFan";
-import { FocusedStatusBar } from "./FocusedStatusBar";
+import { useStatusBar } from "./statusBar";
 import { keepLastWord } from "./paths";
 import { ItalicTitle, Kicker } from "./text";
 import { Wash } from "./Wash";
@@ -248,9 +248,9 @@ export const CoverNav = memo(function CoverNav({
 }) {
   const banded = useBandShown(scrollY, useCoverMeasure(layout, (l) => l.under(top)));
   const tone = banded ? "surface" : "glass";
+  useStatusBar(banded ? "dark" : "light");
   return (
     <>
-      <FocusedStatusBar style={banded ? "dark" : "light"} />
       <View style={[styles.nav, { top: top + 2 }]} {...web({ dataSet: banded ? undefined : { dark: "true" } })}>
         <RoundButton icon="chevron-back" label="Back" onPress={onBack} tone={tone} iconSize={20} testID={backTestID} />
         {share ? (
