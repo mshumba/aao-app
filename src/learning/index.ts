@@ -6,6 +6,7 @@
  */
 export {
   LearningProvider,
+  useActivePath,
   useEnrollment,
   useMoments,
   useMyTopics,

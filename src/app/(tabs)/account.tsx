@@ -15,6 +15,7 @@ import { Card, ListGroup, ListRow } from "../../kit";
 import { useStatusBar } from "../../kit/statusBar";
 import { useMyTopics } from "../../learning";
 import { useGo, usePageTitle } from "../../navigation";
+import { timeText, useReminders } from "../../reminders";
 import { font, radius, space, textCap, type } from "../../theme";
 import { useToast } from "../../toast";
 import { sermonCount } from "../../topics";
@@ -102,6 +103,21 @@ export default function AccountTab() {
     },
   ];
 
+  const reminders = useReminders();
+  const reminder: Row = {
+    title: "Daily reminder",
+    icon: "notifications-outline",
+    route: "/account/reminders",
+    value: !reminders.supported
+      ? "In the iPhone and Android apps"
+      : !reminders.ready
+        ? undefined
+        : reminders.enabled
+          ? `On · ${timeText(reminders.time)}`
+          : "Off",
+    testID: "reminder-row",
+  };
+
   // Right under who you are: the one thing about you to change.
   const name: Row = {
     title: "Name",
@@ -176,6 +192,11 @@ export default function AccountTab() {
       {account.ready && (
         <ListGroup title={user ? "Library" : "On this device"} style={styles.group}>
           {rows(library)}
+        </ListGroup>
+      )}
+      {account.ready && (
+        <ListGroup title="Reminders" style={styles.group}>
+          {rows([reminder])}
         </ListGroup>
       )}
       <ListGroup title="About" style={styles.group}>

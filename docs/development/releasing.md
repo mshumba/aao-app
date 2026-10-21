@@ -112,7 +112,9 @@ Only JavaScript and assets ship this way. Anything native needs a new build: a n
 
 `0.2.0` (iOS build 5 onwards) added native code: expo-video (the R2 player, with background playback and picture in picture) and view-controller-based status bar appearance for iOS 27, and it dropped expo-status-bar. So builds 3 and 4 (`0.1.0`) never receive updates made from `0.2.0` code: they keep the YouTube player and their own JavaScript until testers install build 5, and a JavaScript fix for them would have to be published from a `0.1.0` checkout.
 
-`0.3.0` (build 6 onwards) moved `expo` and `expo-router` to the SDK's newer patch releases, which include native code, so build 5 (`0.2.0`) never receives updates made from `0.3.0` code either. Ship `0.3.0` changes to testers as build 6.
+`0.3.0` (build 6 onwards) moved `expo` and `expo-router` to the SDK's newer patch releases, which include native code, and added the daily path reminder ([architecture](architecture.md#daily-path-reminder)): expo-notifications and its config plugin in `app.json`. So build 5 (`0.2.0`) never receives updates made from `0.3.0` code either. Ship `0.3.0` changes to testers as build 6.
+
+The reminders are local notifications scheduled on the phone: no push server and no APNs key. `app.config.ts` removes the push entitlement (`aps-environment`) the plugin adds regardless, so the App ID needs no Push Notifications capability. Android 13 and later ask for notification permission (`POST_NOTIFICATIONS`, from the module's manifest) only when the viewer turns the reminder on. Android draws a notification's small icon from the app icon until a white-on-transparent one is set as the plugin's `icon` (with the owner's logo); `color` is the navy accent. Should this JavaScript ever reach a build without the module, it shows no reminders rather than failing (`src/reminders/device.ts` only loads the library when its native module is there), but its viewers can't turn them on either.
 
 Android APKs built before October 2026 don't include `expo-updates` and won't receive updates; install a new `preview` build.
 

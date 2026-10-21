@@ -9,6 +9,7 @@ import { useGo } from "../navigation";
 import { pathWords, sermonLength } from "../paths/model";
 import { usePlayback } from "../player/PlayerProvider";
 import { fraction } from "../player/progress";
+import { ReminderOffer } from "../reminders";
 import { c, textCap, type } from "../theme";
 import { useToast } from "../toast";
 import { Icon, T, Tap } from "../ui";
@@ -107,7 +108,8 @@ export function useOpenPath() {
  * you haven't started says so: "From a path · Day 3 of 7". A series says
  * "Part of your series · Teaching 3 of 12". When it's the day due on a path
  * you're on, a quiet "Mark Day 3 done" sits under it, for a sermon heard
- * elsewhere or not finished here.
+ * elsewhere or not finished here. On a guided path they're on, "Remind me
+ * each day?" follows until they've answered it (src/reminders).
  */
 export const PathDayRow = memo(function PathDayRow({ ctx, current }: { ctx: PathDayContext; current: boolean }) {
   const openPath = useOpenPath();
@@ -162,6 +164,8 @@ export const PathDayRow = memo(function PathDayRow({ ctx, current }: { ctx: Path
           </T>
         </Tap>
       ) : null}
+      {/* Once, on a guided path they're on: "Remind me each day?" */}
+      {ctx.path.kind === "path" && ctx.enrolled && ctx.today != null ? <ReminderOffer /> : null}
     </View>
   );
 });

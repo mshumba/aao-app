@@ -712,6 +712,30 @@ export function useMoments(youtubeId?: string | null) {
 }
 
 /**
+ * The path the viewer is on and today's day, without the gate (safe outside
+ * screens). Use useEnrollment() in screens to start paths and mark days.
+ * With `kind`, only paths of that kind count: "path" is the guided path
+ * they're on, even with a teaching series started since (the daily
+ * reminder, src/reminders).
+ */
+export function useActivePath(kind?: Path["kind"]) {
+  const progress = need(useContext(ProgressContext), "useActivePath");
+  const paths = need(useContext(PathsContext), "useActivePath");
+  const { find } = useCatalogue();
+  const active = useMemo(
+    () =>
+      activePath(
+        progress.state,
+        kind ? paths.paths.filter((p) => p.kind === kind) : paths.paths,
+        paths.daysByPath,
+        find,
+      ),
+    [progress.state, paths.paths, paths.daysByPath, find, kind],
+  );
+  return { active, loading: progress.loading || paths.loading };
+}
+
+/**
  * Progress through paths, for screens (it uses the sign-up gate, so call it
  * inside a screen). Members' progress lives in Supabase; guests' on this
  * device. `start` asks a guest to create a free account first (the gate's

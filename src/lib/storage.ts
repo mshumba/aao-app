@@ -50,6 +50,9 @@ export const keys = {
   pendingName: "aao.pendingName.v1",
   sharedPasses: "aao.sharedPasses.v1",
   guestWatch: "aao.guestWatch.v1",
+  // The daily path reminder for whoever uses this device: on or off, its
+  // time and the day due (reminders/RemindersProvider.tsx).
+  reminders: "aao.reminders.v1",
   localSession: "aao.local.session.v1",
   localData: (userId: string) => `aao.local.data.v1.${userId}`,
   // The signed-in account's watch progress as last shown, for an offline

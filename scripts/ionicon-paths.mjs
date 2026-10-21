@@ -56,6 +56,7 @@ const NAMES = [
   "logo-google",
   "logo-youtube",
   "mail-outline",
+  "notifications-outline",
   "open-outline",
   "pause",
   "person",
