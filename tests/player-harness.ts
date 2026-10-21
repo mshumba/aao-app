@@ -269,6 +269,7 @@ export function mountPlayer(copy: WatchProgress[] = [], { hls = false, platform 
       "./progress": (load) => load("player/progress.ts"),
       "./types": (load) => load("player/types.ts"),
       "./youtube": (load) => load("player/youtube.ts"),
+      "./videoPlatform": (load) => load("player/videoPlatform.ts"),
       // The real engine choice, with R2's answers from the test.
       "./media": (load) => ({
         ...load("player/media.ts"),
