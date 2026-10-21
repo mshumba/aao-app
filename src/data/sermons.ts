@@ -4,13 +4,13 @@ import {
   type SermonRecord,
   type Snapshot,
 } from "../catalogue/records";
-import { CategoryId, getCategory } from "./categories";
-import { assignments } from "./edification";
+import { parseDuration } from "../kit/time";
+import { takeTurns } from "../lib/turns";
 
 /**
  * A sermon as the app shows it, made from a catalogue record (Supabase, the
- * device's copy, or the bundled sample below). Topic assignments live
- * separately in edification.ts and are never part of the record.
+ * device's copy, or the bundled sample below) and its topic, which is
+ * kept apart from the record (public.sermon_topics).
  */
 export type Sermon = {
   /** The YouTube video ID: the stable key everywhere. */
@@ -43,7 +43,19 @@ export type Sermon = {
   source: string;
   /** Its video is on R2, so the app's own player plays it (the phones list only these). */
   videoReady: boolean;
+  /**
+   * Its main topic, as matched from its transcript. A sermon with no
+   * transcript or no clear fit has none, and none shows until the topics
+   * have loaded.
+   */
+  topic: SermonTopic | null;
 };
+
+/** The topic a sermon was matched to, and how well (higher is closer; compared within a topic). */
+export type SermonTopic = { id: string; score: number };
+
+/** Each tagged sermon's topic, by YouTube ID. */
+export type TopicTags = Record<string, SermonTopic>;
 
 export const CHANNEL = "Apostle Arome Osayi";
 
@@ -70,7 +82,11 @@ export function formatDuration(seconds: number | null) {
 
 const withoutYear = (name: string) => name.replace(/\s+(?:(?:19|20)\d\d|['’]\d\d)$/, "");
 
-export function toSermon(record: SermonRecord, seriesName?: string | null): Sermon {
+export function toSermon(
+  record: SermonRecord,
+  seriesName?: string | null,
+  topic: SermonTopic | null = null,
+): Sermon {
   const day = record.preached_on ?? record.published_at.slice(0, 10);
   return {
     id: record.youtube_id,
@@ -93,6 +109,7 @@ export function toSermon(record: SermonRecord, seriesName?: string | null): Serm
     thumbnail: record.thumbnail_url ?? defaultThumbnail(record.youtube_id),
     source: `https://www.youtube.com/watch?v=${record.youtube_id}`,
     videoReady: !!record.video_ready_at,
+    topic,
   };
 }
 
@@ -101,11 +118,13 @@ export function compareNewest(a: Sermon, b: Sermon) {
   return b.day.localeCompare(a.day) || b.publishedAt.localeCompare(a.publishedAt);
 }
 
-/** A snapshot's sermons, ready to show and newest first. */
-export function sermonsFrom(snapshot: Pick<Snapshot, "sermons" | "series">) {
+/** A snapshot's sermons with their topics, ready to show and newest first. */
+export function sermonsFrom(snapshot: Pick<Snapshot, "sermons" | "series">, tags: TopicTags = {}) {
   const names = new Map(snapshot.series.map((s) => [s.key, s.name]));
   return snapshot.sermons
-    .map((record) => toSermon(record, record.series_key ? names.get(record.series_key) : null))
+    .map((record) =>
+      toSermon(record, record.series_key ? names.get(record.series_key) : null, tags[record.youtube_id] ?? null),
+    )
     .sort(compareNewest);
 }
 
@@ -117,7 +136,7 @@ export function sermonsFrom(snapshot: Pick<Snapshot, "sermons" | "series">) {
 // ministry links and YouTube on 30 September 2026; the other fields are what
 // the import wrote to Supabase for the same videos.
 
-export const sampleSeries: SeriesRecord[] = [
+const sampleSeries: SeriesRecord[] = [
   { key: "lioness-conference-2026", name: "Lioness Conference 2026" },
   { key: "apostolic-shift-2026", name: "Apostolic Shift 2026" },
 ];
@@ -201,27 +220,50 @@ export const sampleSnapshot: Snapshot = {
   fullAt: 0,
 };
 
-export const sampleSermons: Sermon[] = sermonsFrom(sampleSnapshot);
+/** The sample's topics, as public.sermon_topics has them (20 October 2026); the Grand Finale has none. */
+export const sampleTags: TopicTags = {
+  nUW8NT2Pe88: { id: "prayer", score: 5.066 },
+  yUDzMcZsVk8: { id: "purpose-calling", score: 4.207 },
+  WYiA7rjenVI: { id: "hearing-god", score: 5.101 },
+};
+
+export const sampleSermons: Sermon[] = sermonsFrom(sampleSnapshot, sampleTags);
 
 // Topics and search -----------------------------------------------------------------
 
-/**
- * Demo topics for a sermon, primary first. A sermon is stored once, even
- * when it belongs to several topics; unassigned sermons have none.
- */
-export function sermonCategoryIds(sermon: Pick<Sermon, "id">): CategoryId[] {
-  const assignment = assignments[sermon.id];
-  if (!assignment) return [];
-  return [
-    ...new Set([
-      assignment.primaryCategoryId,
-      ...assignment.additionalCategoryIds,
-    ]),
-  ];
+/** A sermon's topic's ID, in a list (none, or one). src/sermon/Sections.tsx reads it by this name. */
+export function sermonCategoryIds(sermon: Pick<Sermon, "topic">): string[] {
+  return sermon.topic ? [sermon.topic.id] : [];
 }
 
-export function sermonsInCategory(list: Sermon[], categoryId: CategoryId): Sermon[] {
-  return list.filter((sermon) => sermonCategoryIds(sermon).includes(categoryId));
+/** A topic's sermons, the best match first (newest first among equals). */
+export function sermonsInTopic(list: readonly Sermon[], topicId: string): Sermon[] {
+  const score = (sermon: Sermon) => sermon.topic?.score ?? 0;
+  return list.filter((sermon) => sermon.topic?.id === topicId).sort((a, b) => score(b) - score(a));
+}
+
+/** Home leaves out sermons longer than this (seconds). */
+const HOME_LONGEST = 3 * 60 * 60;
+
+/**
+ * Sermons for Home's "From your topics": those in `topicIds`, each topic's
+ * best match first, the topics taking turns (once a small topic's run out,
+ * the others carry on). As everywhere on Home, nothing over three hours, and
+ * nothing the viewer has `finished`.
+ */
+export function fromTopics(
+  list: readonly Sermon[],
+  topicIds: readonly string[],
+  finished: (id: string) => boolean,
+  count: number,
+): Sermon[] {
+  const shown = list.filter(
+    (sermon) => (parseDuration(sermon.duration) ?? 0) <= HOME_LONGEST && !finished(sermon.id),
+  );
+  return takeTurns(
+    topicIds.map((id) => sermonsInTopic(shown, id)),
+    count,
+  );
 }
 
 // Built once per sermon object: typing filters thousands of these.
@@ -242,8 +284,6 @@ function textOf(sermon: Sermon) {
       sermon.date,
       formatDay(sermon.day, true),
       sermon.day,
-      ...sermonCategoryIds(sermon).map((id) => getCategory(id)?.label || ""),
-      ...(assignments[sermon.id]?.tags ?? []),
     ]
       .filter(Boolean)
       .join(" ")
@@ -255,18 +295,12 @@ function textOf(sermon: Sermon) {
 
 /**
  * Sermons matching every word of the query, in the list's order: by headline,
- * exact title, event, speaker, venue, date ("27 September 2026", "Sep 2026"),
- * and sample topics and tags.
+ * exact title, event, speaker, venue and date ("27 September 2026", "Sep 2026").
  */
-export function searchSermons(
-  list: Sermon[],
-  query: string,
-  categoryId?: CategoryId,
-): Sermon[] {
+export function searchSermons(list: Sermon[], query: string): Sermon[] {
   const terms = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
-  const candidates = categoryId ? sermonsInCategory(list, categoryId) : list;
-  if (!terms.length) return candidates;
-  return candidates.filter((sermon) => {
+  if (!terms.length) return list;
+  return list.filter((sermon) => {
     const text = textOf(sermon);
     return terms.every((term) => text.includes(term));
   });
@@ -379,10 +413,10 @@ export function seriesRails(
 
 /**
  * Sermons to suggest after this one: the rest of its series (the parts after
- * it first), then ones sharing a sample topic, then the newest.
+ * it first), then ones sharing a topic, then the newest.
  */
 export function relatedSermons(sermon: Sermon, list: Sermon[], count = 3) {
-  const topics = sermonCategoryIds(sermon);
+  const topic = sermon.topic?.id;
   const series = sermon.seriesKey ? seriesSermons(list, sermon.seriesKey) : [];
   const at = series.findIndex((s) => s.id === sermon.id);
   const nextInSeries = [...series.slice(at + 1), ...series.slice(0, Math.max(at, 0))];
@@ -393,7 +427,7 @@ export function relatedSermons(sermon: Sermon, list: Sermon[], count = 3) {
       other,
       index,
       series: rank.get(other.id) ?? Number.MAX_SAFE_INTEGER,
-      shared: sermonCategoryIds(other).filter((t) => topics.includes(t)).length,
+      shared: topic && other.topic?.id === topic ? 1 : 0,
     }))
     .sort((a, b) => a.series - b.series || b.shared - a.shared || a.index - b.index)
     .slice(0, count)

@@ -9,7 +9,6 @@ import * as Crypto from "expo-crypto";
 import * as Linking from "expo-linking";
 import * as WebBrowser from "expo-web-browser";
 import { AppState, Platform, TurboModuleRegistry } from "react-native";
-import { CategoryId } from "../data/categories";
 import { deleteSignedIn, linkedToApple, sendAppleCode } from "./appleTokens";
 import { googleClientIds, isNativeApple, supabaseConfig } from "./config";
 import { SESSION_KEY, forgetSession, readSavedSession, secureSessionStorage } from "./sessionStorage";
@@ -378,7 +377,7 @@ export function createSupabaseBackend(): AuthBackend {
       );
       return {
         displayName: data?.display_name ?? null,
-        interests: (data?.interests ?? []) as CategoryId[],
+        interests: data?.interests ?? [],
         onboardedAt: data?.onboarded_at ?? null,
       } satisfies Profile;
     },

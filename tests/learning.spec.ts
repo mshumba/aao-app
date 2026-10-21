@@ -8,6 +8,7 @@ import {
   fixtureMoments,
   fixtureNeeds,
   fixturePaths,
+  fixtureTopics,
 } from "../src/learning/fixtures";
 import { messagesLabel, searchSermonMeta, trustLine } from "../src/learning/format";
 import {
@@ -17,6 +18,7 @@ import {
   enrollmentOf,
   fromRemote,
   nextDay,
+  suggestPaths,
   type ProgressOp,
   type ProgressState,
 } from "../src/learning/progress";
@@ -127,6 +129,36 @@ test.describe("path progress", () => {
     expect(active.today?.sermon?.id).toBe("yUDzMcZsVk8");
     // A path that's gone (taken down for review) is skipped.
     expect(activePath(finished, fixturePaths.filter((p) => p.id !== HABIT), days, find)).toBeNull();
+  });
+
+  test("topics suggest their paths in their own order, taking turns, skipping started ones", () => {
+    const topics = (...ids: string[]) => fixtureTopics.filter((t) => ids.includes(t.id));
+    const suggested = (state: ProgressState, ...ids: string[]) =>
+      suggestPaths(topics(...ids), fixturePaths, state).map((p) => p.id);
+    // Grace & Holiness's first path isn't in the test data: its next one
+    // comes first, then The Holy Spirit's first, then its second.
+    expect(suggested(emptyProgress, "grace-holiness", "holy-spirit")).toEqual([
+      HABIT,
+      "knowing-the-holy-spirit",
+      "seeking-the-face-of-god",
+    ]);
+    // A path two topics share is suggested once.
+    expect(suggested(emptyProgress, "hearing-god", "holy-spirit")).toEqual([
+      "knowing-the-holy-spirit",
+      "seeking-the-face-of-god",
+    ]);
+    // Started, or started and finished: not suggested.
+    const started = run([{ kind: "start", pathId: HABIT, at: at(1) }]);
+    expect(suggested(started, "grace-holiness", "holy-spirit")).toEqual([
+      "knowing-the-holy-spirit",
+      "seeking-the-face-of-god",
+    ]);
+    const finished = run([{ kind: "finish", pathId: WAIT, at: at(2) }], run([{ kind: "start", pathId: WAIT, at: at(1) }]));
+    expect(suggested(finished, "purpose-calling")).toEqual([]);
+    expect(suggested(emptyProgress, "purpose-calling")).toEqual([WAIT]);
+    // Never more than three, and none without topics.
+    expect(suggested(emptyProgress, "grace-holiness", "holy-spirit", "faith-hope", "prayer")).toHaveLength(3);
+    expect(suggested(emptyProgress)).toEqual([]);
   });
 });
 

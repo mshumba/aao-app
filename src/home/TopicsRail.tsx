@@ -1,20 +1,23 @@
 import { memo, useMemo } from "react";
 import { ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
-import { getCategory, topicDisclaimer, type CategoryId } from "../data/categories";
-import { sermonCategoryIds, type Sermon } from "../data/sermons";
+import { useWatchProgress } from "../auth/AccountProvider";
+import { fromTopics, type Sermon } from "../data/sermons";
 import { SectionHeader } from "../kit";
-import { space, textCap, type } from "../theme";
-import { Icon, SermonCard, T, c } from "../ui";
+import type { Topic } from "../learning";
+import { space } from "../theme";
+import { SermonCard } from "../ui";
+import { watched } from "../watched";
 
 /** Cards in the rail. */
 const COUNT = 10;
 const CARD = 200;
 
 /**
- * "From your topics": the newest sermons in the topics the viewer picked
- * (in onboarding or Account), keeping the promise "We'll put them first".
- * Hidden until they've picked one. The topics are sample labels, and the
- * rail says so. "See all" opens the topic's page when there's one topic.
+ * "From your topics": the sermons that best match the topics the viewer
+ * picked (in onboarding or Account), keeping the promise "We'll put them
+ * first". Each topic's closest matches lead, the topics taking turns, with
+ * nothing over three hours and nothing they've finished. Hidden until
+ * they've picked one. "See all" opens the topic's page when there's one.
  */
 export const TopicsRail = memo(function TopicsRail({
   sermons,
@@ -23,32 +26,43 @@ export const TopicsRail = memo(function TopicsRail({
 }: {
   /** The library, newest first. */
   sermons: readonly Sermon[];
-  topics: readonly CategoryId[];
-  onSeeAll: (topic: CategoryId) => void;
+  topics: readonly Topic[];
+  onSeeAll: (topicId: string) => void;
 }) {
   const { fontScale } = useWindowDimensions();
+  // Empty for guests. A save while a sermon plays changes this rail only
+  // once that sermon is finished.
+  const { progress } = useWatchProgress();
+  const finished = useMemo(
+    () =>
+      progress
+        .filter(watched)
+        .map((p) => p.sermonId)
+        .join(" "),
+    [progress],
+  );
   const list = useMemo(() => {
-    if (!topics.length) return [];
-    const out: Sermon[] = [];
-    for (const sermon of sermons) {
-      if (sermonCategoryIds(sermon).some((id) => topics.includes(id))) out.push(sermon);
-      if (out.length === COUNT) break;
-    }
-    return out;
-  }, [sermons, topics]);
+    const done = new Set(finished.split(" "));
+    return fromTopics(
+      sermons,
+      topics.map((topic) => topic.id),
+      (id) => done.has(id),
+      COUNT,
+    );
+  }, [sermons, topics, finished]);
   if (!list.length) return null;
 
-  const names = topics.map((id) => getCategory(id)?.label).filter(Boolean) as string[];
   const width = Math.round(CARD * Math.min(1.3, Math.max(1, fontScale)));
   const one = topics.length === 1 ? topics[0] : null;
   return (
     <View testID="from-your-topics" style={styles.section}>
       <SectionHeader
         title="From your topics"
-        kicker={names.join(" · ")}
+        // Their names while they fit on a line; the title says it past three.
+        kicker={topics.length <= 3 ? topics.map((topic) => topic.label).join(" · ") : undefined}
         action={
           one
-            ? { label: "See all", onPress: () => onSeeAll(one), hint: `Opens ${names[0]}` }
+            ? { label: "See all", onPress: () => onSeeAll(one.id), hint: `Opens ${one.label}` }
             : undefined
         }
         inset={24}
@@ -66,12 +80,6 @@ export const TopicsRail = memo(function TopicsRail({
           <SermonCard key={sermon.id} sermon={sermon} width={width} testID="topic-card" />
         ))}
       </ScrollView>
-      <View style={styles.note}>
-        <Icon name="information-circle-outline" size={15} color={c.muted} />
-        <T style={styles.noteText} maxFontSizeMultiplier={textCap.chip}>
-          {topicDisclaimer}
-        </T>
-      </View>
     </View>
   );
 });
@@ -80,6 +88,4 @@ const styles = StyleSheet.create({
   section: { marginTop: space.xs },
   header: { marginTop: 32, marginBottom: 12 },
   rail: { paddingHorizontal: 24, gap: 12 },
-  note: { flexDirection: "row", alignItems: "flex-start", gap: 6, paddingHorizontal: 24, marginTop: 10 },
-  noteText: { ...type.meta, color: c.muted, flex: 1 },
 });

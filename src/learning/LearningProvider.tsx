@@ -16,7 +16,7 @@ import { useCatalogue } from "../catalogue/CatalogueProvider";
 import { readJSON, writeJSON } from "../lib/storage";
 import { noteDayDone } from "../paths/seen";
 import { CompleteDayContext } from "./completeDay";
-import { fixtureDays, fixtureMoments, fixtureNeeds, fixturePaths } from "./fixtures";
+import { fixtureDays, fixtureMoments, fixtureNeeds, fixturePaths, fixtureTopics } from "./fixtures";
 import {
   activePath,
   applyOp,
@@ -25,6 +25,7 @@ import {
   fromRemote,
   joinDays,
   nextDay,
+  suggestPaths,
   type ProgressOp,
   type ProgressState,
 } from "./progress";
@@ -36,20 +37,21 @@ import {
   fetchNeeds,
   fetchPaths,
   fetchProgress,
+  fetchTopics,
   isPermanent,
   patchEnrollment,
   postDayDone,
   postEnrollment,
 } from "./queries";
 import { accessTokenFor, learningMode } from "./session";
-import type { Moment, Need, Path, PathDay } from "./types";
+import type { Moment, Need, Path, PathDay, Topic } from "./types";
 
 /**
- * Needs, paths, moments and the viewer's progress through paths. Shown at
+ * Needs, topics, paths, moments and the viewer's progress through paths. Shown at
  * once from the device's copy (stale-while-revalidate), so screens render
  * instantly on later launches and offline, then brought up to date.
  *
- * - remote: Supabase tables (needs, moments, paths, path_days; the viewer's
+ * - remote: Supabase tables (needs, topics, moments, paths, path_days; the viewer's
  *   own path_enrollments and path_day_done when signed in).
  * - local (EXPO_PUBLIC_AUTH_MODE=local): the test data in fixtures.ts, with
  *   progress kept on the device per local user.
@@ -61,6 +63,7 @@ import type { Moment, Need, Path, PathDay } from "./types";
 
 const KEYS = {
   needs: "aao.learning.needs.v1",
+  topics: "aao.learning.topics.v1",
   // v2: paths carry their kind (guided path or teaching series).
   paths: "aao.learning.paths.v2",
   moments: "aao.learning.moments.v1",
@@ -68,7 +71,7 @@ const KEYS = {
   recent: (owner: string) => `aao.learning.recent.v1.${owner}`,
 };
 
-/** Needs and paths are fetched again when the app returns after this long. */
+/** Needs, topics and paths are fetched again when the app returns after this long. */
 const STALE_MS = 30 * 60 * 1000;
 /** A sermon's moments are fetched again after this long. */
 const MOMENTS_STALE_MS = 6 * 60 * 60 * 1000;
@@ -94,6 +97,7 @@ const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
 // ---- Contexts ------------------------------------------------------------------
 
 type NeedsValue = { needs: Need[]; loading: boolean };
+type TopicsValue = { topics: Topic[]; loading: boolean };
 type PathsValue = {
   paths: Path[];
   days: PathDay[];
@@ -123,6 +127,7 @@ type RecentValue = {
 };
 
 const NeedsContext = createContext<NeedsValue | null>(null);
+const TopicsContext = createContext<TopicsValue | null>(null);
 const PathsContext = createContext<PathsValue | null>(null);
 const MomentsContext = createContext<MomentsValue | null>(null);
 const ProgressContext = createContext<ProgressValue | null>(null);
@@ -167,10 +172,13 @@ export function LearningProvider({ children }: PropsWithChildren) {
   const owner = account.user?.id ?? "guest";
   const member = learningMode === "remote" && !!account.user;
 
-  // ---- Needs and paths ----------------------------------------------------------
+  // ---- Needs, topics and paths ---------------------------------------------------
 
   const [needs, setNeeds] = useState<NeedsValue>(() =>
     local ? { needs: fixtureNeeds, loading: false } : { needs: [], loading: true },
+  );
+  const [topics, setTopics] = useState<TopicsValue>(() =>
+    local ? { topics: fixtureTopics, loading: false } : { topics: [], loading: true },
   );
   const [pathData, setPathData] = useState(() =>
     local
@@ -178,6 +186,17 @@ export function LearningProvider({ children }: PropsWithChildren) {
       : { paths: [] as Path[], days: [] as PathDay[], loading: true, error: false },
   );
   const lastFetch = useRef(0);
+
+  // A guest's topics are kept on this device: once the topics are known,
+  // any no longer offered are dropped (the old sample topics' ids, say). An
+  // account's are left as they are, for the server to remap; screens show
+  // only current ones (useMyTopics).
+  const { ready, user, interests, setInterests } = account;
+  useEffect(() => {
+    if (!ready || user || !topics.topics.length) return;
+    const kept = interests.filter((id) => topics.topics.some((t) => t.id === id));
+    if (kept.length < interests.length) setInterests(kept).catch(() => {});
+  }, [ready, user, interests, topics.topics, setInterests]);
 
   const revalidate = useCallback(async () => {
     if (local) return;
@@ -191,6 +210,13 @@ export function LearningProvider({ children }: PropsWithChildren) {
           writeJSON(KEYS.needs, { at: Date.now(), data: fresh } satisfies Stamped<Need[]>);
         },
         () => setNeeds((was) => (was.loading ? { ...was, loading: false } : was)),
+      ),
+      fetchTopics().then(
+        (fresh) => {
+          setTopics((was) => (!was.loading && same(was.topics, fresh) ? was : { topics: fresh, loading: false }));
+          writeJSON(KEYS.topics, { at: Date.now(), data: fresh } satisfies Stamped<Topic[]>);
+        },
+        () => setTopics((was) => (was.loading ? { ...was, loading: false } : was)),
       ),
       fetchPaths().then(
         (fresh) => {
@@ -215,10 +241,12 @@ export function LearningProvider({ children }: PropsWithChildren) {
     let alive = true;
     Promise.all([
       readJSON<Stamped<Need[]> | null>(KEYS.needs, null),
+      readJSON<Stamped<Topic[]> | null>(KEYS.topics, null),
       readJSON<Stamped<{ paths: Path[]; days: PathDay[] }> | null>(KEYS.paths, null),
-    ]).then(([cachedNeeds, cachedPaths]) => {
+    ]).then(([cachedNeeds, cachedTopics, cachedPaths]) => {
       if (!alive) return;
       if (cachedNeeds?.data?.length) setNeeds({ needs: cachedNeeds.data, loading: false });
+      if (cachedTopics?.data?.length) setTopics({ topics: cachedTopics.data, loading: false });
       if (cachedPaths?.data?.paths?.length) {
         // Days kept from before teaching_start read as not known (from the beginning).
         const days = cachedPaths.data.days.map((d) => ({ ...d, teachingStart: d.teachingStart ?? null }));
@@ -530,15 +558,17 @@ export function LearningProvider({ children }: PropsWithChildren) {
 
   return (
     <NeedsContext.Provider value={needs}>
-      <PathsContext.Provider value={pathsValue}>
-        <MomentsContext.Provider value={momentsValue}>
-          <ProgressContext.Provider value={progressValue}>
-            <CompleteDayContext.Provider value={complete}>
-              <RecentContext.Provider value={recentValue}>{children}</RecentContext.Provider>
-            </CompleteDayContext.Provider>
-          </ProgressContext.Provider>
-        </MomentsContext.Provider>
-      </PathsContext.Provider>
+      <TopicsContext.Provider value={topics}>
+        <PathsContext.Provider value={pathsValue}>
+          <MomentsContext.Provider value={momentsValue}>
+            <ProgressContext.Provider value={progressValue}>
+              <CompleteDayContext.Provider value={complete}>
+                <RecentContext.Provider value={recentValue}>{children}</RecentContext.Provider>
+              </CompleteDayContext.Provider>
+            </ProgressContext.Provider>
+          </MomentsContext.Provider>
+        </PathsContext.Provider>
+      </TopicsContext.Provider>
     </NeedsContext.Provider>
   );
 }
@@ -548,6 +578,33 @@ export function LearningProvider({ children }: PropsWithChildren) {
 /** Published needs in editorial order. Empty: hide the chips. */
 export function useNeeds() {
   return need(useContext(NeedsContext), "useNeeds");
+}
+
+/** The topics people pick, in the order they're offered. Empty until loaded. */
+export function useTopics() {
+  return need(useContext(TopicsContext), "useTopics");
+}
+
+/**
+ * The topics the viewer picked (in onboarding or Account), in the order
+ * they're offered. A picked id that's no longer a topic is left out.
+ */
+export function useMyTopics() {
+  const { topics } = useTopics();
+  const { interests } = useAccount();
+  return useMemo(() => topics.filter((t) => interests.includes(t.id)), [topics, interests]);
+}
+
+/**
+ * Up to three paths for the viewer's topics (see suggestPaths), once their
+ * progress is known: until then none, so a path they're on never shows.
+ */
+export function usePathSuggestions() {
+  const mine = useMyTopics();
+  const progress = need(useContext(ProgressContext), "usePathSuggestions");
+  const { paths } = need(useContext(PathsContext), "usePathSuggestions");
+  const { read, state } = progress;
+  return useMemo(() => (read ? suggestPaths(mine, paths, state) : []), [read, mine, paths, state]);
 }
 
 /**
@@ -595,21 +652,6 @@ export function useMoments(youtubeId?: string | null) {
   }, [youtubeId, load]);
   const list = youtubeId ? value.byId[youtubeId] : undefined;
   return { moments: list ?? EMPTY_MOMENTS, loading: !!youtubeId && list === undefined };
-}
-
-/**
- * The path the viewer is on and today's day, without the gate (safe outside
- * screens). Use useEnrollment() in screens to start paths and mark days.
- */
-export function useActivePath() {
-  const progress = need(useContext(ProgressContext), "useActivePath");
-  const paths = need(useContext(PathsContext), "useActivePath");
-  const { find } = useCatalogue();
-  const active = useMemo(
-    () => activePath(progress.state, paths.paths, paths.daysByPath, find),
-    [progress.state, paths.paths, paths.daysByPath, find],
-  );
-  return { active, loading: progress.loading || paths.loading };
 }
 
 /**

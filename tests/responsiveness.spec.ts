@@ -4,8 +4,8 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { runInNewContext } from "node:vm";
 import ts from "typescript";
-import { fixtureDays, fixtureNeeds, fixturePaths } from "../src/learning/fixtures";
-import type { Need, Path, PathDay } from "../src/learning/types";
+import { fixtureDays, fixtureNeeds, fixturePaths, fixtureTopics } from "../src/learning/fixtures";
+import type { Need, Path, PathDay, Topic } from "../src/learning/types";
 
 // These regressions need pending remote requests, which the local browser
 // backend completes immediately. Execute the real action/refresh source with
@@ -187,14 +187,38 @@ for (const screen of ["Home", "Search"] as const) {
 }
 
 type NeedsState = { needs: Need[]; loading: boolean };
+type TopicsState = { topics: Topic[]; loading: boolean };
 type PathState = { paths: Path[]; days: PathDay[]; loading: boolean; error: boolean };
 const freshNeeds = fixtureNeeds.slice(0, 2);
+const freshTopics = fixtureTopics.slice(0, 3);
 const freshPaths = { paths: fixturePaths.slice(0, 1), days: fixtureDays.filter((d) => d.pathId === fixturePaths[0].id) };
-function refreshHost(initial?: { needs: NeedsState; paths: PathState }, local = false) {
-  let needs = initial?.needs ?? { needs: [], loading: true };
-  let paths = initial?.paths ?? { paths: [], days: [], loading: true, error: false };
-  const needsRequest = deferred<Need[]>();
-  const pathsRequest = deferred<{ paths: Path[]; days: PathDay[] }>();
+const fresh = { needs: freshNeeds, topics: freshTopics, paths: freshPaths };
+const empty = { needs: [], topics: [], paths: { paths: [], days: [] } };
+const RESOURCES = ["needs", "topics", "paths"] as const;
+type Resource = (typeof RESOURCES)[number];
+const KEY: Record<Resource, string> = {
+  needs: "aao.learning.needs.v1",
+  topics: "aao.learning.topics.v1",
+  paths: "aao.learning.paths.v2",
+};
+const others = (one: Resource) => RESOURCES.filter((r) => r !== one);
+type Initial = { needs: NeedsState; topics: TopicsState; paths: PathState };
+const cached = (): Initial => ({
+  needs: { needs: freshNeeds, loading: false },
+  topics: { topics: freshTopics, loading: false },
+  paths: { ...freshPaths, loading: false, error: false },
+});
+function refreshHost(initial?: Initial, local = false) {
+  const state = {
+    needs: initial?.needs ?? { needs: [], loading: true },
+    topics: initial?.topics ?? { topics: [], loading: true },
+    paths: initial?.paths ?? { paths: [], days: [], loading: true, error: false },
+  };
+  const requests = {
+    needs: deferred<Need[]>(),
+    topics: deferred<Topic[]>(),
+    paths: deferred<{ paths: Path[]; days: PathDay[] }>(),
+  };
   const cache = new Map<string, { at: number; data: unknown }>();
   const pathUpdates: PathState[] = [];
   const called: string[] = [];
@@ -202,104 +226,96 @@ function refreshHost(initial?: { needs: NeedsState; paths: PathState }, local = 
   const refresh = evaluate<() => Promise<void>>(
     ["same", "KEYS", "revalidate"].map((name) => declaration(file, name)).join("\n"), "revalidate", {
       local, lastFetch: { current: 0 }, useCallback: (callback: unknown) => callback,
-      fetchNeeds: () => { called.push("needs"); return needsRequest.promise; },
-      fetchPaths: () => { called.push("paths"); return pathsRequest.promise; },
-      setNeeds: (update: (was: NeedsState) => NeedsState) => { needs = update(needs); },
-      setPathData: (update: (was: PathState) => PathState) => { paths = update(paths); pathUpdates.push(paths); },
+      fetchNeeds: () => { called.push("needs"); return requests.needs.promise; },
+      fetchTopics: () => { called.push("topics"); return requests.topics.promise; },
+      fetchPaths: () => { called.push("paths"); return requests.paths.promise; },
+      setNeeds: (update: (was: NeedsState) => NeedsState) => { state.needs = update(state.needs); },
+      setTopics: (update: (was: TopicsState) => TopicsState) => { state.topics = update(state.topics); },
+      setPathData: (update: (was: PathState) => PathState) => { state.paths = update(state.paths); pathUpdates.push(state.paths); },
       writeJSON: (key: string, value: { at: number; data: unknown }) => { cache.set(key, value); },
     },
   );
-  return { refresh, needsRequest, pathsRequest, cache, called, pathUpdates, needs: () => needs, paths: () => paths };
+  /** Answers one resource's request. */
+  const answer = (one: Resource, data: unknown = fresh[one]) =>
+    (requests[one] as { resolve: (value: unknown) => void }).resolve(data);
+  const fail = (one: Resource) => requests[one].reject(new Error("offline"));
+  return { refresh, answer, fail, cache, called, pathUpdates, state };
 }
 
-for (const first of ["needs", "paths"] as const) {
-  test(`refresh: ${first} publishes while the other request is still pending`, async () => {
+for (const first of RESOURCES) {
+  test(`refresh: ${first} publishes while the others are still pending`, async () => {
     const app = refreshHost();
     let finished = false;
     const job = app.refresh().then(() => { finished = true; });
-    expect(app.called).toEqual(["needs", "paths"]);
-    if (first === "needs") app.needsRequest.resolve(freshNeeds);
-    else app.pathsRequest.resolve(freshPaths);
+    expect(app.called).toEqual(["needs", "topics", "paths"]);
+    app.answer(first);
     await settled();
-    expect(app[first]().loading).toBe(false);
-    expect(app[first === "needs" ? "paths" : "needs"]().loading).toBe(true);
+    expect(app.state[first].loading).toBe(false);
+    for (const other of others(first)) expect(app.state[other].loading).toBe(true);
     expect(finished).toBe(false);
-    expect([...app.cache.keys()]).toEqual([`aao.learning.${first}.${first === "needs" ? "v1" : "v2"}`]);
-    if (first === "needs") app.pathsRequest.resolve(freshPaths);
-    else app.needsRequest.resolve(freshNeeds);
+    expect([...app.cache.keys()]).toEqual([KEY[first]]);
+    for (const other of others(first)) app.answer(other);
     await job;
-    expect(app.needs()).toEqual({ needs: freshNeeds, loading: false });
+    expect(app.state.needs).toEqual({ needs: freshNeeds, loading: false });
+    expect(app.state.topics).toEqual({ topics: freshTopics, loading: false });
     expect(app.pathUpdates).toEqual([{ ...freshPaths, loading: false, error: false }]);
-    expect(app.cache.get("aao.learning.paths.v2")?.data).toEqual(freshPaths);
-    expect(app.cache.get("aao.learning.needs.v1")?.data).toEqual(freshNeeds);
+    for (const one of RESOURCES) expect(app.cache.get(KEY[one])?.data).toEqual(fresh[one]);
   });
 
   test(`refresh: ${first} failure settles independently and preserves cached content`, async () => {
-    const initial = {
-      needs: { needs: freshNeeds, loading: false },
-      paths: { ...freshPaths, loading: false, error: false },
-    };
+    const initial = cached();
     const app = refreshHost(initial);
     const job = app.refresh();
-    if (first === "needs") app.needsRequest.reject(new Error("offline"));
-    else app.pathsRequest.reject(new Error("offline"));
+    app.fail(first);
     await settled();
-    expect(app.needs()).toBe(initial.needs);
-    expect(app.paths()).toBe(initial.paths);
+    for (const one of RESOURCES) expect(app.state[one]).toBe(initial[one]);
     expect(app.cache.size).toBe(0); // Failed data never replaces the cache.
-    if (first === "needs") app.pathsRequest.resolve({ paths: [], days: [] });
-    else app.needsRequest.resolve([]);
+    for (const other of others(first)) app.answer(other, empty[other]);
     await job;
-    expect(app[first]()).toBe(initial[first]);
-    expect(app[first === "needs" ? "paths" : "needs"]().loading).toBe(false);
-    expect(app.cache.size).toBe(1);
+    expect(app.state[first]).toBe(initial[first]);
+    for (const other of others(first)) expect(app.state[other].loading).toBe(false);
+    expect(app.cache.size).toBe(2);
   });
-}
 
-for (const first of ["needs", "paths"] as const) {
-  test(`refresh: uncached ${first} failure clears loading without waiting for the other`, async () => {
+  test(`refresh: uncached ${first} failure clears loading without waiting for the others`, async () => {
     const app = refreshHost();
     const job = app.refresh();
-    if (first === "needs") app.needsRequest.reject(new Error("offline"));
-    else app.pathsRequest.reject(new Error("offline"));
+    app.fail(first);
     await settled();
-    expect(app[first]().loading).toBe(false);
-    expect(app[first === "needs" ? "paths" : "needs"]().loading).toBe(true);
-    if (first === "needs") app.pathsRequest.reject(new Error("offline"));
-    else app.needsRequest.reject(new Error("offline"));
+    expect(app.state[first].loading).toBe(false);
+    for (const other of others(first)) expect(app.state[other].loading).toBe(true);
+    for (const other of others(first)) app.fail(other);
     await job;
-    expect(app.paths()).toEqual({ paths: [], days: [], loading: false, error: true });
-    expect(app.needs()).toEqual({ needs: [], loading: false });
+    expect(app.state.paths).toEqual({ paths: [], days: [], loading: false, error: true });
+    expect(app.state.needs).toEqual({ needs: [], loading: false });
+    expect(app.state.topics).toEqual({ topics: [], loading: false });
     expect(app.cache.size).toBe(0);
   });
 }
 
-test("refresh: equal results keep state identity while renewing both caches", async () => {
-  const initial = {
-    needs: { needs: freshNeeds, loading: false },
-    paths: { ...freshPaths, loading: false, error: false },
-  };
+test("refresh: equal results keep state identity while renewing every cache", async () => {
+  const initial = cached();
   const app = refreshHost(initial);
   const job = app.refresh();
-  app.needsRequest.resolve(structuredClone(freshNeeds));
-  app.pathsRequest.resolve(structuredClone(freshPaths));
+  for (const one of RESOURCES) app.answer(one, structuredClone(fresh[one]));
   await job;
-  expect(app.needs()).toBe(initial.needs);
-  expect(app.paths()).toBe(initial.paths);
-  expect(app.cache.size).toBe(2);
+  for (const one of RESOURCES) expect(app.state[one]).toBe(initial[one]);
+  expect(app.cache.size).toBe(3);
   for (const entry of app.cache.values()) expect(entry.at).toBeGreaterThan(0);
 });
 
 test("refresh: a successful retry clears the previous empty-path error", async () => {
   const app = refreshHost({
     needs: { needs: [], loading: false },
+    topics: { topics: [], loading: false },
     paths: { paths: [], days: [], loading: false, error: true },
   });
   const job = app.refresh();
-  app.pathsRequest.resolve({ paths: [], days: [] });
+  app.answer("paths", empty.paths);
   await settled();
-  expect(app.paths()).toEqual({ paths: [], days: [], loading: false, error: false });
-  app.needsRequest.resolve([]);
+  expect(app.state.paths).toEqual({ paths: [], days: [], loading: false, error: false });
+  app.answer("needs", []);
+  app.answer("topics", []);
   await job;
 });
 

@@ -57,8 +57,8 @@ export default function Terms() {
           stop being available if its owner or YouTube removes it.
         </P>
         <P>
-          Titles, dates and artwork come from public sources. The topics
-          sermons appear under are AAO’s own sample labels.
+          Titles, dates and artwork come from public sources. Topics are
+          matched automatically from each sermon’s transcript.
         </P>
         <TextButton
           label="YouTube Terms of Service"

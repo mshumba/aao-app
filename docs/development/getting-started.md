@@ -57,9 +57,9 @@ The `eas` scripts need EAS CLI (`npm install -g eas-cli`, then `eas login`) and 
 These steps use the on-device stand-in and the four bundled sermons (no `.env`, or `EXPO_PUBLIC_AUTH_MODE=local`).
 
 1. The first visit (or a private browser window) opens the welcome. **Explore first** browses as a guest; **Get started** picks topics, offers a free account and asks your name.
-2. Browse as a guest. Open the **Search** tab → **Browse by topic** → Prayer, or the **Paths** tab and a path.
-3. **Search** tab: type `devotion`, open a result, then Back. Switch tabs and return: the query is as you left it.
-4. Try Christian Living under **Browse by topic** to see an empty topic, then **Browse other topics**.
+2. Browse as a guest. Open the **Search** tab → **Browse by topic** → Purpose & Calling (its sermons, best match first), or the **Paths** tab and a path.
+3. **Search** tab: type `shift`, open a result, then Back. Switch tabs and return: the query is as you left it.
+4. Try Hearing God under **Browse by topic** to see an empty topic in the bundled sample, then **Browse other topics**.
 5. As a guest, tap **Watch sermon** on a sermon: a sheet asks for a free account, with Apple and Google first. Tap **Use email instead**, enter any address, then the code `123456` (or tap Apple or Google, which sign in at once with the stand-in). The sheet closes and the sermon starts. **Save** works the same way.
 6. Watching: the app's controls sit under the video. Press Back: the video docks above the tabs and keeps playing across tabs. Tap the dock to reopen Now Playing; close it with ✕. On the web, backgrounding the app pauses it; on a phone, a sermon on R2 keeps playing. Native behavior needs the device checks below.
 7. **Account** tab: change your name or topics, open **Saved sermons**, sign out, and sign back in. **Delete account** asks once, then deletes the account.

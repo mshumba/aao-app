@@ -3,10 +3,10 @@ import { memo, useCallback, useMemo, useState } from "react";
 import { FlatList, Platform, StyleSheet, View, type ListRenderItem } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useCatalogue } from "../catalogue/CatalogueProvider";
-import { categories, type CategoryId } from "../data/categories";
-import { seriesRails, sermonCategoryIds, type Sermon } from "../data/sermons";
+import { seriesRails, type Sermon } from "../data/sermons";
 import { SERIES_MIN } from "../home/copy";
 import { ChipRow, FilterChip, SearchField } from "../kit";
+import { useTopics } from "../learning";
 import { firstParam } from "../navigation";
 import { useDockInset } from "../player/useDockInset";
 import { space, tabular, type } from "../theme";
@@ -46,6 +46,7 @@ export default function AllSermons() {
   }>();
   const catalogue = useCatalogue();
   const { sermons, seriesName } = catalogue;
+  const { topics: allTopics } = useTopics();
   const insets = useSafeAreaInsets();
   const dock = useDockInset();
 
@@ -57,12 +58,10 @@ export default function AllSermons() {
     const series = seriesRails(sermons, seriesName, { count: Number.MAX_SAFE_INTEGER, min: SERIES_MIN }).map(
       (rail) => ({ key: rail.key, label: rail.name }),
     );
-    const counts = new Map<CategoryId, number>();
-    for (const sermon of sermons)
-      for (const id of sermonCategoryIds(sermon)) counts.set(id, (counts.get(id) ?? 0) + 1);
-    const topics = categories.filter((t) => counts.get(t.id)).map((t) => ({ key: t.id, label: t.label }));
+    const tagged = new Set(sermons.map((sermon) => sermon.topic?.id));
+    const topics = allTopics.filter((t) => tagged.has(t.id)).map((t) => ({ key: t.id, label: t.label }));
     return { year: years, series, topic: topics } satisfies Record<Dimension, Option[]>;
-  }, [sermons, seriesName]);
+  }, [sermons, seriesName, allTopics]);
 
   // ---- What's chosen (a link may choose for you: /sermons?series=…) ------------------
   const initial = (dimension: Dimension, value?: string | string[]) => {
@@ -91,7 +90,7 @@ export default function AllSermons() {
     return sermons.filter((sermon) => {
       if (chosen.year && !sermon.day.startsWith(chosen.year)) return false;
       if (chosen.series && sermon.seriesKey !== chosen.series) return false;
-      if (chosen.topic && !sermonCategoryIds(sermon).includes(chosen.topic as CategoryId)) return false;
+      if (chosen.topic && sermon.topic?.id !== chosen.topic) return false;
       if (!words.length) return true;
       const text = fold(`${sermon.headline} ${sermon.title}`);
       return words.every((w) => text.includes(w));

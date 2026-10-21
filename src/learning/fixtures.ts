@@ -24,6 +24,7 @@ import {
   type SearchMoment,
   type SearchResponse,
   type SearchSermon,
+  type Topic,
 } from "./types";
 
 // In the live order (supabase/migrations/20261016000100_home_order.sql):
@@ -39,6 +40,79 @@ export const fixtureNeeds: Need[] = [
   { id: "shame", label: "I feel ashamed after I fall", short: "Shame after falling", theme: "shame after falling", sort: 27 },
   { id: "temptation", label: "I'm being tempted", short: "Temptation", theme: "resisting temptation", sort: 28 },
   { id: "self-control", label: "I want more self-control", short: "Self-control", theme: "mastering your appetites", sort: 29 },
+];
+
+// The live topics, as supabase/seed/topics.sql loads them.
+export const fixtureTopics: Topic[] = [
+  {
+    id: "hearing-god",
+    label: "Hearing God",
+    description: "Recognising God's voice and learning to respond well.",
+    needIds: ["hear-god", "purpose", "holy-spirit", "drifted", "bible"],
+    pathIds: ["hearing-the-voice-of-god", "knowing-the-holy-spirit"],
+    sort: 1,
+  },
+  {
+    id: "prayer",
+    label: "Prayer",
+    description: "Building steady prayer that meets God daily.",
+    needIds: ["prayer", "presence", "dryness", "burnout", "fasting"],
+    pathIds: ["building-a-life-of-prayer", "seeking-the-face-of-god", "fasting-with-purpose"],
+    sort: 2,
+  },
+  {
+    id: "purpose-calling",
+    label: "Purpose & Calling",
+    description: "Finding your assignment and walking in it.",
+    needIds: ["purpose", "calling", "waiting", "future"],
+    pathIds: ["discovering-your-purpose-and-calling", "learning-to-wait-on-god"],
+    sort: 3,
+  },
+  {
+    id: "faith-hope",
+    label: "Faith & Hope",
+    description: "Trusting God through delay, fear and pressure.",
+    needIds: ["faith", "waiting", "fear", "anxiety", "delay"],
+    pathIds: ["living-by-faith", "learning-to-wait-on-god", "overcoming-fear-and-anxiety"],
+    sort: 4,
+  },
+  {
+    id: "grace-holiness",
+    label: "Grace & Holiness",
+    description: "Living clean, free and strong by grace.",
+    needIds: ["grace", "holiness", "same-sin", "shame", "temptation", "self-control", "purity", "new-believer"],
+    pathIds: [
+      "walking-in-grace-and-holiness",
+      "breaking-free-from-habitual-sin",
+      "building-on-the-right-foundation",
+      "the-way-of-the-cross",
+    ],
+    sort: 5,
+  },
+  {
+    id: "holy-spirit",
+    label: "The Holy Spirit",
+    description: "Knowing the Spirit who leads, fills and empowers.",
+    needIds: ["holy-spirit", "presence", "faith", "spiritual-attack"],
+    pathIds: ["knowing-the-holy-spirit", "seeking-the-face-of-god"],
+    sort: 6,
+  },
+  {
+    id: "everyday-life",
+    label: "Everyday Life",
+    description: "God's wisdom for marriage, family, work and money.",
+    needIds: ["money", "marriage", "singleness", "relationships", "offence", "forgive", "rejection", "discouraged"],
+    pathIds: ["building-on-the-right-foundation", "the-way-of-the-cross"],
+    sort: 7,
+  },
+  {
+    id: "comfort-healing",
+    label: "Comfort & Healing",
+    description: "God's healing and comfort for the sick and the weary.",
+    needIds: ["healing", "grief", "rejection", "discouraged", "fear", "anxiety"],
+    pathIds: ["living-by-faith", "seeking-the-face-of-god"],
+    sort: 8,
+  },
 ];
 
 const HABIT = "breaking-free-from-habitual-sin";

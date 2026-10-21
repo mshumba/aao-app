@@ -11,28 +11,31 @@ import {
 } from "react";
 import { AppState } from "react-native";
 import { authMode, supabaseConfig } from "../auth/config";
-import { sampleSnapshot, sermonsFrom, type Sermon } from "../data/sermons";
+import { sampleSnapshot, sampleTags, sermonsFrom, type Sermon, type TopicTags } from "../data/sermons";
 import { NATIVE_VIDEO } from "../player/videoPlatform";
 import { reportFailure } from "../lib/monitoring";
-import { keys } from "../lib/storage";
+import { keys, readJSON, writeJSON } from "../lib/storage";
 import type { Snapshot } from "./records";
 import { createRemote } from "./remote";
 import { CatalogueError, loadCatalogue, type CatalogueSource, type Store } from "./sync";
 
 /**
- * The full library from Supabase, kept on the device and brought up to date
- * at launch and when the app comes back after a while. The on-device
- * account mode (development and the automated tests) and builds without a
- * Supabase project use the four bundled sermons instead.
+ * The full library from Supabase with every sermon's topics, kept on the
+ * device and brought up to date at launch and when the app comes back after
+ * a while. The on-device account mode (development and the automated tests)
+ * and builds without a Supabase project use the four bundled sermons instead.
  */
 export const catalogueMode: "remote" | "sample" =
   authMode !== "local" && supabaseConfig.url && supabaseConfig.key ? "remote" : "sample";
 
 // Coming back to the app syncs again once the copy is this old.
 const RESYNC_AFTER_MS = 30 * 60 * 1000;
+// Sermons' topics are fetched again once the device's copy is this old
+// (new sermons are tagged overnight, as they're imported).
+const TAGS_STALE_MS = 6 * 60 * 60 * 1000;
 
 export type Catalogue = {
-  /** Every sermon, newest first. */
+  /** Every sermon with its topics, newest first. */
   sermons: Sermon[];
   find: (id?: string | null) => Sermon | undefined;
   /** A series' name, e.g. "Lioness Conference 2022". */
@@ -83,6 +86,27 @@ export function CatalogueProvider({ children }: PropsWithChildren) {
   const lastSync = useRef(0);
   const current = useRef<Snapshot | null>(null);
 
+  // Every sermon's topics: the device's copy at once, then fetched again
+  // when it's old. Offline, the copy stays; with none, sermons have none.
+  const [tags, setTags] = useState<TopicTags>(() => (catalogueMode === "sample" ? sampleTags : {}));
+  const tagsAt = useRef(0);
+  const tagging = useRef(false);
+  const refreshTags = useCallback(async () => {
+    if (catalogueMode !== "remote" || tagging.current || Date.now() - tagsAt.current < TAGS_STALE_MS) return;
+    tagging.current = true;
+    try {
+      const fresh = await createRemote(supabaseConfig).fetchTags();
+      tagsAt.current = Date.now();
+      // The same topics (most fetches) leave every sermon as it is.
+      setTags((was) => (JSON.stringify(was) === JSON.stringify(fresh) ? was : fresh));
+      writeJSON(keys.topicTags, { at: tagsAt.current, data: fresh });
+    } catch {
+      // Offline: tried again when the app comes back.
+    } finally {
+      tagging.current = false;
+    }
+  }, []);
+
   const sync = useCallback(async () => {
     if (catalogueMode !== "remote" || syncing.current) return;
     syncing.current = true;
@@ -117,13 +141,22 @@ export function CatalogueProvider({ children }: PropsWithChildren) {
   useEffect(() => {
     if (catalogueMode !== "remote") return;
     sync();
+    readJSON<{ at: number; data: TopicTags } | null>(keys.topicTags, null).then((cached) => {
+      if (cached?.data) {
+        tagsAt.current = cached.at;
+        setTags(cached.data);
+      }
+      refreshTags();
+    });
     const subscription = AppState.addEventListener("change", (next) => {
-      if (next === "active" && Date.now() - lastSync.current > RESYNC_AFTER_MS) sync();
+      if (next !== "active") return;
+      if (Date.now() - lastSync.current > RESYNC_AFTER_MS) sync();
+      refreshTags();
     });
     return () => subscription.remove();
-  }, [sync]);
+  }, [sync, refreshTags]);
 
-  const all = useMemo(() => sermonsFrom(state.snapshot), [state.snapshot]);
+  const all = useMemo(() => sermonsFrom(state.snapshot, tags), [state.snapshot, tags]);
   const byId = useMemo(() => new Map(all.map((s) => [s.id, s])), [all]);
   // While the library uploads to R2, the phones list only sermons that are
   // there. find() still finds every sermon, so saved sermons, Continue

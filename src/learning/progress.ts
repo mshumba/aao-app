@@ -1,6 +1,7 @@
 import type { Sermon } from "../data/sermons";
+import { takeTurns } from "../lib/turns";
 import type { RemoteProgress } from "./queries";
-import type { ActivePath, Enrollment, Path, PathDay, PathDayWithSermon } from "./types";
+import type { ActivePath, Enrollment, Path, PathDay, PathDayWithSermon, Topic } from "./types";
 
 /**
  * Progress through paths as plain data, so the same rules run for members
@@ -124,4 +125,29 @@ export function activePath(
     };
   }
   return null;
+}
+
+/**
+ * Paths to suggest for these topics (the viewer's, in the order they're
+ * offered): each topic's paths in the order it lists them, the topics
+ * taking turns, so every topic's best fit comes before any topic's second.
+ * A path that isn't loaded, or that the viewer has started or finished,
+ * is skipped, and one two topics share is suggested once.
+ */
+export function suggestPaths(
+  topics: readonly Pick<Topic, "pathIds">[],
+  paths: readonly Path[],
+  state: ProgressState,
+  count = 3,
+): Path[] {
+  const byId = new Map(paths.map((p) => [p.id, p]));
+  return takeTurns(
+    topics.map((topic) =>
+      topic.pathIds.flatMap((id) => {
+        const path = byId.get(id);
+        return path && !state.enrollments[id] ? [path] : [];
+      }),
+    ),
+    count,
+  );
 }

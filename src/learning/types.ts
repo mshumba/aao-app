@@ -18,6 +18,23 @@ export type Need = {
   sort: number;
 };
 
+/**
+ * One of the topics people pick when they join, chosen by AI from what the
+ * Apostle teaches (approved by the owner, 16 Oct 2026). A sermon that
+ * clearly fits one is matched to it (Sermon.topic).
+ */
+export type Topic = {
+  id: string;
+  label: string;
+  /** One line under the label in the picker. */
+  description: string;
+  /** The needs it suggests, most fitting first. */
+  needIds: string[];
+  /** The guided paths and series it suggests, in the order to suggest them. */
+  pathIds: string[];
+  sort: number;
+};
+
 /** A verified moment inside a sermon, with where to start playing. */
 export type Moment = {
   id: string;

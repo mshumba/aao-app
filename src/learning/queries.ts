@@ -1,6 +1,6 @@
 import { request } from "./request";
 import { authHeaders, restBase } from "./session";
-import type { Moment, Need, Path, PathDay, PathKind, PathStatus } from "./types";
+import type { Moment, Need, Path, PathDay, PathKind, PathStatus, Topic } from "./types";
 
 /**
  * Supabase tables over REST, the same way the catalogue reads (see
@@ -62,6 +62,14 @@ async function table<T>(path: string): Promise<T[]> {
 }
 
 type NeedRow = { id: string; label: string; short: string; theme: string; sort: number };
+type TopicRow = {
+  id: string;
+  label: string;
+  description: string;
+  need_ids: string[] | null;
+  path_ids: string[] | null;
+  sort: number;
+};
 type MomentRow = {
   id: number | string;
   youtube_id: string;
@@ -101,6 +109,21 @@ type DayRow = {
 export async function fetchNeeds(): Promise<Need[]> {
   const rows = await table<NeedRow>("needs?select=id,label,short,theme,sort&order=sort.asc,id.asc");
   return rows.map((r) => ({ id: r.id, label: r.label, short: r.short, theme: r.theme, sort: r.sort }));
+}
+
+/** The topics people pick, in the order they're offered. */
+export async function fetchTopics(): Promise<Topic[]> {
+  const rows = await table<TopicRow>(
+    "topics?select=id,label,description,need_ids,path_ids,sort&order=sort.asc,id.asc",
+  );
+  return rows.map((r) => ({
+    id: r.id,
+    label: r.label,
+    description: r.description,
+    needIds: r.need_ids ?? [],
+    pathIds: r.path_ids ?? [],
+    sort: r.sort,
+  }));
 }
 
 /** A sermon's verified moments, in playing order. */
