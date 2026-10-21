@@ -261,22 +261,109 @@ test("leaving the app keeps the app's own player playing, and pauses YouTube", (
   expect(youtube.saves).toEqual([304]);
 });
 
+test("Try again gives the app's own player another go after it handed the sermon to YouTube", () => {
+  const player = mountPlayer([], { hls: true });
+  player.session.load(SERMON);
+  player.flush();
+  // A moment offline: the app's own player fails, then YouTube does too.
+  player.session.onEvent({ type: "error", code: 0 });
+  player.flush();
+  expect(player.session.engine).toBe("youtube");
+  player.session.onEvent({ type: "error", code: 0 });
+  player.flush();
+  expect(player.session.phase).toBe("error");
+  player.session.retry();
+  player.flush();
+  expect(player.session.engine).toBe("native");
+  expect(player.session.phase).toBe("loading");
+});
+
+test("the app's own player failing while the app is away, after the sermon has played, loads again paused at the place when the viewer is back", () => {
+  const player = mountPlayer([], { hls: true });
+  watchFourSeconds(player, 300);
+  player.session.onEvent({ type: "state", state: 2, seconds: 304, duration: 600 });
+  player.flush();
+  const attempt = player.session.attempt;
+  player.background();
+  // iOS dropped the paused video's decoder.
+  player.session.onEvent({ type: "error", code: 0 });
+  player.flush();
+  expect(player.session.phase).toBe("ready");
+  expect(player.session.attempt).toBe(attempt);
+
+  player.foreground();
+  expect(player.session.engine).toBe("native");
+  expect(player.session.phase).toBe("loading");
+  expect(player.session.error).toBeNull();
+  expect(player.session.attempt).toBe(attempt + 1);
+  expect(player.session.start).toBe(304);
+  // Ready again, it waits for the viewer: no second play.
+  player.session.onEvent({ type: "ready", duration: 600 });
+  player.flush();
+  expect(player.commands).toEqual(["play"]);
+  expect(player.playback.status).toBe("Press play to start");
+
+  // The failure only reported as the app comes back counts the same.
+  const late = mountPlayer([], { hls: true });
+  watchFourSeconds(late, 300);
+  late.background();
+  late.foreground();
+  late.session.onEvent({ type: "error", code: 0 });
+  late.flush();
+  expect(late.session.phase).toBe("loading");
+  expect(late.session.engine).toBe("native");
+  expect(late.session.start).toBe(304);
+});
+
+test("a slow restart keeps the tap catcher over the app's own player, so its controls can come back; over YouTube taps reach its player", () => {
+  for (const hls of [true, false]) {
+    const player = mountPlayer([], { hls });
+    watchFourSeconds(player);
+    player.session.onEvent({ type: "state", state: 2, seconds: 4, duration: 600 });
+    player.flush();
+    // Continue watching, on a slow network: it buffers.
+    player.session.playWhenReady();
+    player.session.onEvent({ type: "state", state: 3, seconds: 4, duration: 600 });
+    player.flush();
+    player.timers.fire(3000);
+    player.flush();
+    expect(player.playback.playing).toBe(true);
+    expect(player.playback.status).toBe("Still loading. If it doesn’t start, tap Play.");
+    expect(player.tapsReachPlayer(player.session.engine, player.playback.status)).toBe(!hls);
+  }
+});
+
 // ---- The app's own player (NativeVideo.tsx) ----------------------------------------------
 
 type Listener = (payload?: unknown) => void;
 
-/** An expo-video player as the app sees it, moved by the test. */
+/**
+ * An expo-video player as the app sees it, moved by the test. Like
+ * expo-video it only reports a change: the same status or playing again
+ * says nothing. Setting the speed is recorded ("rate:1.5"), since on iOS
+ * that alone starts a paused player.
+ */
 function fakeVideoPlayer() {
   const listeners = new Map<string, Set<Listener>>();
+  let rate = 1;
   const player = {
     playing: false,
     status: "idle" as string,
     currentTime: 0,
     duration: 0,
-    playbackRate: 1,
+    get playbackRate() {
+      return rate;
+    },
+    set playbackRate(next: number) {
+      player.calls.push(`rate:${next}`);
+      if (next === rate) return;
+      rate = next;
+      player.emit("playbackRateChange", { playbackRate: next });
+    },
     timeUpdateEventInterval: 0,
     staysActiveInBackground: false,
     showNowPlayingNotification: false,
+    preservesPitch: false,
     calls: [] as string[],
     play() {
       player.calls.push("play");
@@ -296,17 +383,22 @@ function fakeVideoPlayer() {
     listening: () => Array.from(listeners.values()).reduce((n, set) => n + set.size, 0),
     /** Its status changes, as statusChange reports. */
     status_(status: string) {
+      if (player.status === status) return;
       player.status = status;
       player.emit("statusChange", { status });
     },
     /** It starts or stops, as playingChange reports. */
     playing_(isPlaying: boolean) {
+      if (player.playing === isPlaying) return;
       player.playing = isPlaying;
       player.emit("playingChange", { isPlaying });
     },
   };
   return player;
 }
+
+/** The states among `events`, as numbers, and the other events by type. */
+const kinds = (events: PlayerEvent[]) => events.map((e) => (e.type === "state" ? e.state : e.type));
 
 /** NativeVideo.tsx with a stand-in expo-video, and the source and setup it asked for. */
 function loadNativeVideo() {
@@ -366,29 +458,30 @@ test("the app's own player reports in YouTube's terms and carries out the app's 
   video.emit("timeUpdate", { currentTime: 121 });
   expect(next()).toEqual([{ type: "state", state: 1, seconds: 121, duration: 600 }]);
 
+  // Faster while it plays: the player takes it at once, and says so.
+  link.command({ type: "rate", rate: 1.5 });
+  expect(video.playbackRate).toBe(1.5);
+  expect(next()).toEqual([{ type: "rate", rate: 1.5 }]);
+
   // It runs out of video while playing: buffering, not a pause.
   video.status_("loading");
   video.playing_(false);
-  expect(next().map((e) => e.type === "state" && e.state)).toEqual([3]);
+  expect(kinds(next())).toEqual([3]);
   video.status_("readyToPlay");
   expect(next()).toEqual([]);
   video.playing_(true);
-  expect(next().map((e) => e.type === "state" && e.state)).toEqual([1]);
+  expect(kinds(next())).toEqual([1]);
 
   link.command({ type: "pause" });
-  expect(video.calls).toEqual(["play", "pause"]);
+  expect(video.calls).toEqual(["play", "rate:1.5", "pause"]);
   video.playing_(false);
-  expect(next().map((e) => e.type === "state" && e.state)).toEqual([2]);
+  expect(kinds(next())).toEqual([2]);
   // Not playing: no times.
   video.emit("timeUpdate", { currentTime: 121 });
   expect(next()).toEqual([]);
 
   link.command({ type: "seek", seconds: 300 });
   expect(video.currentTime).toBe(300);
-  link.command({ type: "rate", rate: 1.5 });
-  expect(video.playbackRate).toBe(1.5);
-  video.emit("playbackRateChange", { playbackRate: 1.5 });
-  expect(next()).toEqual([{ type: "rate", rate: 1.5 }]);
   // No caption track on R2 yet: CC does nothing (and isn't offered).
   link.command({ type: "captions", enabled: true });
   expect(next()).toEqual([]);
@@ -406,24 +499,86 @@ test("the app's own player reports in YouTube's terms and carries out the app's 
   expect(video.calls.at(-1)).toBe("play");
 });
 
-test("a paused-by-the-lock-screen player reports paused, and one never started reports unstarted", () => {
+test("a player paused by the lock screen reports paused, and one paused before it ever played reports unstarted", () => {
   const { connect } = loadNativeVideo();
   const video = fakeVideoPlayer();
   const events: PlayerEvent[] = [];
   connect(video, 0, (event) => events.push(event));
   video.status_("readyToPlay");
-  // The lock screen's Play.
+  // The lock screen's Play, then its Pause.
   video.playing_(true);
   video.playing_(false);
-  expect(events.map((e) => (e.type === "state" ? e.state : e.type))).toEqual(["ready", 1, 2]);
+  expect(kinds(events)).toEqual(["ready", 1, 2]);
 
+  // Asked to play, it buffers before it has played, and is paused.
   const fresh = fakeVideoPlayer();
   const freshEvents: PlayerEvent[] = [];
   const link = connect(fresh, 0, (event) => freshEvents.push(event));
   fresh.status_("readyToPlay");
+  link.command({ type: "play" });
+  fresh.status_("loading");
   link.command({ type: "pause" });
-  fresh.playing_(false);
-  expect(freshEvents.map((e) => (e.type === "state" ? e.state : e.type))).toEqual(["ready", -1]);
+  expect(kinds(freshEvents)).toEqual(["ready", 3, -1]);
+});
+
+test("pausing while it buffers reports paused, as expo-video says nothing then, and Play still plays", () => {
+  const { connect } = loadNativeVideo();
+  const video = fakeVideoPlayer();
+  const events: PlayerEvent[] = [];
+  const link = connect(video, 0, (event) => events.push(event));
+  video.status_("readyToPlay");
+  link.command({ type: "play" });
+  video.playing_(true);
+  // A stall: it stops playing while it loads more.
+  video.status_("loading");
+  video.playing_(false);
+  expect(kinds(events.splice(0))).toEqual(["ready", 1, 3]);
+
+  link.command({ type: "pause" });
+  expect(video.calls).toEqual(["play", "pause"]);
+  // It wasn't playing, so the player reports no change, only that it's ready.
+  video.playing_(false);
+  video.status_("readyToPlay");
+  expect(kinds(events.splice(0))).toEqual([2]);
+
+  link.command({ type: "play" });
+  video.playing_(true);
+  expect(kinds(events)).toEqual([1]);
+});
+
+test("a speed chosen while paused waits for Play, since on iOS setting it would start the sermon", () => {
+  const { connect } = loadNativeVideo();
+  const video = fakeVideoPlayer();
+  const events: PlayerEvent[] = [];
+  const link = connect(video, 0, (event) => events.push(event));
+  video.status_("readyToPlay");
+  link.command({ type: "play" });
+  video.playing_(true);
+  link.command({ type: "pause" });
+  video.playing_(false);
+  events.splice(0);
+  video.calls.splice(0);
+
+  link.command({ type: "rate", rate: 1.5 });
+  // Nothing set on the player, so nothing starts it; the app shows the speed at once.
+  expect(video.calls).toEqual([]);
+  expect(video.playbackRate).toBe(1);
+  expect(events.splice(0)).toEqual([{ type: "rate", rate: 1.5 }]);
+
+  // Play: at that speed.
+  link.command({ type: "play" });
+  expect(video.calls.splice(0)).toEqual(["rate:1.5", "play"]);
+  video.playing_(true);
+
+  // Paused, another speed, then the lock screen's Play: it takes the speed as it starts.
+  link.command({ type: "pause" });
+  video.playing_(false);
+  link.command({ type: "rate", rate: 2 });
+  video.calls.splice(0);
+  events.splice(0);
+  video.playing_(true);
+  expect(video.calls).toEqual(["rate:2"]);
+  expect(kinds(events)).toEqual(["rate", 1]);
 });
 
 test("after an error the app's own player says nothing more and ignores commands", () => {
@@ -475,6 +630,8 @@ test("the app's own player plays the sermon's HLS from R2, in the background and
   expect(video.timeUpdateEventInterval).toBe(0.5);
   expect(video.staysActiveInBackground).toBe(true);
   expect(video.showNowPlayingNotification).toBe(true);
+  // Faster or slower, the voice keeps its pitch (Android's default doesn't).
+  expect(video.preservesPitch).toBe(true);
   expect(view.type).toBe("VideoView");
   expect(view.props).toMatchObject({
     nativeControls: false,

@@ -9,8 +9,10 @@ import {
   type PlayerEvent,
 } from "../src/player/types";
 import {
+  BUFFER_DEADLINE_MS,
   START_DEADLINE_MS,
   embedNavigation,
+  embedNewWindow,
   startWatch,
   youtubeAt,
   youtubeErrorCode,
@@ -88,34 +90,92 @@ test("a YouTube link the viewer taps opens outside the app; any other is ignored
   expect(android(EMBED)).toBe("allow");
 });
 
+test("a link that asks for a new window never loads: Google's sign-in is YouTube's check, YouTube's own links open outside", () => {
+  expect(embedNewWindow(SIGN_IN, PAGE)).toBe("signin");
+  expect(embedNewWindow("https://consent.youtube.com/m?continue=x", PAGE)).toBe("signin");
+  expect(embedNewWindow(WATCH, PAGE)).toBe("open");
+  expect(embedNewWindow(EMBED, PAGE)).toBe("open");
+  expect(embedNewWindow("https://example.com/", PAGE)).toBe("block");
+});
+
 // ---- YouTube holding a sermon back -------------------------------------------------------
 
-test("YouTube not playing within ten seconds of Play is noticed; playing, a pause or the end stops the wait", () => {
+/** A watch on a YouTube player that is ready for commands, with timers the test moves. */
+function readyWatch() {
   const timers = fakeTimers();
-  let stuck = 0;
-  const watch = startWatch(() => stuck++, timers as unknown as Parameters<typeof startWatch>[1]);
+  const stuck = { count: 0 };
+  const watch = startWatch(() => stuck.count++, timers as unknown as Parameters<typeof startWatch>[1]);
+  watch.ready();
+  return { watch, timers, stuck };
+}
+
+test("YouTube not answering Play within ten seconds is noticed; playing, a pause or the end stops the wait", () => {
+  const { watch, timers, stuck } = readyWatch();
   watch.command({ type: "play" });
   timers.fire(START_DEADLINE_MS);
-  expect(stuck).toBe(1);
+  expect(stuck.count).toBe(1);
 
   for (const [name, settle] of [
-    ["playing", () => watch.state(1)],
-    ["ended", () => watch.state(0)],
-    ["paused", () => watch.command({ type: "pause" })],
+    ["playing", (w: typeof watch) => w.state(1)],
+    ["ended", (w: typeof watch) => w.state(0)],
+    ["paused", (w: typeof watch) => w.command({ type: "pause" })],
   ] as const) {
-    watch.command({ type: "play" });
-    // Buffering isn't playing yet.
-    watch.state(3);
-    settle();
-    timers.fire(START_DEADLINE_MS);
-    expect(stuck, name).toBe(1);
+    const fresh = readyWatch();
+    fresh.watch.command({ type: "play" });
+    settle(fresh.watch);
+    fresh.timers.fire();
+    expect(fresh.stuck.count, name).toBe(0);
   }
 
   // Each Play gives it the full ten seconds again.
-  watch.command({ type: "play" });
-  watch.command({ type: "seek", seconds: 30 });
-  watch.command({ type: "play" });
+  const again = readyWatch();
+  again.watch.command({ type: "play" });
+  again.watch.command({ type: "seek", seconds: 30 });
+  again.watch.command({ type: "play" });
+  expect(again.timers.waiting(START_DEADLINE_MS)).toBe(1);
+});
+
+test("a slow first buffer gets longer than ten seconds, and it isn't watched until YouTube's player is ready", () => {
+  // Buffering answers Play: thirty seconds from the last buffering report.
+  const slow = readyWatch();
+  slow.watch.command({ type: "play" });
+  slow.watch.state(3);
+  slow.timers.fire(START_DEADLINE_MS);
+  expect(slow.stuck.count).toBe(0);
+  expect(slow.timers.waiting(BUFFER_DEADLINE_MS)).toBe(1);
+  slow.watch.state(1);
+  slow.timers.fire();
+  expect(slow.stuck.count).toBe(0);
+  // Still buffering after that: stuck.
+  const stalled = readyWatch();
+  stalled.watch.command({ type: "play" });
+  stalled.watch.state(3);
+  stalled.timers.fire(BUFFER_DEADLINE_MS);
+  expect(stalled.stuck.count).toBe(1);
+
+  // Play before YouTube's player is ready never reaches it: nothing to wait for.
+  const timers = fakeTimers();
+  const early = startWatch(() => {}, timers as unknown as Parameters<typeof startWatch>[1]);
+  early.command({ type: "play" });
+  expect(timers.waiting()).toBe(0);
+  early.ready();
+  early.command({ type: "play" });
   expect(timers.waiting(START_DEADLINE_MS)).toBe(1);
+});
+
+test("once the sermon has played, a slow restart is only the network: no wait at all", () => {
+  const { watch, timers, stuck } = readyWatch();
+  watch.command({ type: "play" });
+  watch.state(1);
+  expect(watch.played()).toBe(true);
+  watch.command({ type: "pause" });
+  watch.state(2);
+  // Play again, and it rebuffers for a long time.
+  watch.command({ type: "play" });
+  watch.state(3);
+  expect(timers.waiting()).toBe(0);
+  timers.fire();
+  expect(stuck.count).toBe(0);
 });
 
 test("YouTube refusing to play here offers Watch on YouTube and Try again, with its own message", () => {
@@ -173,20 +233,27 @@ function mountEmbed() {
     /** A message from the page in the web view. */
     message: (data: unknown) => view.props.onMessage({ nativeEvent: { data: JSON.stringify(data) } }),
     navigate: (request: EmbedRequest) => view.props.onShouldStartLoadWithRequest(request),
+    /** A link that asks for a new window, which the web view cancels and reports. */
+    openWindow: (url: string) => view.props.onOpenWindow({ nativeEvent: { targetUrl: url } }),
   };
 }
 
+/** YouTube's player has loaded in the embed. */
+const READY = { type: "ready", duration: 600 };
+
 test("YouTube's embed that won't start after Play reports YouTube checking the device", () => {
   const stuck = mountEmbed();
+  stuck.message(READY);
   stuck.command({ type: "play" });
   stuck.message({ type: "state", state: -1, seconds: 0, duration: 600 });
   stuck.timers.fire(START_DEADLINE_MS);
   expect(stuck.events.at(-1)).toEqual({ type: "error", code: YOUTUBE_CHECK });
 
   const plays = mountEmbed();
+  plays.message(READY);
   plays.command({ type: "play" });
   plays.message({ type: "state", state: 1, seconds: 1, duration: 600 });
-  plays.timers.fire(START_DEADLINE_MS);
+  plays.timers.fire();
   expect(plays.events.some((e) => e.type === "error")).toBe(false);
 
   // YouTube's own refusal says the same.
@@ -195,21 +262,60 @@ test("YouTube's embed that won't start after Play reports YouTube checking the d
   expect(refused.events).toEqual([{ type: "error", code: YOUTUBE_CHECK }]);
 });
 
-test("tapping Sign in in YouTube's check stays out of the player and shows the app's message; other links open outside", () => {
+test("YouTube's embed isn't hurried: Play before it's ready, a slow first buffer and a rebuffer after it has played aren't its check", () => {
+  // The dock's Play while the embed is still loading never reaches YouTube.
+  const loading = mountEmbed();
+  loading.command({ type: "play" });
+  expect(loading.timers.waiting()).toBe(0);
+
+  // A slow network: buffering for longer than ten seconds, then playing.
+  const slow = mountEmbed();
+  slow.message(READY);
+  slow.command({ type: "play" });
+  slow.message({ type: "state", state: 3, seconds: 0, duration: 600 });
+  slow.timers.fire(START_DEADLINE_MS);
+  slow.message({ type: "state", state: 1, seconds: 0, duration: 600 });
+  slow.timers.fire();
+  expect(slow.events.some((e) => e.type === "error")).toBe(false);
+
+  // Played, paused, then Play again rebuffers for a long time.
+  const again = mountEmbed();
+  again.message(READY);
+  again.command({ type: "play" });
+  again.message({ type: "state", state: 1, seconds: 1, duration: 600 });
+  again.command({ type: "pause" });
+  again.message({ type: "state", state: 2, seconds: 5, duration: 600 });
+  again.command({ type: "play" });
+  again.message({ type: "state", state: 3, seconds: 5, duration: 600 });
+  again.timers.fire();
+  expect(again.events.some((e) => e.type === "error")).toBe(false);
+});
+
+test("a new window never opens in the player: tapping Sign in in YouTube's check shows the app's message, and YouTube links open outside", () => {
   const embed = mountEmbed();
-  expect(embed.view.setSupportMultipleWindows).toBe(false);
+  // Both platforms cancel new windows in native code once the app asks to hear of them.
+  expect(embed.view.setSupportMultipleWindows).toBeUndefined();
+  expect(typeof embed.view.onOpenWindow).toBe("function");
   expect(embed.navigate({ url: PAGE, isTopFrame: true, hasTargetFrame: true, navigationType: "other" })).toBe(true);
-  expect(embed.navigate({ url: SIGN_IN, isTopFrame: true, hasTargetFrame: false, navigationType: "click" })).toBe(false);
+  embed.openWindow(SIGN_IN);
   expect(embed.events).toEqual([{ type: "error", code: YOUTUBE_CHECK }]);
   expect(embed.opened).toEqual([]);
 
-  expect(embed.navigate({ url: WATCH, isTopFrame: true, hasTargetFrame: false, navigationType: "click" })).toBe(false);
+  embed.openWindow(WATCH);
+  embed.openWindow("https://example.com/");
   expect(embed.opened).toEqual([WATCH]);
+
+  // Sign in tapped inside YouTube's frame: refused there, with the same message.
+  const framed = mountEmbed();
+  expect(framed.navigate({ url: SIGN_IN, isTopFrame: false, hasTargetFrame: true, navigationType: "click" })).toBe(false);
+  expect(framed.events).toEqual([{ type: "error", code: YOUTUBE_CHECK }]);
 
   // Once it has played, a sign-in link is only YouTube's menu: ignored, nothing shown.
   const playing = mountEmbed();
+  playing.message(READY);
   playing.message({ type: "state", state: 1, seconds: 1, duration: 600 });
-  expect(playing.navigate({ url: SIGN_IN, isTopFrame: true, hasTargetFrame: false, navigationType: "click" })).toBe(false);
+  playing.openWindow(SIGN_IN);
+  expect(playing.navigate({ url: SIGN_IN, isTopFrame: false, hasTargetFrame: true, navigationType: "click" })).toBe(false);
   expect(playing.events.filter((e) => e.type === "error")).toEqual([]);
 });
 

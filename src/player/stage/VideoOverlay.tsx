@@ -103,7 +103,11 @@ type VideoOverlayProps = {
   revealKey?: number;
   /** Ref to the Play/Pause button for focus management. */
   toggleRef?: RefObject<View | null>;
-  /** When true, browser blocked programmatic autoplay so the underlying iframe must remain tappable. */
+  /**
+   * When true, YouTube's player underneath must stay tappable (a refused or
+   * slow start, so its own play button can start it): no tap catcher. Never
+   * for the app's own player (tapsReachPlayer).
+   */
   allowPassthroughTap?: boolean;
   onTogglePlay: () => void;
   onSkip: (deltaSeconds: number) => void;

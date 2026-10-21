@@ -174,7 +174,7 @@ function NowPlayingScreen({ sermon, link }: { sermon: Sermon; link: SermonParams
   const about = useRef<View>(null);
   const { moments } = useMoments(sermon.id);
   const pathDay = usePathDay(sermon.id, link);
-  // Full screen hides the status bar.
+  // Full screen hides the status bar (and Android's navigation bar).
   useStatusBar("dark", overlay.fullscreen);
   // Whether it's on R2, asked now so Watch starts straight away.
   useEffect(() => prefetchVideo(sermon.id), [sermon.id]);

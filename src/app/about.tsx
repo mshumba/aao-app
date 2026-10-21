@@ -64,13 +64,17 @@ export default function About() {
       </Section>
       <Section title="Playback and content">
         <P>
-          Videos play through YouTube for now. YouTube controls the player, its
-          branding, any advertising and whether a video is available.
+          On iPhone and Android, sermons play in AAO’s own player, and the
+          sound carries on when you leave the app or lock your phone.
+        </P>
+        <P>
+          On the web, and for sermons still being added, videos play through
+          YouTube. YouTube controls that player, its branding, any advertising
+          and whether a video is available.
         </P>
       </Section>
       <T style={[s.meta, { marginTop: space.xxl }]}>
-        {version ? `Version ${version}\n` : ""}No downloads or background
-        audio.
+        {version ? `Version ${version}\n` : ""}No downloads.
       </T>
     </Page>
   );

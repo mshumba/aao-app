@@ -187,6 +187,7 @@ export type HarnessSession = {
   start: number;
   resumedFrom: number;
   load: (sermon: HarnessSermon, from?: number) => void;
+  playWhenReady: () => void;
   retry: () => void;
   close: () => void;
   startOver: () => void;
@@ -196,6 +197,7 @@ export type HarnessSession = {
 };
 export type HarnessPlayback = {
   state: number;
+  playing: boolean;
   seconds: number;
   status: string;
   seek: (seconds: number) => void;
@@ -278,7 +280,8 @@ export function mountPlayer(copy: WatchProgress[] = [], { hls = false, platform 
     },
     timers,
   );
-  const PlayerProvider = load("player/PlayerProvider.tsx").PlayerProvider as (props: {
+  const provider = load("player/PlayerProvider.tsx");
+  const PlayerProvider = provider.PlayerProvider as (props: {
     children: null;
   }) => { props: { value: HarnessSession; children: { props: { value: HarnessPlayback } } } };
 
@@ -294,6 +297,8 @@ export function mountPlayer(copy: WatchProgress[] = [], { hls = false, platform 
     timers,
     /** URLs opened outside the app. */
     opened,
+    /** PlayerProvider's own tapsReachPlayer. */
+    tapsReachPlayer: provider.tapsReachPlayer as (engine: HarnessSession["engine"], status: string) => boolean,
     flush() {
       const tree = host.flush(() => PlayerProvider({ children: null }));
       player.session = tree.props.value;
@@ -321,6 +326,12 @@ export function mountPlayer(copy: WatchProgress[] = [], { hls = false, platform 
     background() {
       native.AppState.currentState = "background";
       for (const listener of [...appState]) listener("background");
+      player.flush();
+    },
+    /** The viewer comes back to the app. */
+    foreground() {
+      native.AppState.currentState = "active";
+      for (const listener of [...appState]) listener("active");
       player.flush();
     },
   };

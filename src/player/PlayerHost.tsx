@@ -42,7 +42,7 @@ import {
   useChrome,
   useStageOverlay,
 } from "./layout";
-import { BLOCKED, STILL, clock, usePlayback, usePlayerSession } from "./PlayerProvider";
+import { clock, tapsReachPlayer, usePlayback, usePlayerSession } from "./PlayerProvider";
 import { VideoOverlay } from "./stage/VideoOverlay";
 import { headline } from "../data/display";
 import { canRetry, playerError } from "./types";
@@ -299,7 +299,7 @@ function StageFullOverlay() {
       glideKey={overlay.glideKey}
       revealKey={overlay.revealKey}
       toggleRef={stageToggleRef}
-      allowPassthroughTap={p.status === BLOCKED || p.status === STILL}
+      allowPassthroughTap={tapsReachPlayer(session.engine, p.status)}
       onTogglePlay={p.toggle}
       onSkip={p.skip}
       onSeek={p.seek}

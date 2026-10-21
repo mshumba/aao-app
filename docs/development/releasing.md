@@ -82,12 +82,18 @@ The upload to the App Store Connect app named by `ascAppId` needs an App Store C
 ### Testers
 
 - **Internal testers:** up to 100 people with App Store Connect access. Builds reach them after processing, without review.
-- **External testers:** up to 10,000 by email or public link. The first build of a version needs Beta App Review, with a beta description, a feedback email and the review account.
+- **External testers:** up to 10,000 by email or public link. The first build of a version needs Beta App Review, with a beta description, a feedback email, the review account and the review notes below.
 - TestFlight builds expire after 90 days.
+
+### Review notes
+
+From `0.2.0` (build 5, the first build of that version, so it goes through Beta App Review) the app declares background audio and picture in picture for the whole app (the expo-video plugin in `app.json`), but only sermons on R2 use them: one still playing from YouTube pauses when the app goes to the background. A reviewer who tries one of those and hears it stop may reject the build under guideline 2.5.4, so point them at a sermon that is on R2. Every guided path's sermons are. Put this in TestFlight → Test Information (Beta App Review) and, for the App Store, in App Review Information, with the review account:
+
+> Background audio and picture in picture: sign in with the review account, open the Paths tab, choose any path and tap Start Day 1 (any day works), then lock the phone or go to the Home Screen. The sermon keeps playing, shows on the lock screen and goes into picture in picture. Sermons not yet on our own storage play through YouTube and pause when you leave the app.
 
 ### Before the App Store (later)
 
-App Privacy answers ([accounts](accounts.md#app-store-notes)), the age rating questionnaire, the Content Rights answer (the app shows third-party YouTube content, so keep written authorization from the content owner), 6.9-inch iPhone screenshots, and review notes with the review account.
+App Privacy answers ([accounts](accounts.md#app-store-notes)), the age rating questionnaire, the Content Rights answer, 6.9-inch iPhone screenshots, and the [review notes](#review-notes) with the review account. For Content Rights: on iPhone and Android the app streams copies of the sermons kept on the ministry's own storage (R2), and plays the rest through YouTube, so keep written authorization from the content owner to host and stream them.
 
 ### Local device builds without the paid program
 

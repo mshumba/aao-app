@@ -133,13 +133,24 @@ const READY = "Press play to start";
 // Some browsers (Safari, for one) won't start sound they didn't see the tap
 // for, and the tap on Watch happened before the player existed. Point the
 // viewer at our Play button on the video while letting taps pass through too.
-export const BLOCKED = "Tap Play to start";
-export const STILL = "Still loading. If it doesn’t start, tap Play.";
+const BLOCKED = "Tap Play to start";
+const STILL = "Still loading. If it doesn’t start, tap Play.";
 const ENDED = "Sermon ended";
 
 /** Statuses that ask something of the viewer, so they're shown, not just announced. */
 export function asksViewer(status: string) {
   return [LOADING, READY, BLOCKED, STILL, ENDED].includes(status);
+}
+
+/**
+ * Whether taps on the video go through to the player under the app's
+ * controls: only to YouTube's, and only while the app is pointing the viewer
+ * at Play (BLOCKED, STILL), so YouTube's own play button can start it. The
+ * app's own player has no controls of its own, so its tap catcher stays and
+ * the controls can always be brought back.
+ */
+export function tapsReachPlayer(engine: Engine | null, status: string) {
+  return engine !== "native" && (status === BLOCKED || status === STILL);
 }
 
 function statusFor(state: number) {
@@ -164,6 +175,11 @@ const RESUME_NOTE_FOR = 120;
  * the sermon has played; until then a seek stays armed (see `played`).
  */
 const SEEK_SETTLE_MS = 1500;
+/**
+ * How soon after the app comes back a failure of the app's own player still
+ * counts as one from while it was away.
+ */
+const RETURN_GRACE_MS = 3000;
 
 /**
  * One player for the whole app, so a sermon keeps playing (docked) while the
@@ -172,7 +188,10 @@ const SEEK_SETTLE_MS = 1500;
  * else plays in the YouTube embed, which pauses when the app goes to the
  * background. If the app's own player fails before the sermon has started,
  * it plays from YouTube instead for the rest of the session, from the same
- * place.
+ * place; Try again (if YouTube fails too) gives the app's own player another
+ * go. If the app's own player fails while the app is away after the sermon
+ * has played (iOS can drop a paused video's decoder in the background), it
+ * loads again at the viewer's place, paused, when they come back.
  *
  * For a signed-in viewer it also keeps their place: a sermon starts where
  * they left it, and the position is saved every 15 seconds while playing,
@@ -207,8 +226,15 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     engineRef.current = next;
     setEngineState(next);
   }, []);
-  // Sermons the app's own player failed on this session: YouTube plays them.
+  // Sermons the app's own player failed on this session: YouTube plays them
+  // (until Try again).
   const youtubeOnly = useRef(new Set<string>());
+  // The app's own player failed while the app was away, after the sermon had
+  // played: it loads again, paused at the place, once the viewer is back.
+  const reloadOnReturn = useRef(false);
+  // When the app last came back to the foreground. A player that failed
+  // while it was away may only say so as it comes back.
+  const backAt = useRef(0);
   // The load still waiting to hear whether its sermon is on R2, as a ticket
   // only that load holds.
   const engineAsk = useRef<object | null>(null);
@@ -407,10 +433,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     AccessibilityInfo.announceForAccessibility(playerError(code));
   }, [clearBlockedCheck, setPhase]);
 
-  const begin = useCallback((next: Sermon, from: number) => {
+  const begin = useCallback((next: Sermon, from: number, play = true) => {
     // Keep the place in the sermon being replaced.
     if (current.current && current.current.id !== next.id) persist("moment");
     played.current = false;
+    reloadOnReturn.current = false;
     // Another sermon isn't that path day.
     if (pathDayRef.current?.sermonId !== next.id) pathDayRef.current = null;
     current.current = next;
@@ -423,7 +450,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     blocked.current = false;
     setStarted(false);
     pending.current = true;
-    autoplay.current = true;
+    autoplay.current = play;
     position.current = from;
     pendingSeek.current = null;
     seekOnReady.current = null;
@@ -460,14 +487,25 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   /**
    * A failed player. If it was the app's own player and the sermon hadn't
    * started, YouTube plays it instead (for the rest of the session), from
-   * the same place: still the viewer's start, or where they moved to.
+   * the same place: still the viewer's start, or where they moved to. If it
+   * had played and the app is away, or has only just come back, it loads
+   * again at the place, paused, rather than show an error: iOS can drop a
+   * paused video's decoder while the app is in the background.
    */
   const failOrFallBack = useCallback(
     (code: number) => {
       const loaded = current.current;
-      if (engineRef.current === "native" && !played.current && loaded) {
-        youtubeOnly.current.add(loaded.id);
-        return begin(loaded, position.current);
+      if (engineRef.current === "native" && loaded) {
+        if (!played.current) {
+          youtubeOnly.current.add(loaded.id);
+          return begin(loaded, position.current);
+        }
+        if (AppState.currentState !== "active") {
+          reloadOnReturn.current = true;
+          return;
+        }
+        if (Date.now() - backAt.current < RETURN_GRACE_MS)
+          return begin(loaded, position.current, false);
       }
       fail(code);
     },
@@ -542,7 +580,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   );
 
   const retry = useCallback(() => {
-    if (sermon && !pending.current) begin(sermon, position.current);
+    if (!sermon || pending.current) return;
+    // The app's own player gets another go: what made it fail (a moment
+    // offline, a slow start) may have passed.
+    youtubeOnly.current.delete(sermon.id);
+    begin(sermon, position.current);
   }, [begin, sermon]);
 
   const close = useCallback(() => {
@@ -552,6 +594,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     loadedId = null;
     lateResume.current = null;
     engineAsk.current = null;
+    reloadOnReturn.current = false;
     pendingSeek.current = null;
     resumeNote.current = 0;
     setResumedFrom(0);
@@ -669,16 +712,23 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   // Leaving the app pauses a sermon playing from YouTube; the app's own
   // player plays on, in the background and on the lock screen. iOS also
   // reports "inactive" for Control Center and Notification Center, which
-  // isn't leaving.
+  // isn't leaving. Coming back loads the app's own player again if it
+  // failed meanwhile (failOrFallBack).
   useEffect(() => {
     const sub = AppState.addEventListener("change", (next) => {
+      if (next === "active") {
+        backAt.current = Date.now();
+        const loaded = current.current;
+        if (reloadOnReturn.current && loaded) begin(loaded, position.current, false);
+        return;
+      }
       if (next !== "background") return;
       // Saved straight away: the app may be suspended before the pause lands.
       persist("moment");
       if (engineRef.current !== "native") hold();
     });
     return () => sub.remove();
-  }, [hold, persist]);
+  }, [begin, hold, persist]);
 
   // Docking (leaving the sermon's screen) is a natural place to stop.
   const full = !!sermon && stage === sermon.id;

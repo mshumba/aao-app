@@ -51,10 +51,11 @@ export default function Terms() {
 
       <Section title="Sermons and other content">
         <P>
-          Sermons belong to their owners. AAO doesn’t host them: they play
-          through YouTube’s player, and YouTube’s Terms of Service apply when
-          you watch. A sermon may stop being available if its owner or YouTube
-          removes it.
+          Sermons belong to their owners. On iPhone and Android, AAO plays its
+          own copies of them, stored with Cloudflare. On the web, and for
+          sermons still being added, they play through YouTube’s player, and
+          YouTube’s Terms of Service apply when you watch there. A sermon may
+          stop being available if its owner or YouTube removes it.
         </P>
         <P>
           Titles, dates and artwork come from public sources. The topics
@@ -99,7 +100,7 @@ export default function Terms() {
       </Section>
 
       <T style={[s.meta, { marginTop: space.xxl }]}>
-        Last updated 14 October 2026
+        Last updated 20 October 2026
       </T>
     </Page>
   );

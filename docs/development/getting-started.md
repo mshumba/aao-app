@@ -61,7 +61,7 @@ These steps use the on-device stand-in and the four bundled sermons (no `.env`, 
 3. **Search** tab: type `devotion`, open a result, then Back. Switch tabs and return: the query is as you left it.
 4. Try Christian Living under **Browse by topic** to see an empty topic, then **Browse other topics**.
 5. As a guest, tap **Watch sermon** on a sermon: a sheet asks for a free account, with Apple and Google first. Tap **Use email instead**, enter any address, then the code `123456` (or tap Apple or Google, which sign in at once with the stand-in). The sheet closes and the sermon starts. **Save** works the same way.
-6. Watching: the app's controls sit under the video. Press Back: the video docks above the tabs and keeps playing across tabs. Tap the dock to reopen Now Playing; close it with ✕. Backgrounding the app pauses it. Native behavior needs the device checks below.
+6. Watching: the app's controls sit under the video. Press Back: the video docks above the tabs and keeps playing across tabs. Tap the dock to reopen Now Playing; close it with ✕. On the web, backgrounding the app pauses it; on a phone, a sermon on R2 keeps playing. Native behavior needs the device checks below.
 7. **Account** tab: change your name or topics, open **Saved sermons**, sign out, and sign back in. **Delete account** asks once, then deletes the account.
 8. Signed out, open a shared link, `/s/<sermon id>` (for example `http://localhost:8081/s/H9sRbSUt0YE`): that sermon plays without an account; others still ask.
 
@@ -82,6 +82,8 @@ Expo Go gets YouTube error 153 because it isn't this app's identity, so in-app p
 
 `npm run ios:simulator` builds the same development client on EAS instead, without Xcode.
 
+**From `0.2.0`, rebuild.** `0.2.0` added native code: expo-video (the R2 player) and view-controller-based status bar appearance. A development client built from `0.1.0` fails at launch when Metro serves it this JavaScript (it can't find the ExpoVideo module; runtime versions don't protect development clients), so build a new one (`npm run ios:simulator`, or the steps above). A reused clone keeps its old `ios/`, because `npx expo run:ios` only runs prebuild when `ios/` is missing, and with the old `Info.plist` full screen keeps the status bar on iOS 27. Regenerate it first with `npx expo prebuild -p ios --clean` (`AAO_PERSONAL_TEAM=1 npx expo prebuild -p ios --clean` for a Personal Team build, below).
+
 ### iOS device (free Personal Team)
 
 Without a paid Apple Developer Program team, a phone can run a build signed with Xcode's free Personal Team; it expires after 7 days. A Personal Team can't sign the Sign in with Apple entitlement, so build with it left out:
@@ -90,11 +92,11 @@ Without a paid Apple Developer Program team, a phone can run a build signed with
 AAO_PERSONAL_TEAM=1 npx expo run:ios --device
 ```
 
-Run it in the clone without spaces, as above. `app.config.ts` then removes the entitlement, and the Apple button reports that option isn't available; email and Google sign-in still work. Builds for TestFlight never set the flag. If `ios/` was generated without the flag, regenerate it with the flag (`AAO_PERSONAL_TEAM=1 npx expo prebuild -p ios --clean`).
+Run it in the clone without spaces, as above, and regenerate a clone from before `0.2.0` first. `app.config.ts` then removes the entitlement, and the Apple button reports that option isn't available; email and Google sign-in still work. Builds for TestFlight never set the flag. If `ios/` was generated without the flag, regenerate it with the flag (`AAO_PERSONAL_TEAM=1 npx expo prebuild -p ios --clean`).
 
 Prebuild rewrites the `ios`/`android` scripts in `package.json` and creates `ios/` (git-ignored); don't commit either.
 
-Before calling native playback ready, test iOS and Android: provider identity/error 153, Watch → playing without a second tap, the app's transport and scrubber, the docked player staying visible and playing over the native screens and tab bar, backgrounding pausing, fullscreen exit/back, external provider links, network interruption/retry, rotation, hardware Back, keyboard inset handling (the dock over forms), VoiceOver/TalkBack and large text. Record OS, app container/build, video ID and observed behavior.
+Before calling native playback ready, test iOS and Android: provider identity/error 153, Watch → playing without a second tap, the app's transport and scrubber, the docked player staying visible and playing over the native screens and tab bar, leaving the app (a sermon on R2 keeps playing, with the lock screen, Now Playing and picture in picture; a YouTube one pauses), full screen hiding the status bar (on iOS 27 too) and, on Android, the navigation bar, with a swipe bringing them back only for a moment, fullscreen exit/back, external provider links, network interruption/retry, rotation, hardware Back, keyboard inset handling (the dock over forms), VoiceOver/TalkBack and large text. Record OS, app container/build, video ID and observed behavior.
 
 ## Team testing (Expo, free plan)
 

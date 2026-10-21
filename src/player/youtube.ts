@@ -41,9 +41,9 @@ const YOUTUBE = /^https:\/\/(?:(?:www\.|m\.)?youtube\.com|youtu\.be)(?:[/?#]|$)/
  * a bot" leads to, never open inside the player.
  *
  * iOS says which frame a load is for and whether the viewer tapped a link.
- * Android only asks about the page itself (and links that would open a new
- * window, with multiple windows off), and always after a tap, since a frame
- * can't move the page on its own; `framesKnown` is false there.
+ * Android only asks about the page itself, and always after a tap, since a
+ * frame can't move the page on its own; `framesKnown` is false there. Links
+ * that ask for a new window never load at all (embedNewWindow).
  */
 export function embedNavigation(
   request: EmbedRequest,
@@ -64,6 +64,18 @@ export function embedNavigation(
   return inFrame ? "allow" : "block";
 }
 
+/**
+ * A link in the embed that asks for a new window, such as YouTube's title or
+ * the "Sign in" of its check. The web view never opens one (it cancels them
+ * itself and asks Embed.tsx, on both platforms), so a late answer can't let
+ * one load; this says what the app does instead: "open" outside the app,
+ * "signin", or nothing. It always follows a tap: the web view doesn't let
+ * scripts open windows.
+ */
+export function embedNewWindow(url: string, page?: string): EmbedNavigation {
+  return embedNavigation({ url, hasTargetFrame: false }, { page, framesKnown: true });
+}
+
 /** YouTube's own errors that mean it held the sermon back from this app, not that it's gone. */
 const HELD_BACK = [150, 152, 153];
 
@@ -76,17 +88,22 @@ export function youtubeErrorCode(code: number) {
   return HELD_BACK.includes(code) ? YOUTUBE_CHECK : code;
 }
 
-/** How long YouTube has to start playing after it's asked to. */
+/** How long YouTube has to answer Play (playing, or at least buffering). */
 export const START_DEADLINE_MS = 10_000;
+/** How long a start that is buffering has to begin playing. */
+export const BUFFER_DEADLINE_MS = 30_000;
 
 type Timer = ReturnType<typeof setTimeout>;
 
 /**
- * Notices a YouTube player that won't start: asked to play, it hasn't played
- * within START_DEADLINE_MS. That's YouTube checking the device ("Sign in to
- * confirm you're not a bot") or refusing it, which it doesn't report as an
- * error. Each play restarts the wait; playing, ending, a pause or an error
- * ends it.
+ * Notices a YouTube player that won't start the sermon: asked to play once
+ * it's ready, it says nothing within START_DEADLINE_MS. That's YouTube
+ * checking the device ("Sign in to confirm you're not a bot") or refusing
+ * it, which it doesn't report as an error. Buffering is an answer: a slow
+ * network then has BUFFER_DEADLINE_MS from the last buffering report.
+ * Playing, ending, a pause or an error ends the wait. Once the sermon has
+ * played YouTube has let this device through, so a slow restart after that
+ * is only the network and isn't watched.
  */
 export function startWatch(
   onStuck: () => void,
@@ -96,23 +113,36 @@ export function startWatch(
   },
 ) {
   let timer: Timer | null = null;
+  // YouTube's player has loaded: before that, the page drops Play.
+  let ready = false;
+  let played = false;
   const stop = () => {
     if (timer != null) timers.clearTimeout(timer);
     timer = null;
   };
+  const wait = (ms: number) => {
+    stop();
+    timer = timers.setTimeout(() => {
+      timer = null;
+      onStuck();
+    }, ms);
+  };
   return {
+    /** YouTube's player is ready for commands. */
+    ready() {
+      ready = true;
+    },
+    /** Whether the sermon has played, so YouTube has let this device through. */
+    played: () => played,
     command(command: PlayerCommand) {
       if (command.type === "pause") stop();
-      if (command.type !== "play") return;
-      stop();
-      timer = timers.setTimeout(() => {
-        timer = null;
-        onStuck();
-      }, START_DEADLINE_MS);
+      if (command.type === "play" && ready && !played) wait(START_DEADLINE_MS);
     },
-    /** A state YouTube reported (1 playing, 0 ended). */
+    /** A state YouTube reported (1 playing, 0 ended, 3 buffering). */
     state(state: number) {
+      if (state === 1) played = true;
       if (state === 1 || state === 0) stop();
+      else if (state === 3 && timer != null) wait(BUFFER_DEADLINE_MS);
     },
     stop,
   };

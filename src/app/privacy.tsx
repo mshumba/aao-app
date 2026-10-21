@@ -15,8 +15,8 @@ import {
 
 /**
  * A draft written to match what the app actually does today (see src/auth,
- * src/learning and supabase/, including the search function in
- * supabase/functions/search). The Supabase project runs in AWS us-east-1
+ * src/learning, src/player/media.ts and supabase/, including the search
+ * function in supabase/functions/search). The Supabase project runs in AWS us-east-1
  * (N. Virginia). Review it, and fill in the contact details, before a public
  * release.
  */
@@ -146,10 +146,22 @@ export default function Privacy() {
         </P>
       </Section>
 
+      <Section title="Sermon videos">
+        <P>
+          On iPhone and Android, sermons play from AAO’s own copies, stored
+          with Cloudflare, a hosting and network service, at
+          audio.aaolearning.com. When you open a sermon the app asks there
+          whether it has a copy, and while you watch it streams the video from
+          there, so Cloudflare sees your device’s IP address and which videos
+          it asks for. No account details are sent with them.
+        </P>
+      </Section>
+
       <Section title="YouTube and sign-in providers">
         <P>
-          Sermons play through YouTube’s embedded player, and their artwork
-          loads from YouTube’s servers. When the player loads, YouTube (part of
+          On the web, and for sermons still being added, the video plays
+          through YouTube’s embedded player. Sermon artwork loads from
+          YouTube’s servers. When YouTube’s player loads, YouTube (part of
           Google) may set cookies and collect device and usage information
           under Google’s own terms and privacy policy.
         </P>
@@ -173,10 +185,10 @@ export default function Privacy() {
           stored with Supabase, a hosted database service that processes them
           on AAO’s behalf, in the United States (Amazon Web Services, N.
           Virginia). If you use AAO from another country, your information is
-          sent to and stored there. Connections between the app, Supabase and
-          OpenAI are encrypted. Like most online services, Supabase keeps
-          short-lived technical logs of requests, such as IP addresses, for
-          security and troubleshooting.
+          sent to and stored there. Connections between the app, Supabase,
+          OpenAI and Cloudflare are encrypted. Like most online services,
+          Supabase keeps short-lived technical logs of requests, such as IP
+          addresses, for security and troubleshooting.
         </P>
       </Section>
 
@@ -215,7 +227,7 @@ export default function Privacy() {
       </Section>
 
       <T style={[s.meta, { marginTop: space.xxl }]}>
-        Last updated 17 October 2026
+        Last updated 20 October 2026
       </T>
     </Page>
   );

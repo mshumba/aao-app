@@ -28,9 +28,20 @@ export function connect(player: Player, startSeconds: number, emit: (event: Play
   let failed = false;
   // The length sourceLoad gives, until the player itself knows it.
   let loaded = 0;
+  // The last state sent. expo-video only reports a change, so a pause
+  // during a stall (when it was already not playing) says nothing itself.
+  let reported = -1;
+  // The speed the viewer chose. On iOS setting the speed starts a paused
+  // player, so a paused one takes it when it next plays.
+  let rate = 1;
   const duration = () => player.duration || loaded || undefined;
-  const send = (state: number, seconds = player.currentTime) =>
+  const send = (state: number, seconds = player.currentTime) => {
+    reported = state;
     emit({ type: "state", state, seconds, duration: duration() });
+  };
+  const applyRate = () => {
+    if (player.playbackRate !== rate) player.playbackRate = rate;
+  };
   const fail = () => {
     failed = true;
     emit({ type: "error", code: 0 });
@@ -57,6 +68,9 @@ export function connect(player: Player, startSeconds: number, emit: (event: Play
         started = true;
         wanted = true;
         ended = false;
+        // Started from the lock screen or picture in picture, at the speed
+        // it had before the viewer changed it while paused.
+        applyRate();
         send(1);
         return;
       }
@@ -97,18 +111,25 @@ export function connect(player: Player, startSeconds: number, emit: (event: Play
           ended = false;
           player.currentTime = 0;
         }
+        applyRate();
         player.play();
         return;
       case "pause":
         wanted = false;
         player.pause();
+        // Paused during a stall: the player reports nothing, as it wasn't
+        // playing, so the app would stay on "Buffering…".
+        if (reported === 3) send(started ? 2 : -1);
         return;
       case "seek":
         ended = false;
         player.currentTime = c.seconds;
         return;
       case "rate":
-        player.playbackRate = c.rate;
+        rate = c.rate;
+        if (player.playing || wanted) applyRate();
+        // Paused: kept for Play, and the app shows it now.
+        else emit({ type: "rate", rate });
         return;
       case "captions":
         // R2 has no caption track yet, so the CC button is hidden while this
@@ -151,6 +172,9 @@ export default function NativeVideo({
     p.timeUpdateEventInterval = TIME_EVERY;
     p.staysActiveInBackground = true;
     p.showNowPlayingNotification = true;
+    // A faster or slower sermon keeps the preacher's voice. iOS does this
+    // by default; Android's expo-video doesn't.
+    p.preservesPitch = true;
   });
   const link = useRef<ReturnType<typeof connect> | null>(null);
   useEffect(() => {

@@ -3,16 +3,23 @@ import { useEffect, useImperativeHandle, useMemo, useRef } from "react";
 import { Linking, Platform } from "react-native";
 import { WebView } from "react-native-webview";
 import { PLAYER_STOPPED, PlayerEvent, PlayerProps, YOUTUBE_CHECK } from "./types";
-import { embedNavigation, startWatch, youtubeErrorCode } from "./youtube";
+import {
+  embedNavigation,
+  embedNewWindow,
+  startWatch,
+  youtubeErrorCode,
+  type EmbedNavigation,
+} from "./youtube";
 
 /**
  * YouTube's player in a web view: on a phone, the fallback for sermons the
  * app's own player can't play (not on R2 yet, or it failed; PlayerProvider
- * chooses). The web view stays on the player (embedNavigation), so a link in
- * it, such as the "Sign in" of YouTube's "confirm you're not a bot" check,
- * never opens Google's sign-in inside the app. When YouTube won't play here
- * (that check, a refusal or no start within 10 seconds of Play), it reports
- * YOUTUBE_CHECK, and the app offers Watch on YouTube and Try again.
+ * chooses). The web view stays on the player (embedNavigation) and never
+ * opens a new window (embedNewWindow), so a link in it, such as the "Sign
+ * in" of YouTube's "confirm you're not a bot" check, never opens Google's
+ * sign-in inside the app. When YouTube won't play here (that check, a
+ * refusal or no answer to Play; startWatch), it reports YOUTUBE_CHECK, and
+ * the app offers Watch on YouTube and Try again.
  */
 export default function Embed({
   videoId,
@@ -26,9 +33,8 @@ export default function Embed({
   useEffect(() => {
     callback.current = onEvent;
   }, [onEvent]);
-  // Once it has played, a sign-in link is only YouTube's own menu, not its check.
-  const played = useRef(false);
-  // Whether YouTube starts once it's asked to play.
+  // Whether YouTube starts once it's asked to play, and whether it has
+  // played (then a sign-in link is only YouTube's own menu, not its check).
   const watch = useRef<ReturnType<typeof startWatch> | null>(null);
   useEffect(() => {
     const next = startWatch(() => callback.current({ type: "error", code: YOUTUBE_CHECK }));
@@ -38,6 +44,14 @@ export default function Embed({
       watch.current = null;
     };
   }, []);
+  // A link the viewer tapped: YouTube outside the app, or YouTube's check.
+  const follow = (next: EmbedNavigation, url: string) => {
+    if (next === "open") Linking.openURL(url).catch(() => {});
+    else if (next === "signin" && !watch.current?.played()) {
+      watch.current?.stop();
+      onEvent({ type: "error", code: YOUTUBE_CHECK });
+    }
+  };
   // App controls reach the provider's own player through its official API.
   useImperativeHandle(ref, () => ({
     command: (command) => {
@@ -97,10 +111,9 @@ export default function Embed({
         } catch {
           return; // Not one of ours.
         }
-        if (data.type === "state") {
-          if (data.state === 1) played.current = true;
-          watch.current?.state(data.state);
-        }
+        // Told first, so the provider's Play on ready is watched.
+        if (data.type === "ready") watch.current?.ready();
+        if (data.type === "state") watch.current?.state(data.state);
         if (data.type === "error") {
           watch.current?.stop();
           onEvent({ type: "error", code: youtubeErrorCode(data.code) });
@@ -113,16 +126,16 @@ export default function Embed({
           page: baseUrl,
           framesKnown: Platform.OS === "ios",
         });
-        if (next === "open") Linking.openURL(request.url).catch(() => {});
-        else if (next === "signin" && !played.current) {
-          watch.current?.stop();
-          onEvent({ type: "error", code: YOUTUBE_CHECK });
-        }
+        follow(next, request.url);
         return next === "allow";
       }}
-      // Android: a link that asks for a new window loads here instead, where
-      // the check above decides; iOS asks it of every new window itself.
-      setSupportMultipleWindows={false}
+      // A link that asks for a new window: with this set, both platforms
+      // cancel the window in native code and only tell the app, so it never
+      // loads, however long the answer takes.
+      onOpenWindow={(e) => {
+        const url = e.nativeEvent.targetUrl;
+        follow(embedNewWindow(url, baseUrl), url);
+      }}
       onError={() => {
         watch.current?.stop();
         onEvent({ type: "error", code: 0 });
