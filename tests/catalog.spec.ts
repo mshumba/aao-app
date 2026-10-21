@@ -139,6 +139,7 @@ test("event lines name guest ministers and skip what the headline says", () => {
     published_at: "2024-02-06T21:00:00+00:00",
     duration_seconds: 3600,
     thumbnail_url: null,
+    video_ready_at: null,
   });
   expect(eventLine(sermon)).toBe("Rev. Anthony Audu");
   expect(sermon.duration).toBe("1 hr");

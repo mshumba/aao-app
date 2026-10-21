@@ -21,6 +21,8 @@ export type SermonRecord = {
   published_at: string;
   duration_seconds: number | null;
   thumbnail_url: string | null;
+  /** When its video was found on R2; null until then. */
+  video_ready_at: string | null;
 };
 
 export type SeriesRecord = { key: string; name: string };
@@ -39,6 +41,7 @@ export const SERMON_COLUMNS = [
   "published_at",
   "duration_seconds",
   "thumbnail_url",
+  "video_ready_at",
 ] as const satisfies readonly (keyof SermonRecord)[];
 
 /** A copy of the catalogue, and how fresh it is. */

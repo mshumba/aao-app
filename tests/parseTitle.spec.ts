@@ -429,6 +429,7 @@ test("the label over a headline never just repeats the preacher's name", () => {
       published_at: publishedAt,
       duration_seconds: 3600,
       thumbnail_url: null,
+      video_ready_at: null,
     });
   };
   // Nothing but the message and his name: no label at all.

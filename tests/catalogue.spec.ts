@@ -201,3 +201,25 @@ test("the saved copy round-trips and leaves out the usual thumbnail", () => {
   expect(raw).not.toContain("hqdefault");
   expect(decodeSnapshot(raw)).toEqual(snapshot);
 });
+
+test("a sermon's video_ready_at becomes videoReady, and older copies without the column are fetched again", () => {
+  const [first, second] = sampleRecords;
+  const [ready, waiting] = sermonsFrom({
+    sermons: [
+      { ...first, video_ready_at: "2026-10-21T00:40:00Z" },
+      { ...second, video_ready_at: null },
+    ],
+    series: [],
+  }).sort((a, b) => (a.id === first.youtube_id ? -1 : b.id === first.youtube_id ? 1 : 0));
+  expect(ready.videoReady).toBe(true);
+  expect(waiting.videoReady).toBe(false);
+
+  // A copy saved before the column existed reads as none, so the next
+  // launch fetches the whole library with it.
+  const old = JSON.parse(encodeSnapshot(sampleSnapshot)) as { columns: string[]; rows: unknown[][] };
+  const at = old.columns.indexOf("video_ready_at");
+  expect(at).toBeGreaterThan(-1);
+  old.columns.splice(at, 1);
+  for (const row of old.rows) row.splice(at, 1);
+  expect(decodeSnapshot(JSON.stringify(old))).toBeNull();
+});

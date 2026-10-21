@@ -14,6 +14,7 @@ import type { WatchProgress } from "../auth/types";
 import { Sermon } from "../data/sermons";
 import { useCompleteDay } from "../learning/completeDay";
 import { chooseEngine, hasHls, knownHls, prefetchHls, type Engine } from "./media";
+import { NATIVE_VIDEO } from "./videoPlatform";
 import { MIN_RESUME, SAVE_EVERY, isFinished, resumePoint } from "./progress";
 import { EmbedHandle, PlayerCommand, PlayerEvent, playerError } from "./types";
 import { youtubeAt } from "./youtube";
@@ -25,11 +26,6 @@ export type PlayingDay = { pathId: string; day: number; sermonId: string };
 
 export const RATES = [1, 1.25, 1.5, 2, 0.75];
 
-/**
- * The phone apps play sermons on R2 with their own video player; the web
- * keeps the YouTube embed for now (media.ts).
- */
-const NATIVE_VIDEO = Platform.OS !== "web";
 
 /**
  * Asks ahead whether a sermon is on R2 (its page has opened), so pressing

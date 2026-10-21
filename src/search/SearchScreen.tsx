@@ -30,6 +30,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAccount, useSaved } from "../auth/AccountProvider";
 import { useGate } from "../auth/gate";
 import { useCatalogue } from "../catalogue/CatalogueProvider";
+import { NATIVE_VIDEO } from "../player/videoPlatform";
 import { getCategory } from "../data/categories";
 import { words } from "../data/display";
 import { searchSermons, type Sermon } from "../data/sermons";
@@ -204,7 +205,7 @@ function SearchView({ initialQuery, unknownTopic }: { initialQuery: string; unkn
   const saved = useSaved();
   const userId = useAccount().user?.id ?? null;
   const toast = useToast();
-  const { sermons } = useCatalogue();
+  const { sermons, find } = useCatalogue();
   const { needs } = useNeeds();
   const recent = useRecentSearches();
   const { add: addRecent, clear: clearRecent, remove: removeRecent } = recent;
@@ -374,7 +375,17 @@ function SearchView({ initialQuery, unknownTopic }: { initialQuery: string; unkn
 
   // ---- What we understood ----------------------------------------------------------------
 
-  const data = mode === "results" && result.status === "success" ? result.data : null;
+  const answer = mode === "results" && result.status === "success" ? result.data : null;
+  // The phones list only sermons whose video is on R2 (CatalogueProvider).
+  const data = useMemo(() => {
+    if (!answer || !NATIVE_VIDEO) return answer;
+    const ready = (id: string) => !!find(id)?.videoReady;
+    return {
+      ...answer,
+      moments: answer.moments.filter((m) => ready(m.youtubeId)),
+      sermons: answer.sermons.filter((s) => ready(s.youtubeId)),
+    };
+  }, [answer, find]);
   // A need is understood before search answers; anything else once it has.
   const needTheme = mode === "results" ? needFor(asked)?.theme : undefined;
   // The person's own words stay as they typed them ("Apostolic", not "apostolic").

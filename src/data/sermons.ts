@@ -41,6 +41,8 @@ export type Sermon = {
   duration: string;
   thumbnail: string;
   source: string;
+  /** Its video is on R2, so the app's own player plays it (the phones list only these). */
+  videoReady: boolean;
 };
 
 export const CHANNEL = "Apostle Arome Osayi";
@@ -90,6 +92,7 @@ export function toSermon(record: SermonRecord, seriesName?: string | null): Serm
     duration: formatDuration(record.duration_seconds),
     thumbnail: record.thumbnail_url ?? defaultThumbnail(record.youtube_id),
     source: `https://www.youtube.com/watch?v=${record.youtube_id}`,
+    videoReady: !!record.video_ready_at,
   };
 }
 
@@ -135,6 +138,7 @@ export const sampleRecords: SermonRecord[] = [
     published_at: "2026-09-27T20:39:22+00:00",
     duration_seconds: 12914,
     thumbnail_url: "https://i.ytimg.com/vi/nUW8NT2Pe88/maxresdefault.jpg",
+    video_ready_at: "2026-10-21T00:36:01Z",
   },
   {
     youtube_id: "H9sRbSUt0YE",
@@ -151,6 +155,7 @@ export const sampleRecords: SermonRecord[] = [
     published_at: "2026-09-23T18:57:07+00:00",
     duration_seconds: 8915,
     thumbnail_url: "https://i.ytimg.com/vi/H9sRbSUt0YE/maxresdefault.jpg",
+    video_ready_at: "2026-10-21T00:36:01Z",
   },
   {
     youtube_id: "yUDzMcZsVk8",
@@ -167,6 +172,7 @@ export const sampleRecords: SermonRecord[] = [
     published_at: "2026-09-23T11:45:00+00:00",
     duration_seconds: 10195,
     thumbnail_url: "https://i.ytimg.com/vi/yUDzMcZsVk8/maxresdefault.jpg",
+    video_ready_at: "2026-10-21T00:36:01Z",
   },
   {
     youtube_id: "WYiA7rjenVI",
@@ -183,6 +189,7 @@ export const sampleRecords: SermonRecord[] = [
     published_at: "2026-09-22T18:08:56+00:00",
     duration_seconds: 6441,
     thumbnail_url: "https://i.ytimg.com/vi/WYiA7rjenVI/maxresdefault.jpg",
+    video_ready_at: "2026-10-21T00:36:01Z",
   },
 ];
 

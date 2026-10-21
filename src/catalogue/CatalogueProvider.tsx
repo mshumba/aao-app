@@ -12,6 +12,7 @@ import {
 import { AppState } from "react-native";
 import { authMode, supabaseConfig } from "../auth/config";
 import { sampleSnapshot, sermonsFrom, type Sermon } from "../data/sermons";
+import { NATIVE_VIDEO } from "../player/videoPlatform";
 import { reportFailure } from "../lib/monitoring";
 import { keys } from "../lib/storage";
 import type { Snapshot } from "./records";
@@ -122,8 +123,12 @@ export function CatalogueProvider({ children }: PropsWithChildren) {
     return () => subscription.remove();
   }, [sync]);
 
-  const sermons = useMemo(() => sermonsFrom(state.snapshot), [state.snapshot]);
-  const byId = useMemo(() => new Map(sermons.map((s) => [s.id, s])), [sermons]);
+  const all = useMemo(() => sermonsFrom(state.snapshot), [state.snapshot]);
+  const byId = useMemo(() => new Map(all.map((s) => [s.id, s])), [all]);
+  // While the library uploads to R2, the phones list only sermons that are
+  // there. find() still finds every sermon, so saved sermons, Continue
+  // watching, paths and shared links keep working.
+  const sermons = useMemo(() => (NATIVE_VIDEO ? all.filter((s) => s.videoReady) : all), [all]);
   const names = useMemo(
     () => new Map(state.snapshot.series.map((s) => [s.key, s.name])),
     [state.snapshot],
