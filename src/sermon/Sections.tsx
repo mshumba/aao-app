@@ -3,6 +3,7 @@ import { StyleSheet, Text, View, type LayoutChangeEvent } from "react-native";
 import { relatedSermons, sermonCategoryIds, type Sermon } from "../data/sermons";
 import { SectionHeader } from "../kit";
 import { exitTo } from "../navigation";
+import { NATIVE_VIDEO } from "../player/videoPlatform";
 import { c, space, textCap, type } from "../theme";
 import { TopicNotice, TopicTags } from "../topics";
 import { Icon, Notice, SermonRow, T, Tap, TextButton } from "../ui";
@@ -121,9 +122,13 @@ export const AboutSermon = memo(function AboutSermon({
           <Icon name="open-outline" size={14} color={c.accent} />
         </Tap>
       </View>
-      <Notice icon="logo-youtube">
-        Plays through YouTube. Loading the player connects to Google, which may set cookies.
-      </Notice>
+      {NATIVE_VIDEO && sermon.videoReady ? (
+        <Notice icon="play-circle-outline">Plays in AAO’s own player, and carries on when you leave the app.</Notice>
+      ) : (
+        <Notice icon="logo-youtube">
+          Plays through YouTube. Loading the player connects to Google, which may set cookies.
+        </Notice>
+      )}
     </View>
   );
 });

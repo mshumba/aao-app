@@ -194,6 +194,8 @@ export default function NativeVideo({
       contentFit="contain"
       allowsPictureInPicture
       startsPictureInPictureAutomatically
+      // iOS would draw its Live Text button on a paused frame, over our controls.
+      allowsVideoFrameAnalysis={false}
       // Android: drawn as a texture, so full screen's 90° turn (PlayerHost)
       // turns the picture with it.
       surfaceType="textureView"
