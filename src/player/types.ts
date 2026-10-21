@@ -21,6 +21,12 @@ export type EmbedHandle = {
 
 /** App-side code (not YouTube's) for a player whose page was shut down by the system. */
 export const PLAYER_STOPPED = -1;
+/**
+ * App-side code for a YouTube player that held the sermon back: its check of
+ * the device ("Sign in to confirm you're not a bot"), a refusal to play in
+ * the app or no start at all after it was asked to play (youtube.ts).
+ */
+export const YOUTUBE_CHECK = -2;
 
 export type PlayerProps = {
   videoId: string;
@@ -45,6 +51,8 @@ export function playerError(code: number) {
       return "The player couldn’t start on this device. Try again, or watch on YouTube.";
     case PLAYER_STOPPED:
       return "The player stopped. Try again to continue where you left off.";
+    case YOUTUBE_CHECK:
+      return "YouTube wants to check this device before playing. You can watch it on YouTube, or try again.";
     default:
       return "The player didn’t load. Check your connection and try again.";
   }

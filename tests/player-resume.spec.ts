@@ -1,40 +1,16 @@
 import { expect, test } from "@playwright/test";
-import ts from "typescript";
 import type { WatchProgress } from "../src/auth/types";
-import type { EmbedHandle, PlayerCommand, PlayerEvent } from "../src/player/types";
+import {
+  mountPlayer,
+  playFourSeconds,
+  type HarnessSermon as Sermon,
+  type MountedPlayer as Player,
+} from "./player-harness";
 
 // A signed-in viewer presses Watch before their account's progress has
 // loaded, so their saved place arrives late. The real PlayerProvider runs
-// here without React Native or a browser: a small hook host renders it, and
-// a stand-in embed records the commands it sends to YouTube.
-
-// Node's built-ins, typed here: the app's tsconfig leaves Node's types out.
-type Fs = { readFileSync(path: string, encoding: "utf8"): string };
-type Vm = {
-  compileFunction(code: string, params: string[], options: { filename: string }): (...args: unknown[]) => void;
-};
-const builtin = (id: string) =>
-  (globalThis as unknown as { process: { getBuiltinModule(id: string): unknown } }).process.getBuiltinModule(id);
-const fs = builtin("node:fs") as Fs;
-const vm = builtin("node:vm") as Vm;
-
-type Sermon = { id: string; source: string };
-type Session = {
-  phase: string;
-  resumedFrom: number;
-  load: (sermon: Sermon, from?: number) => void;
-  retry: () => void;
-  close: () => void;
-  startOver: () => void;
-  onEvent: (event: PlayerEvent) => void;
-  attach: (handle: EmbedHandle | null) => void;
-};
-type Playback = {
-  seconds: number;
-  seek: (seconds: number) => void;
-  skip: (delta: number) => void;
-  pause: () => void;
-};
+// here without React Native or a browser (player-harness.ts), and a
+// stand-in engine records the commands it sends to YouTube.
 
 const SERMON: Sermon = { id: "test-sermon", source: "https://www.youtube.com/watch?v=test-sermon" };
 const SAVED: WatchProgress = {
@@ -45,179 +21,8 @@ const SAVED: WatchProgress = {
   updatedAt: "2026-10-16T10:00:00.000Z",
 };
 
-/**
- * Renders PlayerProvider with just enough React: state, refs, memos and
- * effects, re-rendering until nothing changes (`flush`). The account's
- * progress hasn't been read from the server yet; `copy` is this device's
- * copy of it from an earlier launch, shown meanwhile. Each
- * whenProgressReady() call waits on its own answer, sent with `answer`.
- * Timers never fire.
- */
-function mountPlayer(copy: WatchProgress[] = []) {
-  const slots: unknown[] = [];
-  let cursor = 0;
-  let dirty = false;
-  let effects: (() => void)[] = [];
-  const same = (a: unknown[] | undefined, b: unknown[]) =>
-    !!a && a.length === b.length && a.every((x, i) => Object.is(x, b[i]));
-  const slot = <T>(init: () => T) => {
-    const i = cursor++;
-    if (!(i in slots)) slots[i] = init();
-    return [slots[i] as T, i] as const;
-  };
-  const memo = <T>(make: () => T, deps: unknown[]) => {
-    const [kept, i] = slot(() => ({ value: make(), deps }));
-    if (same(kept.deps, deps)) return kept.value;
-    slots[i] = { value: make(), deps };
-    return (slots[i] as typeof kept).value;
-  };
-  const React = {
-    createContext: () => ({ Provider: "Provider" }),
-    useContext: () => null,
-    useRef: <T>(value: T) => slot(() => ({ current: value }))[0],
-    useState: <T>(initial: T | (() => T)) => {
-      const [value, i] = slot(() => (typeof initial === "function" ? (initial as () => T)() : initial));
-      const set = (next: T | ((value: T) => T)) => {
-        const now = slots[i] as T;
-        const value = typeof next === "function" ? (next as (value: T) => T)(now) : next;
-        if (Object.is(now, value)) return;
-        slots[i] = value;
-        dirty = true;
-      };
-      return [value, set] as const;
-    },
-    useMemo: memo,
-    useCallback: <T>(fn: T, deps: unknown[]) => memo(() => fn, deps),
-    useEffect: (run: () => void | (() => void), deps: unknown[]) => {
-      const i = cursor++;
-      const before = slots[i] as { deps: unknown[]; cleanup?: void | (() => void) } | undefined;
-      if (before && same(before.deps, deps)) return;
-      const entry = { deps, cleanup: before?.cleanup };
-      slots[i] = entry;
-      effects.push(() => {
-        entry.cleanup?.();
-        entry.cleanup = run();
-      });
-    },
-  };
-
-  const account = { user: { id: "local:member@example.com" } as { id: string } | null };
-  const answers: ((items: WatchProgress[] | null) => void)[] = [];
-  const saves: number[] = [];
-  const progress = {
-    progress: copy,
-    progressReady: false,
-    progressFor: (id: string) => copy.find((item) => item.sermonId === id) ?? null,
-    whenProgressReady: () =>
-      new Promise<WatchProgress[] | null>((resolve) => {
-        answers.push(resolve);
-      }),
-    saveProgress: (item: { positionSeconds: number }) => {
-      saves.push(item.positionSeconds);
-    },
-  };
-  const native = {
-    Platform: { OS: "ios" },
-    AppState: { currentState: "active", addEventListener: () => ({ remove() {} }) },
-    AccessibilityInfo: { announceForAccessibility() {} },
-    Linking: { openURL: () => Promise.resolve() },
-  };
-
-  const src = `${test.info().project.testDir}/../src`;
-  const loaded = new Map<string, Record<string, unknown>>();
-  const load = (file: string): Record<string, unknown> => {
-    const done = loaded.get(file);
-    if (done) return done;
-    const filename = `${src}/${file}`;
-    const code = ts.transpileModule(fs.readFileSync(filename, "utf8"), {
-      compilerOptions: {
-        jsx: ts.JsxEmit.ReactJSX,
-        module: ts.ModuleKind.CommonJS,
-        target: ts.ScriptTarget.ES2022,
-      },
-    }).outputText;
-    const mod = { exports: {} as Record<string, unknown> };
-    loaded.set(file, mod.exports);
-    const imports: Record<string, () => unknown> = {
-      react: () => React,
-      "react/jsx-runtime": () => ({
-        jsx: (type: unknown, props: unknown) => ({ type, props }),
-        jsxs: (type: unknown, props: unknown) => ({ type, props }),
-      }),
-      "react-native": () => native,
-      "../auth/AccountProvider": () => ({ useAccount: () => account, useWatchProgress: () => progress }),
-      "../learning/completeDay": () => ({ useCompleteDay: () => () => false }),
-      "./progress": () => load("player/progress.ts"),
-      "./types": () => load("player/types.ts"),
-    };
-    const stub = (name: string) => {
-      const found = imports[name];
-      // A new import in the provider needs a stand-in here.
-      if (!found) throw new Error(`player-resume.spec: no stand-in for "${name}" (${file})`);
-      return found();
-    };
-    vm.compileFunction(code, ["module", "exports", "require", "setTimeout", "clearTimeout"], { filename })(
-      mod,
-      mod.exports,
-      stub,
-      () => 0,
-      () => {},
-    );
-    return mod.exports;
-  };
-  const PlayerProvider = load("player/PlayerProvider.tsx").PlayerProvider as (props: {
-    children: null;
-  }) => { props: { value: Session; children: { props: { value: Playback } } } };
-
-  const player = {
-    session: null as unknown as Session,
-    playback: null as unknown as Playback,
-    /** What the app asked YouTube to do, in order: "play", "seek:250". */
-    commands: [] as string[],
-    /** The places saved to the account, in order. */
-    saves,
-    account,
-    flush() {
-      for (let renders = 0; ; renders++) {
-        if (renders > 50) throw new Error("PlayerProvider kept re-rendering");
-        dirty = false;
-        cursor = 0;
-        effects = [];
-        const tree = PlayerProvider({ children: null });
-        player.session = tree.props.value;
-        player.playback = tree.props.children.props.value;
-        for (const effect of effects) effect();
-        if (!dirty) return;
-      }
-    },
-    /** The `n`th progress request (from 0) answers with the account's saved places. */
-    async answer(items: WatchProgress[] | null, n = answers.length - 1) {
-      answers[n](items);
-      // Let the provider's .then run, then render what it changed.
-      await new Promise((resolve) => setTimeout(resolve, 0));
-      player.flush();
-    },
-    requests: () => answers.length,
-  };
-  player.flush();
-  player.session.attach({
-    command: (c: PlayerCommand) =>
-      player.commands.push(c.type === "seek" ? `seek:${c.seconds}` : c.type === "rate" ? `rate:${c.rate}` : c.type),
-  });
-  return player;
-}
-
-type Player = ReturnType<typeof mountPlayer>;
-
 /** Watch, the player becomes ready, and the sermon plays four seconds in. */
-function watchFourSeconds(player: Player, from?: number) {
-  player.session.load(SERMON, from);
-  player.flush();
-  player.session.onEvent({ type: "ready", duration: 600 });
-  player.flush();
-  player.session.onEvent({ type: "state", state: 1, seconds: (from ?? 0) + 4, duration: 600 });
-  player.flush();
-}
+const watchFourSeconds = (player: Player, from?: number) => playFourSeconds(player, SERMON, from);
 
 test("a saved place that arrives late still resumes when the viewer hasn't moved", async () => {
   const player = mountPlayer();

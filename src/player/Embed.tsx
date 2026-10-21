@@ -1,8 +1,19 @@
 import Constants from "expo-constants";
-import { useImperativeHandle, useMemo, useRef } from "react";
-import { Platform } from "react-native";
+import { useEffect, useImperativeHandle, useMemo, useRef } from "react";
+import { Linking, Platform } from "react-native";
 import { WebView } from "react-native-webview";
-import { PLAYER_STOPPED, PlayerProps } from "./types";
+import { PLAYER_STOPPED, PlayerEvent, PlayerProps, YOUTUBE_CHECK } from "./types";
+import { embedNavigation, startWatch, youtubeErrorCode } from "./youtube";
+
+/**
+ * YouTube's player in a web view: on a phone, the fallback for sermons the
+ * app's own player can't play (not on R2 yet, or it failed; PlayerProvider
+ * chooses). The web view stays on the player (embedNavigation), so a link in
+ * it, such as the "Sign in" of YouTube's "confirm you're not a bot" check,
+ * never opens Google's sign-in inside the app. When YouTube won't play here
+ * (that check, a refusal or no start within 10 seconds of Play), it reports
+ * YOUTUBE_CHECK, and the app offers Watch on YouTube and Try again.
+ */
 export default function Embed({
   videoId,
   height,
@@ -11,12 +22,30 @@ export default function Embed({
   ref,
 }: PlayerProps) {
   const webview = useRef<WebView>(null);
+  const callback = useRef(onEvent);
+  useEffect(() => {
+    callback.current = onEvent;
+  }, [onEvent]);
+  // Once it has played, a sign-in link is only YouTube's own menu, not its check.
+  const played = useRef(false);
+  // Whether YouTube starts once it's asked to play.
+  const watch = useRef<ReturnType<typeof startWatch> | null>(null);
+  useEffect(() => {
+    const next = startWatch(() => callback.current({ type: "error", code: YOUTUBE_CHECK }));
+    watch.current = next;
+    return () => {
+      next.stop();
+      watch.current = null;
+    };
+  }, []);
   // App controls reach the provider's own player through its official API.
   useImperativeHandle(ref, () => ({
-    command: (command) =>
+    command: (command) => {
+      watch.current?.command(command);
       webview.current?.injectJavaScript(
         `window.__aao&&window.__aao(${JSON.stringify(command)});true;`,
-      ),
+      );
+    },
   }));
   const inExpoGo = Constants.executionEnvironment === "storeClient";
   const appId =
@@ -62,15 +91,42 @@ export default function Embed({
       // the app); the app's Play control must be able to start the provider.
       mediaPlaybackRequiresUserAction={false}
       onMessage={(e) => {
+        let data: PlayerEvent;
         try {
-          const data = JSON.parse(e.nativeEvent.data);
-          if (["ready", "state", "rate", "captions", "error"].includes(data.type))
-            onEvent(data);
+          data = JSON.parse(e.nativeEvent.data);
         } catch {
-          /* Ignore unrelated messages. */
+          return; // Not one of ours.
         }
+        if (data.type === "state") {
+          if (data.state === 1) played.current = true;
+          watch.current?.state(data.state);
+        }
+        if (data.type === "error") {
+          watch.current?.stop();
+          onEvent({ type: "error", code: youtubeErrorCode(data.code) });
+        } else if (["ready", "state", "rate", "captions"].includes(data.type)) onEvent(data);
       }}
-      onError={() => onEvent({ type: "error", code: 0 })}
+      // Only the player's own loads; never Google's sign-in or any other
+      // page in the player. A YouTube link the viewer taps opens outside.
+      onShouldStartLoadWithRequest={(request) => {
+        const next = embedNavigation(request, {
+          page: baseUrl,
+          framesKnown: Platform.OS === "ios",
+        });
+        if (next === "open") Linking.openURL(request.url).catch(() => {});
+        else if (next === "signin" && !played.current) {
+          watch.current?.stop();
+          onEvent({ type: "error", code: YOUTUBE_CHECK });
+        }
+        return next === "allow";
+      }}
+      // Android: a link that asks for a new window loads here instead, where
+      // the check above decides; iOS asks it of every new window itself.
+      setSupportMultipleWindows={false}
+      onError={() => {
+        watch.current?.stop();
+        onEvent({ type: "error", code: 0 });
+      }}
       // The system can shut down a web view's page while the app is in the
       // background. Offer Try again rather than leave a dead black player.
       onContentProcessDidTerminate={() =>

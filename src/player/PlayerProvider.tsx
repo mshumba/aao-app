@@ -15,6 +15,7 @@ import { Sermon } from "../data/sermons";
 import { useCompleteDay } from "../learning/completeDay";
 import { MIN_RESUME, SAVE_EVERY, isFinished, resumePoint } from "./progress";
 import { EmbedHandle, PlayerCommand, PlayerEvent, playerError } from "./types";
+import { youtubeAt } from "./youtube";
 
 export type Phase = "idle" | "loading" | "ready" | "error";
 
@@ -498,10 +499,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     setState(-1);
   }, [clearBlockedCheck, persist, setPhase]);
 
+  // The YouTube app (or site) at the viewer's place in the sermon.
   const watchOnYouTube = useCallback(() => {
     if (!sermon) return;
     hold();
-    Linking.openURL(sermon.source).catch(() =>
+    Linking.openURL(youtubeAt(sermon.source, position.current)).catch(() =>
       AccessibilityInfo.announceForAccessibility("Couldn’t open YouTube."),
     );
   }, [hold, sermon]);

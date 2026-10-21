@@ -6,7 +6,7 @@ import type { Sermon } from "../data/sermons";
 import { Artwork, clockText, leftText, spokenTime } from "../kit";
 import { bumpStageFocusToggle, type StageMarks } from "../player/layout";
 import { clock, usePlayerSession } from "../player/PlayerProvider";
-import { canRetry, canWatchOnYouTube, playerError } from "../player/types";
+import { YOUTUBE_CHECK, canRetry, canWatchOnYouTube, playerError } from "../player/types";
 import { c, font, radius, shadows, space, tabular, textCap, type } from "../theme";
 import { Icon, T, Tap, gradient, moveFocus, web, type IconName } from "../ui";
 
@@ -207,6 +207,32 @@ export function ErrorSlot({ width, height }: { width: number; height: number }) 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const retry = canRetry(code);
+  // When YouTube is checking the device, watching on YouTube is the likelier
+  // way to the sermon, so it comes first, as the message says.
+  const youtubeFirst = code === YOUTUBE_CHECK;
+  const tryAgain = retry && (
+    <SlotButton
+      key="retry"
+      ref={youtubeFirst ? undefined : primary}
+      label="Try again"
+      icon="refresh"
+      primary={!youtubeFirst}
+      onPress={() => {
+        bumpStageFocusToggle();
+        session.retry();
+      }}
+    />
+  );
+  const youtube = canWatchOnYouTube(code) && (
+    <SlotButton
+      key="youtube"
+      ref={retry && !youtubeFirst ? undefined : primary}
+      label="Watch on YouTube"
+      icon="open-outline"
+      primary={!retry || youtubeFirst}
+      onPress={session.watchOnYouTube}
+    />
+  );
   return (
     <View style={[styles.error, { width, minHeight: height }]} testID="player-error">
       <View ref={message} style={styles.errorMessage} {...web({ tabIndex: -1 })}>
@@ -221,27 +247,7 @@ export function ErrorSlot({ width, height }: { width: number; height: number }) 
         </T>
       </View>
       <View style={styles.errorActions}>
-        {retry && (
-          <SlotButton
-            ref={primary}
-            label="Try again"
-            icon="refresh"
-            primary
-            onPress={() => {
-              bumpStageFocusToggle();
-              session.retry();
-            }}
-          />
-        )}
-        {canWatchOnYouTube(code) && (
-          <SlotButton
-            ref={retry ? undefined : primary}
-            label="Watch on YouTube"
-            icon="open-outline"
-            primary={!retry}
-            onPress={session.watchOnYouTube}
-          />
-        )}
+        {youtubeFirst ? [youtube, tryAgain] : [tryAgain, youtube]}
       </View>
     </View>
   );
