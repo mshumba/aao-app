@@ -22,8 +22,9 @@ import { StageScrubber } from "./Scrubber";
 const HIDE_AFTER_MS = 3000;
 
 /**
- * YouTube's title strip at the top (~48pt) and logo corner at the bottom-right
- * (~96×44pt) stay clear of our buttons, shading, and tap layer at all times.
+ * While YouTube's player is in use, its title strip at the top (~48pt) and
+ * logo corner at the bottom-right (~96×44pt) stay clear of our buttons,
+ * shading, and tap layer at all times.
  */
 const YOUTUBE_TOP_CLEAR = 48;
 const YOUTUBE_LOGO_WIDTH = 96;
@@ -70,6 +71,12 @@ function focusedByKeyboard(target: unknown) {
 }
 
 type VideoOverlayProps = {
+  /**
+   * The YouTube embed is playing, so YouTube's keep-outs apply (its title
+   * strip, its logo corner, its pause screen) and CC drives its captions.
+   * The app's own player has no keep-outs and, for now, no captions.
+   */
+  youtube?: boolean;
   /** Whether playback is currently running (or buffering after starting). */
   playing: boolean;
   /** Whether the player is still loading. */
@@ -108,13 +115,15 @@ type VideoOverlayProps = {
 
 /**
  * Mindvalley-inspired playback overlay drawn over the 16:9 video frame.
- * Leaves YouTube's top 48pt title strip and bottom-right 96×44pt logo corner
- * completely clear of buttons, shading, and tap catchers at all times, and
- * drops shading and the backdrop while paused so YouTube's pause overlay shows.
+ * Over YouTube's player it leaves the top 48pt title strip and bottom-right
+ * 96×44pt logo corner completely clear of buttons, shading, and tap catchers
+ * at all times, and drops shading and the backdrop while paused so YouTube's
+ * pause overlay shows. Over the app's own player it uses the whole frame.
  * While playing, the controls fade 3 s after the last touch, except while a
  * screen reader is on (native) or keyboard focus is inside them (web).
  */
 export const VideoOverlay = memo(function VideoOverlay({
+  youtube = true,
   playing,
   loading = false,
   seconds,
@@ -268,13 +277,17 @@ export const VideoOverlay = memo(function VideoOverlay({
   const fsTop = fullscreen ? (fullscreenInsets?.top ?? 0) : 0;
   const fsBottom = fullscreen ? (fullscreenInsets?.bottom ?? 0) : 0;
   const fsSide = fullscreen ? (fullscreenInsets?.side ?? 0) : 0;
-  const logoClear = Math.max(YOUTUBE_LOGO_WIDTH, fsSide);
+  const topClear = youtube ? YOUTUBE_TOP_CLEAR : space.sm;
+  // What the bottom row keeps clear on its right: YouTube's logo corner, or
+  // just the edge (and the safe area in full screen).
+  const logoClear = youtube ? Math.max(YOUTUBE_LOGO_WIDTH, fsSide) : 0;
+  const rowPadRight = youtube ? 0 : Math.max(space.xs, fsSide);
   const rowPadLeft = Math.max(space.sm, fsSide);
 
   // A narrow frame (a 320pt phone, or large text) can't fit the speed pill
   // in the bottom row and keep a rail worth dragging: it sits beside CC.
   const estimate = fullscreen && rotated ? window.height : window.width;
-  const rowWidth = (frameWidth || estimate) - logoClear;
+  const rowWidth = (frameWidth || estimate) - logoClear - rowPadRight;
   const speedUp =
     rowWidth <
     rowPadLeft + timeWidth * 2 + SPEED_WIDTH + FULLSCREEN_WIDTH + ROW_GAP * 4 + MIN_RAIL;
@@ -286,6 +299,9 @@ export const VideoOverlay = memo(function VideoOverlay({
   // Only catch background taps while actively playing; when paused, let taps
   // outside our buttons reach YouTube's pause overlay.
   const showBackdrop = playing && !allowPassthroughTap;
+  // Shading under the times: over YouTube only while it plays (its pause
+  // screen has its own), over the app's own player whenever they show.
+  const showScrim = playing || !youtube;
   const childBoxPointerEvents = visible ? "box-none" : "none";
   const childAutoPointerEvents = visible ? "auto" : "none";
 
@@ -326,9 +342,10 @@ export const VideoOverlay = memo(function VideoOverlay({
     >
       {showBackdrop ? (
         <>
-          {/* Tap catcher to toggle controls visibility while playing (leaves the top 48pt clear) */}
+          {/* Tap catcher to toggle controls visibility while playing (over
+              YouTube, it leaves the top 48pt clear) */}
           <Pressable
-            style={styles.backdrop}
+            style={[styles.backdrop, !youtube && styles.backdropWhole]}
             onPress={toggleVisibility}
             accessibilityRole="button"
             accessibilityLabel={visible ? "Hide video controls" : "Show video controls"}
@@ -337,14 +354,16 @@ export const VideoOverlay = memo(function VideoOverlay({
             {...(screenReaderEnabled ? decorative : null)}
             testID="video-overlay-backdrop"
           />
-          {/* The bottom strip beside the logo corner: a tap where the times
-              and rail were brings them back rather than reaching YouTube. */}
-          <Pressable
-            style={[styles.strip, { right: logoClear }]}
-            onPress={toggleVisibility}
-            {...decorative}
-            testID="video-overlay-strip"
-          />
+          {/* The bottom strip beside YouTube's logo corner: a tap where the
+              times and rail were brings them back rather than reaching YouTube. */}
+          {youtube ? (
+            <Pressable
+              style={[styles.strip, { right: logoClear }]}
+              onPress={toggleVisibility}
+              {...decorative}
+              testID="video-overlay-strip"
+            />
+          ) : null}
         </>
       ) : null}
 
@@ -361,8 +380,8 @@ export const VideoOverlay = memo(function VideoOverlay({
           },
         ]}
       >
-        {/* Bottom scrim only while playing, and clear of the 96×44pt YouTube logo corner */}
-        {playing ? (
+        {/* Bottom scrim, clear of the 96×44pt YouTube logo corner */}
+        {showScrim ? (
           <View
             pointerEvents="none"
             style={[styles.bottomScrim, { right: logoClear }, gradient(BOTTOM_SCRIM)]}
@@ -375,7 +394,7 @@ export const VideoOverlay = memo(function VideoOverlay({
           style={[
             styles.topRow,
             {
-              marginTop: Math.max(YOUTUBE_TOP_CLEAR, fsTop),
+              marginTop: Math.max(topClear, fsTop),
               paddingLeft: Math.max(space.sm, fsSide),
               paddingRight: Math.max(space.xs, fsSide),
             },
@@ -384,23 +403,26 @@ export const VideoOverlay = memo(function VideoOverlay({
           <View pointerEvents="none" style={styles.futureSwitchSlot} />
           <View pointerEvents={childAutoPointerEvents} style={styles.topRightActions}>
             {speedUp ? speedButton(true) : null}
-            <Tap
-              accessibilityRole="button"
-              accessibilityLabel={captionsOn ? "Closed captions on" : "Closed captions off"}
-              accessibilityHint="Toggles video captions"
-              accessibilityState={{ selected: captionsOn, disabled: loading }}
-              disabled={loading}
-              {...web({ "aria-pressed": captionsOn })}
-              onPress={() => {
-                registerInteraction();
-                onToggleCaptions();
-              }}
-              feedback="scale"
-              style={styles.ccButton}
-              testID="player-cc-button"
-            >
-              <CcBadge active={captionsOn} />
-            </Tap>
+            {/* R2 has no caption track yet, so CC is offered only for YouTube. */}
+            {youtube ? (
+              <Tap
+                accessibilityRole="button"
+                accessibilityLabel={captionsOn ? "Closed captions on" : "Closed captions off"}
+                accessibilityHint="Toggles video captions"
+                accessibilityState={{ selected: captionsOn, disabled: loading }}
+                disabled={loading}
+                {...web({ "aria-pressed": captionsOn })}
+                onPress={() => {
+                  registerInteraction();
+                  onToggleCaptions();
+                }}
+                feedback="scale"
+                style={styles.ccButton}
+                testID="player-cc-button"
+              >
+                <CcBadge active={captionsOn} />
+              </Tap>
+            ) : null}
           </View>
         </View>
 
@@ -461,13 +483,14 @@ export const VideoOverlay = memo(function VideoOverlay({
         </View>
 
         {/* Bottom row: elapsed time, scrubber, total time, speed pill (1x), full screen.
-            Stops 96pt short of the right edge so the YouTube logo corner stays clear. */}
+            Over YouTube it stops 96pt short of the right edge so its logo corner stays clear. */}
         <View
           pointerEvents={childBoxPointerEvents}
           style={[
             styles.bottomRow,
             {
               paddingLeft: rowPadLeft,
+              paddingRight: rowPadRight,
               marginRight: logoClear,
               marginBottom: fsBottom,
             },
@@ -543,6 +566,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
   },
+  backdropWhole: { top: 0, bottom: 0 },
   strip: {
     position: "absolute",
     left: 0,
@@ -608,7 +632,6 @@ const styles = StyleSheet.create({
   bottomRow: {
     flexDirection: "row",
     alignItems: "center",
-    paddingRight: 0,
     gap: ROW_GAP,
     height: YOUTUBE_LOGO_HEIGHT,
     // Never reaches into the logo corner, whatever the text size.

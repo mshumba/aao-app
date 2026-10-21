@@ -7,7 +7,11 @@ export type PlayerEvent =
   | { type: "captions"; enabled: boolean }
   | { type: "error"; code: number };
 
-/** Commands sent to the provider's own player through the official IFrame API. */
+/**
+ * Commands the app sends the engine playing the sermon: the app's own video
+ * player (NativeVideo.tsx) or YouTube's, through its official IFrame API
+ * (Embed.tsx, Embed.web.tsx). Events come back in YouTube's terms either way.
+ */
 export type PlayerCommand =
   | { type: "play" }
   | { type: "pause" }
@@ -28,11 +32,16 @@ export const PLAYER_STOPPED = -1;
  */
 export const YOUTUBE_CHECK = -2;
 
+/** What the lock screen and Control Center show while the app's own player plays. */
+export type NowPlayingInfo = { title: string; artist: string; artwork?: string };
+
 export type PlayerProps = {
   videoId: string;
   height: number;
   startSeconds?: number;
   onEvent: (event: PlayerEvent) => void;
+  /** For the app's own player; the YouTube embed shows YouTube's. */
+  nowPlaying?: NowPlayingInfo;
   ref?: Ref<EmbedHandle>;
 };
 

@@ -27,7 +27,9 @@ import {
   s,
   web,
 } from "../ui";
+import { CHANNEL } from "../data/sermons";
 import Embed from "./Embed";
+import NativeVideo from "./NativeVideo";
 import {
   DOCK_MARGIN,
   DOCK_PAD,
@@ -49,9 +51,11 @@ import { useDayDoneNotice } from "./dayDone";
 import { useDockAboveTabs, usePublishDockInset } from "./useDockInset";
 
 /**
- * Renders the app's single YouTube player. On the sermon's own screen it sits
- * in the Now Playing slot; everywhere else it docks at the bottom. The embed
- * keeps the same place in the tree in both, so moving never restarts it.
+ * Renders the app's single player: the app's own video player for a sermon
+ * on R2, else the YouTube embed (PlayerProvider chooses). On the sermon's own
+ * screen it sits in the Now Playing slot; everywhere else it docks at the
+ * bottom. The player keeps the same place in the tree in both, so moving
+ * never restarts it.
  */
 export function PlayerHost() {
   const session = usePlayerSession();
@@ -62,7 +66,7 @@ export function PlayerHost() {
   const aboveTabs = useDockAboveTabs();
   const chrome = useChrome();
   const overlay = useStageOverlay();
-  const { sermon, phase, cover, attempt, start, attach, onEvent, hold } =
+  const { sermon, engine, phase, cover, attempt, start, attach, onEvent, hold } =
     session;
   const pathname = usePathname();
   const full = !!sermon && session.stage === sermon.id;
@@ -183,7 +187,23 @@ export function PlayerHost() {
             hidden && styles.gone,
           ]}
         >
-          {phase !== "error" ? (
+          {/* No engine while it's still asked whether the sermon is on R2:
+              the cover shows meanwhile. */}
+          {phase === "error" ? (
+            <View style={{ opacity: 0.4 }}>
+              <Thumbnail sermon={sermon} height={d.videoHeight} />
+            </View>
+          ) : engine === "native" ? (
+            <NativeVideo
+              key={attempt}
+              ref={attach}
+              videoId={sermon.id}
+              height={videoHeight}
+              startSeconds={start}
+              onEvent={onEvent}
+              nowPlaying={{ title: headline(sermon), artist: CHANNEL, artwork: sermon.thumbnail }}
+            />
+          ) : engine === "youtube" ? (
             <Embed
               key={attempt}
               ref={attach}
@@ -192,11 +212,7 @@ export function PlayerHost() {
               startSeconds={start}
               onEvent={onEvent}
             />
-          ) : (
-            <View style={{ opacity: 0.4 }}>
-              <Thumbnail sermon={sermon} height={d.videoHeight} />
-            </View>
-          )}
+          ) : null}
           {cover !== "off" && (
             // Never receives touches, and is gone once the player is ready,
             // so controls are never covered.
@@ -274,6 +290,7 @@ function StageFullOverlay() {
 
   return (
     <VideoOverlay
+      youtube={session.engine !== "native"}
       playing={p.playing}
       loading={session.phase === "loading"}
       seconds={p.seconds}

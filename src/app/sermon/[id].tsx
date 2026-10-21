@@ -33,7 +33,7 @@ import {
   useStageOverlay,
 } from "../../player/layout";
 import { PlayerCenter, type BandMarks } from "../../player/NowPlaying";
-import { usePlayback, usePlayerSession } from "../../player/PlayerProvider";
+import { prefetchVideo, usePlayback, usePlayerSession } from "../../player/PlayerProvider";
 import { fraction, resumePoint } from "../../player/progress";
 import { DaysDrawer } from "../../player/stage/DaysDrawer";
 import { LightHeader } from "../../player/stage/LightHeader";
@@ -174,6 +174,8 @@ function NowPlayingScreen({ sermon, link }: { sermon: Sermon; link: SermonParams
   const about = useRef<View>(null);
   const { moments } = useMoments(sermon.id);
   const pathDay = usePathDay(sermon.id, link);
+  // Whether it's on R2, asked now so Watch starts straight away.
+  useEffect(() => prefetchVideo(sermon.id), [sermon.id]);
 
   // Bumped when playback jumps to a moment, so the stage scrubber's thumb glides.
   const [glideKey, setGlideKey] = useState(0);

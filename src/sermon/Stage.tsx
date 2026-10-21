@@ -49,7 +49,7 @@ export const Poster = memo(function Poster({
   const ask = guest ? "Asks you to create a free account first" : undefined;
 
   let accessibilityLabel = "Watch sermon";
-  let accessibilityHint = ask ?? "Starts the sermon in the YouTube player";
+  let accessibilityHint = ask ?? "Starts the sermon";
   let badgeText: string | null = null;
 
   if (startAt != null) {

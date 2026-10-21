@@ -44,6 +44,13 @@
       "expo-secure-store",
       "expo-apple-authentication",
       [
+        "expo-video",
+        {
+          "supportsBackgroundPlayback": true,
+          "supportsPictureInPicture": true
+        }
+      ],
+      [
         "@react-native-google-signin/google-signin",
         {
           "iosUrlScheme": "com.googleusercontent.apps.1035154047913-24b695fdbbv0s1g6tng9g6ulq109jmcf"

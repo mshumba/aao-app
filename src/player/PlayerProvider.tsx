@@ -13,6 +13,7 @@ import { useAccount, useWatchProgress } from "../auth/AccountProvider";
 import type { WatchProgress } from "../auth/types";
 import { Sermon } from "../data/sermons";
 import { useCompleteDay } from "../learning/completeDay";
+import { chooseEngine, hasHls, knownHls, prefetchHls, type Engine } from "./media";
 import { MIN_RESUME, SAVE_EVERY, isFinished, resumePoint } from "./progress";
 import { EmbedHandle, PlayerCommand, PlayerEvent, playerError } from "./types";
 import { youtubeAt } from "./youtube";
@@ -24,9 +25,29 @@ export type PlayingDay = { pathId: string; day: number; sermonId: string };
 
 export const RATES = [1, 1.25, 1.5, 2, 0.75];
 
+/**
+ * The phone apps play sermons on R2 with their own video player; the web
+ * keeps the YouTube embed for now (media.ts).
+ */
+const NATIVE_VIDEO = Platform.OS !== "web";
+
+/**
+ * Asks ahead whether a sermon is on R2 (its page has opened), so pressing
+ * Watch needn't wait for the answer. Loading a sermon asks too, so the
+ * dock's sermon is always known.
+ */
+export function prefetchVideo(id: string) {
+  if (NATIVE_VIDEO) prefetchHls(id);
+}
+
 /** Slow-changing session facts: which sermon is loaded and where it shows. */
 type Session = {
   sermon: Sermon | null;
+  /**
+   * What plays it: the app's own player (from R2) or the YouTube embed; null
+   * while it's still being asked whether the sermon is on R2.
+   */
+  engine: Engine | null;
   phase: Phase;
   error: number | null;
   attempt: number;
@@ -145,9 +166,13 @@ const RESUME_NOTE_FOR = 120;
 const SEEK_SETTLE_MS = 1500;
 
 /**
- * One YouTube player for the whole app, so a sermon keeps playing (docked)
- * while the viewer browses. It pauses when the app goes to the background;
- * there is no background audio.
+ * One player for the whole app, so a sermon keeps playing (docked) while the
+ * viewer browses. On a phone a sermon on R2 plays in the app's own player,
+ * which keeps playing in the background and on the lock screen; anything
+ * else plays in the YouTube embed, which pauses when the app goes to the
+ * background. If the app's own player fails before the sermon has started,
+ * it plays from YouTube instead for the rest of the session, from the same
+ * place.
  *
  * For a signed-in viewer it also keeps their place: a sermon starts where
  * they left it, and the position is saved every 15 seconds while playing,
@@ -175,6 +200,18 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     accountRef.current = { user, ...progress };
   }, [user, progress]);
   const [sermon, setSermon] = useState<Sermon | null>(null);
+  const [engine, setEngineState] = useState<Engine | null>(null);
+  // Kept in step with every change too, for the event handlers.
+  const engineRef = useRef<Engine | null>(null);
+  const setEngine = useCallback((next: Engine | null) => {
+    engineRef.current = next;
+    setEngineState(next);
+  }, []);
+  // Sermons the app's own player failed on this session: YouTube plays them.
+  const youtubeOnly = useRef(new Set<string>());
+  // The load still waiting to hear whether its sermon is on R2, as a ticket
+  // only that load holds.
+  const engineAsk = useRef<object | null>(null);
   const [phase, setPhaseState] = useState<Phase>("idle");
   // Kept in step with every change, not after the next render: progress
   // arriving just after a load starts must see that it's loading (catchUp).
@@ -390,6 +427,19 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     position.current = from;
     pendingSeek.current = null;
     seekOnReady.current = null;
+    // Which engine plays it. Unknown yet: the cover stays up for the answer
+    // (at most a couple of seconds), and the load's time limit covers it.
+    const fellBack = youtubeOnly.current.has(next.id);
+    const choice = NATIVE_VIDEO ? chooseEngine(knownHls(next.id), fellBack) : "youtube";
+    const ask = {};
+    engineAsk.current = choice ? null : ask;
+    setEngine(choice);
+    if (!choice)
+      hasHls(next.id).then((has) => {
+        if (engineAsk.current !== ask) return;
+        engineAsk.current = null;
+        setEngine(has ? "native" : "youtube");
+      });
     setSermon(next);
     setError(null);
     setPhase("loading");
@@ -405,7 +455,24 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     // iOS has no live regions, so the loading step is announced there.
     if (Platform.OS === "ios")
       AccessibilityInfo.announceForAccessibility("Loading the sermon.");
-  }, [clearBlockedCheck, persist, setPhase]);
+  }, [clearBlockedCheck, persist, setEngine, setPhase]);
+
+  /**
+   * A failed player. If it was the app's own player and the sermon hadn't
+   * started, YouTube plays it instead (for the rest of the session), from
+   * the same place: still the viewer's start, or where they moved to.
+   */
+  const failOrFallBack = useCallback(
+    (code: number) => {
+      const loaded = current.current;
+      if (engineRef.current === "native" && !played.current && loaded) {
+        youtubeOnly.current.add(loaded.id);
+        return begin(loaded, position.current);
+      }
+      fail(code);
+    },
+    [begin, fail],
+  );
 
   /**
    * The account's progress arrived from the server after this sermon started
@@ -484,6 +551,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     current.current = null;
     loadedId = null;
     lateResume.current = null;
+    engineAsk.current = null;
     pendingSeek.current = null;
     resumeNote.current = 0;
     setResumedFrom(0);
@@ -491,13 +559,14 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     pending.current = false;
     autoplay.current = false;
     setSermon(null);
+    setEngine(null);
     setPhase("idle");
     setError(null);
     setCover("off");
     setCaptionsOn(false);
     setStatus("");
     setState(-1);
-  }, [clearBlockedCheck, persist, setPhase]);
+  }, [clearBlockedCheck, persist, setEngine, setPhase]);
 
   // The YouTube app (or site) at the viewer's place in the sermon.
   const watchOnYouTube = useCallback(() => {
@@ -510,7 +579,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   const onEvent = useCallback(
     (e: PlayerEvent) => {
-      if (e.type === "error") return fail(e.code);
+      if (e.type === "error") return failOrFallBack(e.code);
       if (e.type === "rate") return setRate(e.rate);
       if (e.type === "captions") return setCaptionsOn(e.enabled);
       pending.current = false;
@@ -579,15 +648,15 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       if (starting.current) return;
       setStatus(blocked.current ? BLOCKED : statusFor(e.state));
     },
-    [armSeek, command, fail, clearBlockedCheck, persist, checkDay, setPhase, startWithCheck],
+    [armSeek, command, failOrFallBack, clearBlockedCheck, persist, checkDay, setPhase, startWithCheck],
   );
 
   // Loading can't hang forever.
   useEffect(() => {
     if (phase !== "loading") return;
-    const timer = setTimeout(() => fail(0), 15000);
+    const timer = setTimeout(() => failOrFallBack(0), 15000);
     return () => clearTimeout(timer);
-  }, [phase, attempt, fail]);
+  }, [phase, attempt, failOrFallBack]);
 
   useEffect(() => clearBlockedCheck, [clearBlockedCheck]);
 
@@ -597,14 +666,16 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     return () => clearTimeout(timer);
   }, [cover]);
 
-  // No background audio: leaving the app pauses the sermon. iOS also reports
-  // "inactive" for Control Center and Notification Center, which isn't leaving.
+  // Leaving the app pauses a sermon playing from YouTube; the app's own
+  // player plays on, in the background and on the lock screen. iOS also
+  // reports "inactive" for Control Center and Notification Center, which
+  // isn't leaving.
   useEffect(() => {
     const sub = AppState.addEventListener("change", (next) => {
       if (next !== "background") return;
       // Saved straight away: the app may be suspended before the pause lands.
       persist("moment");
-      hold();
+      if (engineRef.current !== "native") hold();
     });
     return () => sub.remove();
   }, [hold, persist]);
@@ -645,6 +716,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const session = useMemo<Session>(
     () => ({
       sermon,
+      engine,
       phase,
       error,
       attempt,
@@ -669,6 +741,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     }),
     [
       sermon,
+      engine,
       phase,
       error,
       attempt,
