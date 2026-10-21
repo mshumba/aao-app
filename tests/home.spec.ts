@@ -311,8 +311,8 @@ test.describe("on a path", () => {
     await play.click();
     await expect(page).toHaveURL(new RegExp(`/sermon/${SERMON.dayTwo}$`));
     await expect(page.getByTestId("playback-status")).toHaveText("Playing");
-    expect((await ytLog(page)).starts).toEqual([0]);
-    // Recognised as today's day of the path.
+    // Recognised as today's day of the path, so from where the preaching starts.
+    expect((await ytLog(page)).starts).toEqual([1785]);
     await expect(page.getByTestId("part-of-path")).toHaveAccessibleName(
       "Part of your path. Day 3 of 7. Breaking free from habitual sin. 2 of 7 done.",
     );

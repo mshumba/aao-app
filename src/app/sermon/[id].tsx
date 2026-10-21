@@ -250,8 +250,10 @@ function NowPlayingScreen({ sermon, link }: { sermon: Sermon; link: SermonParams
   const saved = account.user ? progressFor(sermon.id) : null;
   const resumeAt = resumePoint(saved);
   // A place the link asks for (a moment, a shared time). Otherwise the
-  // player decides: where a member left off, or the beginning.
+  // player decides: where a member left off, else (as a day of a path)
+  // where the Apostle starts preaching, else the beginning.
   const startAt = link.t;
+  const opening = pathDay?.day.teachingStart ?? undefined;
 
   // Playing as a day of a path: the app-wide player keeps that, so the day
   // is marked done when the sermon has been watched, even after this page
@@ -268,16 +270,16 @@ function NowPlayingScreen({ sermon, link }: { sermon: Sermon; link: SermonParams
   // What a guest asked for, kept through signing up: where to start, and
   // the path day it is (so the path starts with the new account).
   const dayOfPath = pathDay?.explicit ? { id: pathDay.path.id, day: pathDay.day.day } : undefined;
-  const latest = useRef({ gate, session, dayOfPath });
+  const latest = useRef({ gate, session, dayOfPath, opening });
   useLayoutEffect(() => {
-    latest.current = { gate, session, dayOfPath };
+    latest.current = { gate, session, dayOfPath, opening };
   });
   const start = useCallback(
     (at?: number | null) => {
-      const { gate, session, dayOfPath } = latest.current;
-      if (!gate.require(watchIntent(sermon.id, at, dayOfPath))) return;
+      const { gate, session, dayOfPath, opening } = latest.current;
+      if (!gate.require(watchIntent(sermon.id, at, dayOfPath, opening))) return;
       bumpStageFocusToggle();
-      session.load(sermon, at ?? undefined);
+      session.load(sermon, at ?? undefined, opening);
     },
     [sermon],
   );
@@ -296,8 +298,8 @@ function NowPlayingScreen({ sermon, link }: { sermon: Sermon; link: SermonParams
     if (!playOnOpen || !staged || resumed.current) return;
     resumed.current = true;
     clearWatchRequest();
-    if (!current && gate.require(watchIntent(sermon.id, startAt, dayOfPath)))
-      session.load(sermon, startAt ?? undefined);
+    if (!current && gate.require(watchIntent(sermon.id, startAt, dayOfPath, opening)))
+      session.load(sermon, startAt ?? undefined, opening);
     // Continue means play even when this sermon is already paused in the
     // dock. A requested timestamp keeps its seek-then-play path below.
     else if (current && startAt == null) session.playWhenReady();
@@ -655,8 +657,13 @@ function NowPlayingScreen({ sermon, link }: { sermon: Sermon; link: SermonParams
 }
 
 /** Watching this sermon, as the gate carries it through signing up. */
-function watchIntent(sermonId: string, at?: number | null, path?: { id: string; day: number }) {
-  return { kind: "watch", sermonId, at: at ?? undefined, path } as const;
+function watchIntent(
+  sermonId: string,
+  at?: number | null,
+  path?: { id: string; day: number },
+  opening?: number,
+) {
+  return { kind: "watch", sermonId, at: at ?? undefined, path, opening } as const;
 }
 
 /** Front first: this sermon, then the part after it (or before, at the end). */

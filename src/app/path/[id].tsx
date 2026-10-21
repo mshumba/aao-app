@@ -106,7 +106,8 @@ export default function PathScreen() {
 
   // ---- Playing ------------------------------------------------------------------------
 
-  // The whole sermon, from where the viewer left off; `at` for a key moment.
+  // The whole sermon, from where the viewer left off, else where the Apostle
+  // starts preaching; `at` for a key moment.
   const playDay = useCallback(
     (day: PathDayWithSermon, at?: number) => {
       if (path) play(day.youtubeId, { path: { id: path.id, day: day.day }, at });

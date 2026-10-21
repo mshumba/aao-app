@@ -68,10 +68,11 @@ type Session = {
   setDockAboveTabs: (value: boolean) => void;
   /**
    * Loads and starts a sermon. A signed-in viewer picks up where they left
-   * off, unless `from` (seconds) asks for a place: a moment, a path day's
-   * focus, a shared time.
+   * off, unless `from` (seconds) asks for a place: a moment, a shared time.
+   * Without a place of their own (guests never have one), it starts at
+   * `opening` (seconds), a path day's teaching start, or the beginning.
    */
-  load: (sermon: Sermon, from?: number) => void;
+  load: (sermon: Sermon, from?: number, opening?: number) => void;
   /** Plays the loaded sermon, waiting for readiness when it is still loading. */
   playWhenReady: () => void;
   retry: () => void;
@@ -206,10 +207,10 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const accountRef = useRef({ user, ...progress });
   // The load still waiting on the account's progress for its saved place
   // (catchUp), as a ticket only that load holds, with the place it started
-  // from. Anything that settles the place first drops it: the viewer
-  // seeking, skipping or starting over, closing, another load, or another
-  // viewer signing in.
-  const lateResume = useRef<{ from: number } | null>(null);
+  // from and where it starts without a saved place. Anything that settles
+  // the place first drops it: the viewer seeking, skipping or starting over,
+  // closing, another load, or another viewer signing in.
+  const lateResume = useRef<{ from: number; opening: number } | null>(null);
   useEffect(() => {
     if (accountRef.current.user?.id !== user?.id) lateResume.current = null;
     accountRef.current = { user, ...progress };
@@ -512,20 +513,21 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
    * The account's progress arrived from the server after this sermon started
    * loading: from the start (a Watch straight after signing in), or from
    * this device's older copy of the place (see load). Jump to the saved
-   * place, unless that's where it started, the viewer has already watched
-   * on from there or chose a place meanwhile (even the start itself), or
-   * this load has been replaced.
+   * place (or, with none, to the load's opening), unless that's where it
+   * started, the viewer has already watched on from there or chose a place
+   * meanwhile (even the start itself), or this load has been replaced.
    */
   const catchUp = useCallback(
-    (ticket: { from: number }, id: string, items: WatchProgress[]) => {
+    (ticket: { from: number; opening: number }, id: string, items: WatchProgress[]) => {
       if (lateResume.current !== ticket) return;
       lateResume.current = null;
       const loaded = current.current;
       if (!loaded || loaded.id !== id) return;
-      const from = resumePoint(items.find((item) => item.sermonId === id) ?? null);
+      const saved = resumePoint(items.find((item) => item.sermonId === id) ?? null);
+      const from = saved || ticket.opening;
       if (from === ticket.from || position.current - ticket.from >= MIN_RESUME) return;
-      resumeNote.current = from;
-      setResumedFrom(from);
+      resumeNote.current = saved;
+      setResumedFrom(saved);
       position.current = from;
       setSeconds(from);
       // Still loading: it moves there once ready (starting the load again
@@ -541,36 +543,40 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   );
 
   const load = useCallback(
-    (next: Sermon, at?: number) => {
+    (next: Sermon, at?: number, opening?: number) => {
       if (pending.current && sermon?.id === next.id) return;
       // An earlier load's saved place, still on its way, isn't for this one.
       lateResume.current = null;
+      const place = (s?: number) => (s != null && Number.isFinite(s) && s >= 0 ? Math.floor(s) : null);
       // Asked for a place: start there, with no "Resuming at" note.
-      if (at != null && Number.isFinite(at) && at >= 0) {
+      const asked = place(at);
+      if (asked != null) {
         resumeNote.current = 0;
         setResumedFrom(0);
-        begin(next, Math.floor(at));
+        begin(next, asked);
         return;
       }
       // A signed-in viewer picks up where they left off. Until the account's
       // progress has been read from the server, that's where this device
       // last knew (all an offline launch has), and the server's place, if
-      // another device saved a newer one, follows (catchUp).
+      // another device saved a newer one, follows (catchUp). Without a
+      // place, it starts at the opening.
+      const openAt = place(opening) ?? 0;
       const viewer = accountRef.current;
-      let from = 0;
+      let saved = 0;
       if (viewer.user) {
-        from = resumePoint(viewer.progressFor(next.id));
+        saved = resumePoint(viewer.progressFor(next.id));
         if (!viewer.progressReady) {
-          const ticket = { from };
+          const ticket = { from: saved || openAt, opening: openAt };
           lateResume.current = ticket;
           viewer
             .whenProgressReady()
             .then((items) => items && catchUp(ticket, next.id, items));
         }
       }
-      resumeNote.current = from;
-      setResumedFrom(from);
-      begin(next, from);
+      resumeNote.current = saved;
+      setResumedFrom(saved);
+      begin(next, saved || openAt);
     },
     [begin, catchUp, sermon],
   );

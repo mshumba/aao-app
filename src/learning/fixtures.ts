@@ -109,6 +109,11 @@ const DAY_ONE = "WYiA7rjenVI";
 const FINALE = "H9sRbSUt0YE";
 const DAY_TWO = "yUDzMcZsVk8";
 const PRAY = "nUW8NT2Pe88";
+// Where the Apostle starts preaching in each (test data, not from their
+// cards). The guided paths' days start there, except Day 2 of waiting on
+// God, whose key moment comes first, so it starts at its focus. The series'
+// days have no teaching start, so they play from the beginning.
+const PREACHING = { dayOne: 912, finale: 1340, dayTwo: 1785, pray: 1260 };
 
 const day = (
   pathId: string,
@@ -120,33 +125,34 @@ const day = (
   keyAt: number,
   keyTitle: string,
   keyQuote: string,
-): PathDay => ({ pathId, day: n, youtubeId, focusStart, focusEnd, theme, keyAt, keyTitle, keyQuote });
+  teachingStart: number | null = null,
+): PathDay => ({ pathId, day: n, youtubeId, teachingStart, focusStart, focusEnd, theme, keyAt, keyTitle, keyQuote });
 
 export const fixtureDays: PathDay[] = [
   day(HABIT, 1, DAY_ONE, 1210, 2180, "Lay aside every weight", 1498, "Temptation is personal",
-    "Temptation is idiosyncratic; temptation is particular to you."),
+    "Temptation is idiosyncratic; temptation is particular to you.", PREACHING.dayOne),
   day(HABIT, 2, FINALE, 3120, 4090, "Shut down the factory", 3405, "Dead to sin",
-    "The accurate position that a Christian should sustain about sin is that he should be dead to it."),
+    "The accurate position that a Christian should sustain about sin is that he should be dead to it.", PREACHING.finale),
   day(HABIT, 3, DAY_TWO, 2950, 4010, "Stop sin while it is a thought", 3224, "Victory over sin",
-    "Bad actions are incubated through the outlet of the mind until they find expression in the womb of the heart."),
+    "Bad actions are incubated through the outlet of the mind until they find expression in the womb of the heart.", PREACHING.dayTwo),
   day(HABIT, 4, PRAY, 5400, 6380, "Find the flesh's booster stations", 5710, "The root is self",
-    "The foundation of all sin is self."),
+    "The foundation of all sin is self.", PREACHING.pray),
   day(HABIT, 5, DAY_ONE, 3900, 4850, "Gain mastery over your appetites", 4120, "Learning to say no",
-    "Any man that cannot say no to himself cannot say no to others."),
+    "Any man that cannot say no to himself cannot say no to others.", PREACHING.dayOne),
   day(HABIT, 6, FINALE, 6020, 6900, "When you fall, come boldly", 6300, "Mercy, then grace",
-    "It's only those that have obtained mercy that can find grace."),
+    "It's only those that have obtained mercy that can find grace.", PREACHING.finale),
   day(HABIT, 7, DAY_TWO, 7600, 8540, "Living from grace", 7820, "What grace is not",
-    "The antidote for sin cannot become the reason for sin."),
+    "The antidote for sin cannot become the reason for sin.", PREACHING.dayTwo),
   day(WAIT, 1, PRAY, 2890, 3590, "God is a King, not a servant", 3408, "Waiting on a King",
-    "The way up is waiting at the foot of the King until he stretches forth his scepter in your direction."),
+    "The way up is waiting at the foot of the King until he stretches forth his scepter in your direction.", PREACHING.pray),
   day(WAIT, 2, FINALE, 460, 1257, "He makes everything beautiful in its time", 784, "Beautiful in its time",
-    "God doesn't live in time, but he will use time to test your soul."),
+    "God doesn't live in time, but he will use time to test your soul.", 460),
   day(WAIT, 3, DAY_ONE, 2920, 3694, "Strength renewed for the faint", 3004, "Power for the faint",
-    "The specialty of God is that he gives power to the faint."),
+    "The specialty of God is that he gives power to the faint.", PREACHING.dayOne),
   day(WAIT, 4, DAY_TWO, 3473, 4430, "Do not help God in the flesh", 3487, "Milk or wine",
-    "Wine gets better with time; milk gets bad with time. So the question is, are you milk or are you wine?"),
+    "Wine gets better with time; milk gets bad with time. So the question is, are you milk or are you wine?", PREACHING.dayTwo),
   day(WAIT, 5, PRAY, 6380, 7170, "Keep the condition while you wait", 6878, "Keep the condition",
-    "The proof that you believe in a conditional promise is that you are busy fulfilling the condition."),
+    "The proof that you believe in a conditional promise is that you are busy fulfilling the condition.", PREACHING.pray),
   day(SPIRIT, 1, PRAY, 9000, 9900, "Prayer is fellowship", 9120, "Prayer is who we are",
     "Prayer is who we are and not what we do."),
   day(SPIRIT, 2, DAY_ONE, 5100, 5900, "The voice within", 5230, "The voice within",

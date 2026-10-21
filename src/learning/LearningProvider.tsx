@@ -219,8 +219,11 @@ export function LearningProvider({ children }: PropsWithChildren) {
     ]).then(([cachedNeeds, cachedPaths]) => {
       if (!alive) return;
       if (cachedNeeds?.data?.length) setNeeds({ needs: cachedNeeds.data, loading: false });
-      if (cachedPaths?.data?.paths?.length)
-        setPathData({ ...cachedPaths.data, loading: false, error: false });
+      if (cachedPaths?.data?.paths?.length) {
+        // Days kept from before teaching_start read as not known (from the beginning).
+        const days = cachedPaths.data.days.map((d) => ({ ...d, teachingStart: d.teachingStart ?? null }));
+        setPathData({ paths: cachedPaths.data.paths, days, loading: false, error: false });
+      }
       revalidate();
     });
     const subscription = AppState.addEventListener("change", (next) => {
@@ -639,14 +642,16 @@ export function useEnrollment() {
       }
       const first = daysByPath.get(pathId)?.[0];
       // A guest is asked for an account first; signing up then starts the
-      // path and plays Day 1, whole, from the beginning (the intent carries
-      // both). Closing the sheet drops it, so nothing starts later.
+      // path and plays Day 1, whole, from where the Apostle starts preaching
+      // unless the account has a place in it (the intent carries both).
+      // Closing the sheet drops it, so nothing starts later.
       if (
         !first ||
         gate.require({
           kind: "watch",
           sermonId: first.youtubeId,
           path: { id: pathId, day: first.day },
+          opening: first.teachingStart ?? undefined,
         })
       ) {
         // Guests who may watch keep their progress on this device.

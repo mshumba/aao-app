@@ -186,6 +186,12 @@ test.describe("local test data", () => {
       expect(d.focusEnd).toBeLessThanOrEqual(total);
       expect(d.keyAt).toBeGreaterThanOrEqual(d.focusStart);
       expect(d.keyAt).toBeLessThan(d.focusEnd);
+      // A day starts where the preaching does, or at its focus when the key
+      // moment comes first: never after the key moment.
+      if (d.teachingStart != null) {
+        expect(d.teachingStart).toBeGreaterThanOrEqual(0);
+        expect(d.teachingStart).toBeLessThanOrEqual(d.keyAt);
+      }
     }
     for (const m of fixtureMoments) expect(m.end).toBeLessThanOrEqual(length.get(m.youtubeId)!);
     // Each path's days run 1..n with no gaps, as its day count says.

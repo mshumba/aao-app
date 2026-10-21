@@ -70,14 +70,21 @@ export type Path = {
 };
 
 /**
- * One day of a path: a sermon, played in full. The focus segment inside it
- * is kept as data (for overlays once the ministry hosts its own video); the
- * app doesn't show it or start there.
+ * One day of a path: a sermon, played in full from where the Apostle starts
+ * preaching. The focus segment inside it is kept as data (for overlays once
+ * the ministry hosts its own video); the app doesn't show it or start there.
  */
 export type PathDay = {
   pathId: string;
   day: number;
   youtubeId: string;
+  /**
+   * Seconds into the video where the day starts playing for a viewer with
+   * no saved place in the sermon: where the Apostle starts preaching (from
+   * the sermon's card), or the focus's start when the key moment comes
+   * before that. Null when it isn't known: the day plays from the beginning.
+   */
+  teachingStart: number | null;
   /** Seconds into the video. Data only. */
   focusStart: number;
   focusEnd: number;

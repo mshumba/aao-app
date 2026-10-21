@@ -7,9 +7,10 @@ import { sermonHref } from "./model";
 /**
  * Plays a day: opens its sermon and asks the sermon page to start once it
  * has settled (as Continue watching does), so ▶ means play. The whole
- * sermon: it resumes where the viewer left off, else starts at the
- * beginning; `at` jumps to one moment instead (a key moment). With `path`,
- * the sermon page knows which day of which path it is.
+ * sermon: it resumes where the viewer left off, else starts where the
+ * Apostle starts preaching; `at` jumps to one moment instead (a key
+ * moment). With `path`, the sermon page knows which day of which path it
+ * is, and so where its teaching starts.
  */
 export function usePlayDay() {
   // Ignores a second tap until this screen is back in front (useNavigate).

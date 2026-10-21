@@ -8,9 +8,9 @@ import { firstParam } from "../navigation";
  * - `from=search` with `q`: opened from "What are you going through?"; the
  *   band shows "From your search: …" for six seconds, and the search
  *   moment gets its own tick. A "Play from" tap there plays at once.
- * - `path` and `day`: opened as a day of a path. The band shows the day's
- *   focus in gold, Play starts at the focus, and reaching its end marks the
- *   day done.
+ * - `path` and `day`: opened as a day of a path. Play starts where the
+ *   Apostle starts preaching (unless the viewer has a place of their own),
+ *   and watching the sermon marks the day done.
  * - `play=1`: start playing as soon as the page has settled.
  */
 export type SermonLink = {

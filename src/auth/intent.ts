@@ -9,8 +9,13 @@ export type Intent =
   | {
       kind: "watch";
       sermonId: string;
-      /** Where to start (seconds): a search moment, a path day's focus. */
+      /** Where to start (seconds): a search moment, a key moment, a shared time. */
       at?: number;
+      /**
+       * Where to start (seconds) when the account has no place of its own in
+       * the sermon: a path day's teaching start.
+       */
+      opening?: number;
       /**
        * A guided path's day: once there's an account, the path starts (if it
        * hasn't) and this day plays as part of it.

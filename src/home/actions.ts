@@ -23,8 +23,7 @@ export function pathHref(id: string) {
  * - open: the sermon's page.
  * - watch: the sermon's page, playing (asks a guest for a free account
  *   first, as Watch does everywhere). A signed-in viewer resumes where they
- *   left off; `at` asks the page to start there instead (`t`, in seconds),
- *   for a path day's focus.
+ *   left off; `at` asks the page to start there instead (`t`, in seconds).
  * - toggleSave: saves or unsaves (asks a guest for an account first).
  */
 export function useSermonActions() {

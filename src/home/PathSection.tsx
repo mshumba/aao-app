@@ -61,7 +61,7 @@ export const YourPath = memo(function YourPath({
 }: {
   active: ActivePath;
   onOpenPath: (id: string) => void;
-  /** Opens the sermon playing (no place asked: it resumes, else starts at the beginning). */
+  /** Opens the sermon playing (no place asked: it resumes, else starts where the Apostle starts preaching). */
   onPlay: (youtubeId: string) => void;
 }) {
   const { find } = useCatalogue();

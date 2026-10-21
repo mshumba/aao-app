@@ -23,7 +23,8 @@ import { totalTime } from "../src/learning/format";
 // Morning, 2 hr 49 min) and "Learning to wait on God" (a 5-day draft, shown
 // with no draft label anywhere, as the owner asked). A day
 // plays its whole sermon: it resumes where the viewer left off, else starts
-// at the beginning, and it's done once 95% of it has been watched. The path
+// where the Apostle starts preaching (tests/teaching-start.spec.ts), and
+// it's done once 95% of it has been watched. The path
 // page shows the days as a row of cards that opens on today's, the next day
 // at its edge.
 
@@ -216,16 +217,16 @@ test("a path not yet started opens on Day 1, and shows the days ahead", async ({
   await expect(sheet).toHaveCount(0);
 });
 
-test("starting a path plays Day 1, whole, from the beginning, and Home follows the path", async ({
+test("starting a path plays Day 1, whole, from where the preaching starts, and Home follows the path", async ({
   page,
 }) => {
   await fakeYouTube(page, { duration: LENGTH[SERMON.dayOne] });
   await page.goto(`/path/${HABIT}`);
   await cta(page).click();
-  // No jump to a focus: the sermon starts at the beginning.
+  // No jump to a focus: the sermon starts where the Apostle starts preaching.
   await expect(page).toHaveURL(new RegExp(`/sermon/${SERMON.dayOne}\\?path=${HABIT}&day=1$`));
   await expect(page.getByTestId("playback-status")).toHaveText("Playing");
-  expect((await ytLog(page)).starts).toEqual([0]);
+  expect((await ytLog(page)).starts).toEqual([912]);
   const stored = await storedPathProgress(page);
   expect(Object.keys(stored!.enrollments)).toEqual([HABIT]);
   expect(stored!.done[HABIT]).toEqual([]);
@@ -266,7 +267,7 @@ test.describe("part way through a path", () => {
     await seedPathProgress(page, { [HABIT]: [1, 2] });
   });
 
-  test("Continue plays today's sermon, whole, from the beginning", async ({ page }) => {
+  test("Continue plays today's sermon, whole, from where the preaching starts", async ({ page }) => {
     await fakeYouTube(page, { duration: LENGTH[SERMON.dayTwo] });
     await page.goto(`/path/${HABIT}`);
     await expect(day(page, 1)).toHaveAccessibleName(/^Day 1 of 7, done\. /);
@@ -284,7 +285,7 @@ test.describe("part way through a path", () => {
     await cta(page).click();
     await expect(page).toHaveURL(new RegExp(`/sermon/${SERMON.dayTwo}\\?path=${HABIT}&day=3$`));
     await expect(page.getByTestId("playback-status")).toHaveText("Playing");
-    expect((await ytLog(page)).starts).toEqual([0]);
+    expect((await ytLog(page)).starts).toEqual([1785]);
     await expect(page.getByText(/focus|today’s teaching/i)).toHaveCount(0);
   });
 
@@ -592,7 +593,7 @@ test.describe("as a guest", () => {
     expect((await storedPathProgress(page, "guest"))?.enrollments ?? {}).toEqual({});
   });
 
-  test("after signing up, Day 1 plays, whole, from the beginning", async ({ page }) => {
+  test("after signing up, Day 1 plays, whole, from where the preaching starts", async ({ page }) => {
     // The sign-up carries the path and the day through, and no focus time.
     await fakeYouTube(page, { duration: LENGTH[SERMON.dayOne] });
     await page.goto(`/path/${HABIT}`);
@@ -600,7 +601,7 @@ test.describe("as a guest", () => {
     await page.getByTestId("continue-google").click();
     await expect(page.getByTestId("playback-status")).toHaveText("Playing");
     await expect(page).toHaveURL(new RegExp(`/sermon/${SERMON.dayOne}\\?path=${HABIT}&day=1$`));
-    expect((await ytLog(page)).starts).toEqual([0]);
+    expect((await ytLog(page)).starts).toEqual([912]);
   });
 
   test("closing the sign-up sheet abandons starting the path", async ({ page }) => {

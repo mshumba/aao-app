@@ -192,12 +192,13 @@ export function IntentRunner() {
             params.path = intent.path.id;
             params.day = String(intent.path.day);
           }
-          // The sermon page starts it once it has settled, at `t`.
+          // The sermon page starts it once it has settled, at `t` (or, as
+          // the path day, where the Apostle starts preaching).
           requestWatch(sermon.id);
           router.navigate({ pathname: "/sermon/[id]", params } as never);
           return;
         }
-        player.load(sermon, at);
+        player.load(sermon, at, intent.opening);
         return;
       }
       if (saved.isSaved(sermon.id)) {

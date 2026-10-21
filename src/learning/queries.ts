@@ -88,6 +88,7 @@ type DayRow = {
   path_id: string;
   day: number;
   youtube_id: string;
+  teaching_start: number | null;
   focus_start: number;
   focus_end: number;
   theme: string;
@@ -127,13 +128,14 @@ export async function fetchPaths(): Promise<{ paths: Path[]; days: PathDay[] }> 
   const [pathRows, dayRows] = await Promise.all([
     table<PathRow>("paths?select=id,kind,name,italic,promise,why,needs,minutes_per_day,status,sort&order=sort.asc,id.asc"),
     table<DayRow>(
-      "path_days?select=path_id,day,youtube_id,focus_start,focus_end,theme,key_at,key_title,key_quote&order=path_id.asc,day.asc",
+      "path_days?select=path_id,day,youtube_id,teaching_start,focus_start,focus_end,theme,key_at,key_title,key_quote&order=path_id.asc,day.asc",
     ),
   ]);
   const days: PathDay[] = dayRows.map((r) => ({
     pathId: r.path_id,
     day: r.day,
     youtubeId: r.youtube_id,
+    teachingStart: r.teaching_start ?? null,
     focusStart: r.focus_start,
     focusEnd: r.focus_end,
     theme: r.theme,

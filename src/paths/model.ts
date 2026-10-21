@@ -144,8 +144,9 @@ export function stateOf(day: number, done: readonly number[], today: number | nu
  * A day's sermon page. With the path, the page knows it's a day of this
  * path (finishing it marks the day done); without it, it's an ordinary
  * visit ("Open anyway"). No `at`: the sermon resumes where the viewer left
- * off, else plays from the beginning; `at` is for a single moment ("Key
- * moment 53:44").
+ * off, else plays from where the Apostle starts preaching (the day's
+ * teaching start, or the beginning when it isn't known); `at` is for a
+ * single moment ("Key moment 53:44").
  */
 export function sermonHref(youtubeId: string, opts: { path?: { id: string; day: number }; at?: number } = {}): Href {
   const params: Record<string, string> = { id: youtubeId };
