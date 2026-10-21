@@ -1,11 +1,12 @@
 import { memo, useMemo, type Ref } from "react";
 import { StyleSheet, Text, View, type LayoutChangeEvent } from "react-native";
-import { relatedSermons, sermonCategoryIds, type Sermon } from "../data/sermons";
+import { relatedSermons, sermonTopicIds, type Sermon } from "../data/sermons";
 import { SectionHeader } from "../kit";
+import { useTopics } from "../learning";
 import { exitTo } from "../navigation";
 import { NATIVE_VIDEO } from "../player/videoPlatform";
 import { c, space, textCap, type } from "../theme";
-import { TopicNotice, TopicTags } from "../topics";
+import { TopicNotice, TopicTags, namedTopics } from "../topics";
 import { Icon, Notice, SermonRow, T, Tap, TextButton } from "../ui";
 
 /*
@@ -58,16 +59,20 @@ export const MoreSermons = memo(function MoreSermons({
   );
 });
 
-/** Its sample topics, when it has any. */
+/**
+ * Its topics, when it has any that are offered (none while the topics are
+ * still on their way, so the heading never stands over nothing).
+ */
 export const TopicsSection = memo(function TopicsSection({ sermon }: { sermon: Sermon }) {
-  const topics = useMemo(() => sermonCategoryIds(sermon), [sermon]);
+  const { topics: offered } = useTopics();
+  const topics = useMemo(() => namedTopics(offered, sermonTopicIds(sermon)), [sermon, offered]);
   if (!topics.length) return null;
   return (
     <>
       <SectionHeader title="Topics" size="md" style={styles.sectionGap} />
       <View style={{ gap: space.md, marginTop: space.md }}>
         <TopicNotice />
-        <TopicTags ids={topics} />
+        <TopicTags topics={topics} />
       </View>
     </>
   );

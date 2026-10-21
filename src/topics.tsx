@@ -1,5 +1,5 @@
 import { StyleSheet, View } from "react-native";
-import { useTopics } from "./learning";
+import type { Topic } from "./learning/types";
 import { useGo } from "./navigation";
 import { radius, type } from "./theme";
 import { Icon, IconName, Notice, T, Tap, c } from "./ui";
@@ -28,6 +28,42 @@ export function topicIcon(id: string): IconName {
   return ICONS[id] ?? "leaf-outline";
 }
 
+/**
+ * Topic ids that have been replaced, each with the topic now holding what
+ * it covered: the four sample topics' ids before the real topics (Prayer
+ * kept its id). Saved picks, links and old builds can still carry them.
+ * supabase/migrations/20261021000200_topics_interests.sql moves accounts'
+ * saved picks the same way. When Comfort & Healing becomes Healing, add
+ * "comfort-healing": "healing".
+ */
+const RENAMED: ReadonlyMap<string, string> = new Map([
+  ["spiritual-growth", "hearing-god"],
+  ["faith", "faith-hope"],
+  ["christian-living", "everyday-life"],
+]);
+
+/**
+ * The topic an id names: that topic, or, for an id that's no longer a
+ * topic, the one that replaced it (when it's offered).
+ */
+export function findTopic(topics: readonly Topic[], id?: string | null): Topic | undefined {
+  if (!id) return undefined;
+  const named = topics.find((topic) => topic.id === id);
+  if (named) return named;
+  const now = RENAMED.get(id);
+  return now ? topics.find((topic) => topic.id === now) : undefined;
+}
+
+/**
+ * The topics a list of ids names (a viewer's picks, say), each once and in
+ * the topics' own order. Replaced ids count as the topics that replaced
+ * them; any other id that isn't a topic is left out.
+ */
+export function namedTopics(topics: readonly Topic[], ids: readonly string[]): Topic[] {
+  const wanted = new Set(ids.map((id) => findTopic(topics, id)?.id));
+  return topics.filter((topic) => wanted.has(topic.id)).sort((a, b) => a.sort - b.sort);
+}
+
 /** A topic's page: its sermons, the best match first. */
 export function topicHref(topicId: string) {
   return { pathname: "/topics/[topicId]", params: { topicId } } as const;
@@ -47,27 +83,22 @@ export function TopicNotice() {
 }
 
 /** Links to a sermon's topics (its one topic, today), on its page. */
-export function TopicTags({ ids }: { ids: readonly string[] }) {
+export function TopicTags({ topics }: { topics: readonly Topic[] }) {
   const go = useGo();
-  const { topics } = useTopics();
   return (
     <View style={styles.tags}>
-      {ids.map((id) => {
-        const topic = topics.find((t) => t.id === id);
-        if (!topic) return null;
-        return (
-          <Tap
-            key={id}
-            accessibilityRole="link"
-            accessibilityLabel={`${topic.label} topic`}
-            onPress={() => go.push(topicHref(id))}
-            style={styles.tag}
-          >
-            <Icon name={topicIcon(id)} size={16} color={c.accent} />
-            <T style={styles.tagLabel}>{topic.label}</T>
-          </Tap>
-        );
-      })}
+      {topics.map((topic) => (
+        <Tap
+          key={topic.id}
+          accessibilityRole="link"
+          accessibilityLabel={`${topic.label} topic`}
+          onPress={() => go.push(topicHref(topic.id))}
+          style={styles.tag}
+        >
+          <Icon name={topicIcon(topic.id)} size={16} color={c.accent} />
+          <T style={styles.tagLabel}>{topic.label}</T>
+        </Tap>
+      ))}
     </View>
   );
 }

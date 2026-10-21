@@ -4,7 +4,7 @@ import { Platform, StyleSheet, View, useWindowDimensions } from "react-native";
 import { useTopics, type Topic } from "../learning";
 import { font, radius, shadows, space, textCap, type } from "../theme";
 import { topicIcon } from "../topics";
-import { Icon, Notice, T, Tap, c, s, web } from "../ui";
+import { Icon, Notice, T, Tap, TextButton, c, s, web } from "../ui";
 
 /**
  * Pick any of the topics. Each is a card with its icon, its name and a line
@@ -16,12 +16,15 @@ export function TopicPicker({
   value,
   onChange,
   disabled = false,
+  offline = "The topics will be here once you’re online. You can pick them any time in Account.",
 }: {
   value: readonly string[];
   onChange: (ids: string[]) => void;
   disabled?: boolean;
+  /** What to say when there are none to pick from (a first launch offline). */
+  offline?: string;
 }) {
-  const { topics, loading } = useTopics();
+  const { topics, loading, refresh } = useTopics();
   const { width, fontScale } = useWindowDimensions();
   // Measured, because the picker sits in columns of different widths. The
   // first guess is the onboarding column, so phones never flash two-up.
@@ -38,12 +41,20 @@ export function TopicPicker({
     onChange(topics.filter((topic) => next.includes(topic.id)).map((topic) => topic.id));
   }
 
-  // First launch offline: there's nothing to pick from yet.
-  if (!topics.length && !loading)
-    return (
-      <Notice icon="cloud-offline-outline">
-        The topics will be here once you’re online. You can pick them any time in Account.
-      </Notice>
+  // A first launch: the topics' places while they load, and offline,
+  // nothing to pick from yet.
+  if (!topics.length)
+    return loading ? (
+      <View style={styles.list} accessible accessibilityLabel="Loading the topics">
+        {[0, 1, 2, 3].map((i) => (
+          <View key={i} style={styles.ghost} />
+        ))}
+      </View>
+    ) : (
+      <View style={styles.offline}>
+        <Notice icon="cloud-offline-outline">{offline}</Notice>
+        <TextButton label="Try again" align="start" onPress={refresh} />
+      </View>
     );
 
   return (
@@ -153,6 +164,9 @@ function pairs<T>(items: readonly T[]): T[][] {
 
 const styles = StyleSheet.create({
   list: { gap: space.md },
+  // Static sand cards (no shimmer) where the topics will be.
+  ghost: { height: 92, borderRadius: radius.r22, backgroundColor: c.feature },
+  offline: { gap: space.sm },
   // Cards in a row stretch to the taller one.
   row: { flexDirection: "row", gap: space.md },
   half: { flex: 1 },

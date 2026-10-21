@@ -8,7 +8,7 @@ import {
   sampleRecords,
   sampleSermons as sermons,
   searchSermons,
-  sermonCategoryIds,
+  sermonTopicIds,
   sermonsInTopic,
   seriesRails,
   toSermon,
@@ -63,13 +63,13 @@ test("the bundled sample carries its real topics, apart from the record", () => 
   expect(new Set(ids).size).toBe(ids.length);
   // As public.sermon_topics has them: one topic a sermon, and the Grand
   // Finale has none.
-  expect(sermons.map((s) => [s.id, sermonCategoryIds(s)])).toEqual([
+  expect(sermons.map((s) => [s.id, sermonTopicIds(s)])).toEqual([
     ["nUW8NT2Pe88", ["prayer"]],
     ["H9sRbSUt0YE", []],
     ["yUDzMcZsVk8", ["purpose-calling"]],
     ["WYiA7rjenVI", ["hearing-god"]],
   ]);
-  for (const sermon of sermons) for (const id of sermonCategoryIds(sermon)) expect(ids).toContain(id);
+  for (const sermon of sermons) for (const id of sermonTopicIds(sermon)) expect(ids).toContain(id);
   // Topics live in public.sermon_topics, never on the catalogue record.
   for (const record of sampleRecords)
     expect(Object.keys(record).join()).not.toMatch(/categor|topic|tag/);

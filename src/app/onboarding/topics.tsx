@@ -19,7 +19,9 @@ export default function OnboardingTopics() {
   const next = () =>
     go.run(async () => {
       // Kept on the device first; an account's copy catches up when it can.
-      await account.setInterests(value).catch(() => {});
+      // Untouched, what's stored stays (with no topics loaded, there was
+      // nothing to pick).
+      if (picked !== null) await account.setInterests(picked).catch(() => {});
       router.push("/onboarding/account");
     });
 

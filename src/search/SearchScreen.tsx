@@ -54,7 +54,7 @@ import { firstParam, requestWatch, takeSearchFocus, useFocusEffect, useGo, usePa
 import { useDockInset } from "../player/useDockInset";
 import { c, textCap, type } from "../theme";
 import { useToast } from "../toast";
-import { sermonCount, topicHref } from "../topics";
+import { findTopic, sermonCount, topicHref } from "../topics";
 import { Heading, dockScrollPadding, web } from "../ui";
 import {
   CalmState,
@@ -178,9 +178,10 @@ export function SearchScreen() {
   const go = useGo();
 
   // Old scoped links (/search?category=prayer) open that topic's page,
-  // where its sermons are; Search itself no longer filters by topic.
+  // where its sermons are (a sample topic's, the topic that replaced it);
+  // Search itself no longer filters by topic.
   const { topics, loading } = useTopics();
-  const known = category ? topics.find((topic) => topic.id === category) : undefined;
+  const known = findTopic(topics, category);
   useEffect(() => {
     if (!known) return;
     router.setParams({ category: "" });
@@ -223,7 +224,10 @@ function SearchView({ initialQuery, unknownTopic }: { initialQuery: string; unkn
   const [query, setQuery] = useState(initialQuery);
   const [submitted, setSubmitted] = useState<string | null>(initialQuery.trim() || null);
   const [limit, setLimit] = useState<{ key: string; n: number }>({ key: "", n: 0 });
-  const [showTopicNotice, setShowTopicNotice] = useState(unknownTopic);
+  // An unknown topic in the link says so (once the topics are known, which
+  // can be after the screen opens) until they search.
+  const [searched, setSearched] = useState(false);
+  const showTopicNotice = unknownTopic && !searched;
   const [allNeeds, setAllNeeds] = useState(false);
   const { paths, daysOf } = usePaths();
   const input = useRef<TextInput>(null);
@@ -285,7 +289,7 @@ function SearchView({ initialQuery, unknownTopic }: { initialQuery: string; unkn
       if (!value) return;
       setQuery(value);
       setSubmitted(value);
-      setShowTopicNotice(false);
+      setSearched(true);
       // Words said in distress aren't kept on the device to be seen again.
       if (!inDistress(value)) addRecent(value);
       if (Platform.OS !== "web") Keyboard.dismiss();

@@ -10,7 +10,7 @@ import { useTopics } from "../learning";
 import { firstParam } from "../navigation";
 import { useDockInset } from "../player/useDockInset";
 import { space, tabular, type } from "../theme";
-import { sermonCount } from "../topics";
+import { findTopic, sermonCount } from "../topics";
 import {
   Header,
   PageTitle,
@@ -65,7 +65,9 @@ export default function AllSermons() {
 
   // ---- What's chosen (a link may choose for you: /sermons?series=…) ------------------
   const initial = (dimension: Dimension, value?: string | string[]) => {
-    const v = firstParam(value);
+    const asked = firstParam(value);
+    // A sample topic's id (an old link) chooses the topic that replaced it.
+    const v = dimension === "topic" ? (findTopic(allTopics, asked)?.id ?? asked) : asked;
     return v && options[dimension].some((o) => o.key === v) ? v : null;
   };
   const [chosen, setChosen] = useState<Record<Dimension, string | null>>(() => ({

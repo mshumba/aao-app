@@ -16,6 +16,7 @@ import { useCatalogue } from "../catalogue/CatalogueProvider";
 import { readJSON, writeJSON } from "../lib/storage";
 import { noteDayDone } from "../paths/seen";
 import { NATIVE_VIDEO } from "../player/videoPlatform";
+import { namedTopics } from "../topics";
 import { CompleteDayContext } from "./completeDay";
 import { fixtureDays, fixtureMoments, fixtureNeeds, fixturePaths, fixtureTopics } from "./fixtures";
 import {
@@ -98,7 +99,11 @@ const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
 // ---- Contexts ------------------------------------------------------------------
 
 type NeedsValue = { needs: Need[]; loading: boolean };
-type TopicsValue = { topics: Topic[]; loading: boolean };
+type TopicsState = { topics: Topic[]; loading: boolean };
+type TopicsValue = TopicsState & {
+  /** Fetches them again (with needs and paths): Try again, after a failure. */
+  refresh: () => void;
+};
 type PathsValue = {
   paths: Path[];
   days: PathDay[];
@@ -178,9 +183,13 @@ export function LearningProvider({ children }: PropsWithChildren) {
   const [needs, setNeeds] = useState<NeedsValue>(() =>
     local ? { needs: fixtureNeeds, loading: false } : { needs: [], loading: true },
   );
-  const [topics, setTopics] = useState<TopicsValue>(() =>
+  const [topics, setTopics] = useState<TopicsState>(() =>
     local ? { topics: fixtureTopics, loading: false } : { topics: [], loading: true },
   );
+  const noTopics = useRef(!topics.topics.length);
+  useEffect(() => {
+    noTopics.current = !topics.topics.length;
+  }, [topics.topics]);
   const [pathData, setPathData] = useState(() =>
     local
       ? { paths: fixturePaths, days: fixtureDays, loading: false, error: false }
@@ -189,19 +198,24 @@ export function LearningProvider({ children }: PropsWithChildren) {
   const lastFetch = useRef(0);
 
   // A guest's topics are kept on this device: once the topics are known,
-  // any no longer offered are dropped (the old sample topics' ids, say). An
-  // account's are left as they are, for the server to remap; screens show
-  // only current ones (useMyTopics).
+  // replaced ids move onto the topics that replaced them (the old sample
+  // topics' ids, say) and any others no longer offered are dropped, as the
+  // server does for accounts (20261021000200_topics_interests.sql).
+  // An account's are left as they are; screens show them the same way
+  // (useMyTopics), and saving them in Account writes that.
   const { ready, user, interests, setInterests } = account;
   useEffect(() => {
     if (!ready || user || !topics.topics.length) return;
-    const kept = interests.filter((id) => topics.topics.some((t) => t.id === id));
-    if (kept.length < interests.length) setInterests(kept).catch(() => {});
+    const now = namedTopics(topics.topics, interests).map((topic) => topic.id);
+    if (!same(now, interests)) setInterests(now).catch(() => {});
   }, [ready, user, interests, topics.topics, setInterests]);
 
   const revalidate = useCallback(async () => {
     if (local) return;
     lastFetch.current = Date.now();
+    // With none to show (offline at first launch), Try again shows them
+    // loading rather than offline.
+    setTopics((was) => (was.topics.length || was.loading ? was : { ...was, loading: true }));
     // These resources are independent: show each as soon as it arrives.
     // Paths and their days still publish together as one consistent result.
     await Promise.all([
@@ -255,14 +269,45 @@ export function LearningProvider({ children }: PropsWithChildren) {
       }
       revalidate();
     });
+    // Fetched again when the app comes back after a while, and at once,
+    // however recently it tried, while there are no topics to pick from (a
+    // first launch offline), or when the connection returns on the web.
+    const wake = () => {
+      if (noTopics.current || Date.now() - lastFetch.current > STALE_MS) revalidate();
+    };
     const subscription = AppState.addEventListener("change", (next) => {
-      if (next === "active" && Date.now() - lastFetch.current > STALE_MS) revalidate();
+      if (next === "active") wake();
     });
+    const web = Platform.OS === "web" && typeof window !== "undefined" && !!window.addEventListener;
+    if (web) window.addEventListener("online", wake);
     return () => {
       alive = false;
       subscription.remove();
+      if (web) window.removeEventListener("online", wake);
     };
   }, [revalidate]);
+
+  // Sermons' topics kept on the device from before a topic was renamed
+  // (Comfort & Healing becoming Healing, say) would leave the new one
+  // empty until the copy is old: fetched again at once instead, once for
+  // each set of topics.
+  const { all: library, refreshTags } = useCatalogue();
+  const tagsCheckedFor = useRef("");
+  useEffect(() => {
+    if (local || topics.loading || !topics.topics.length) return;
+    const ids = new Set(topics.topics.map((topic) => topic.id));
+    const key = [...ids].join(" ");
+    if (tagsCheckedFor.current === key) return;
+    if (library.some((sermon) => sermon.topic && !ids.has(sermon.topic.id))) {
+      tagsCheckedFor.current = key;
+      refreshTags({ force: true });
+    }
+  }, [topics, library, refreshTags]);
+
+  const topicsValue = useMemo<TopicsValue>(
+    () => ({ ...topics, refresh: () => void revalidate() }),
+    [topics, revalidate],
+  );
 
   const daysByPath = useMemo(() => byPath(pathData.days), [pathData.days]);
   const daysOf = useCallback(
@@ -559,7 +604,7 @@ export function LearningProvider({ children }: PropsWithChildren) {
 
   return (
     <NeedsContext.Provider value={needs}>
-      <TopicsContext.Provider value={topics}>
+      <TopicsContext.Provider value={topicsValue}>
         <PathsContext.Provider value={pathsValue}>
           <MomentsContext.Provider value={momentsValue}>
             <ProgressContext.Provider value={progressValue}>
@@ -588,12 +633,14 @@ export function useTopics() {
 
 /**
  * The topics the viewer picked (in onboarding or Account), in the order
- * they're offered. A picked id that's no longer a topic is left out.
+ * they're offered. A picked id that's been replaced counts as the topic
+ * that replaced it (namedTopics), and any other that's no longer a topic
+ * is left out: an account saved on an older build shows what it holds now.
  */
 export function useMyTopics() {
   const { topics } = useTopics();
   const { interests } = useAccount();
-  return useMemo(() => topics.filter((t) => interests.includes(t.id)), [topics, interests]);
+  return useMemo(() => namedTopics(topics, interests), [topics, interests]);
 }
 
 /**

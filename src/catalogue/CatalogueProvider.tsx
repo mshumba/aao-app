@@ -35,8 +35,13 @@ const RESYNC_AFTER_MS = 30 * 60 * 1000;
 const TAGS_STALE_MS = 6 * 60 * 60 * 1000;
 
 export type Catalogue = {
-  /** Every sermon with its topics, newest first. */
+  /**
+   * The sermons to list, with their topics, newest first: on the phones,
+   * only those whose video is on R2 (see `all`).
+   */
   sermons: Sermon[];
+  /** Every sermon, those the phones don't list yet included. */
+  all: Sermon[];
   find: (id?: string | null) => Sermon | undefined;
   /** A series' name, e.g. "Lioness Conference 2022". */
   seriesName: (key?: string | null) => string | undefined;
@@ -50,8 +55,21 @@ export type Catalogue = {
   settled: boolean;
   /** The last sync couldn't reach the library. */
   offline: boolean;
-  /** Syncs again, after a failure. */
+  /** Syncs again, after a failure (sermons' topics too, if they failed). */
   retry: () => void;
+  /**
+   * Sermons' topics are known: the device's copy or a fetch has landed
+   * (always, for the bundled sample). Until then a topic with no sermons
+   * may only be waiting for them.
+   */
+  tagsReady: boolean;
+  /** Sermons' topics couldn't be fetched, and there's no copy on the device. */
+  tagsFailed: boolean;
+  /**
+   * Fetches sermons' topics again once the copy is old; `force`, whatever
+   * its age (a topic renamed since it was kept, say).
+   */
+  refreshTags: (options?: { force?: boolean }) => void;
 };
 
 const store: Store = {
@@ -87,21 +105,34 @@ export function CatalogueProvider({ children }: PropsWithChildren) {
   const current = useRef<Snapshot | null>(null);
 
   // Every sermon's topics: the device's copy at once, then fetched again
-  // when it's old. Offline, the copy stays; with none, sermons have none.
-  const [tags, setTags] = useState<TopicTags>(() => (catalogueMode === "sample" ? sampleTags : {}));
+  // when it's old. Offline, the copy stays; with none, only the bundled
+  // sermons have theirs (their live topics), should the library fall back
+  // to them.
+  const [tags, setTags] = useState<TopicTags>(sampleTags);
+  const [tagState, setTagState] = useState<"loading" | "ready" | "failed">(
+    catalogueMode === "sample" ? "ready" : "loading",
+  );
   const tagsAt = useRef(0);
+  const tagsRead = useRef(false);
   const tagging = useRef(false);
-  const refreshTags = useCallback(async () => {
-    if (catalogueMode !== "remote" || tagging.current || Date.now() - tagsAt.current < TAGS_STALE_MS) return;
+  const refreshTags = useCallback(async ({ force = false }: { force?: boolean } = {}) => {
+    if (catalogueMode !== "remote") return;
+    // Forced: the copy counts as old until a fetch lands, so a failure is
+    // tried again (coming back to the app, or Try again).
+    if (force) tagsAt.current = 0;
+    if (tagging.current || Date.now() - tagsAt.current < TAGS_STALE_MS) return;
     tagging.current = true;
+    setTagState((was) => (was === "failed" ? "loading" : was));
     try {
       const fresh = await createRemote(supabaseConfig).fetchTags();
       tagsAt.current = Date.now();
       // The same topics (most fetches) leave every sermon as it is.
       setTags((was) => (JSON.stringify(was) === JSON.stringify(fresh) ? was : fresh));
+      setTagState("ready");
       writeJSON(keys.topicTags, { at: tagsAt.current, data: fresh });
     } catch {
-      // Offline: tried again when the app comes back.
+      // Offline: tried again when the app comes back, or the library does.
+      setTagState((was) => (was === "ready" ? was : "failed"));
     } finally {
       tagging.current = false;
     }
@@ -127,6 +158,8 @@ export function CatalogueProvider({ children }: PropsWithChildren) {
     });
     syncing.current = false;
     if (online) lastSync.current = Date.now();
+    // Back online with no sermons' topics yet (their fetch failed): again now.
+    if (online && tagsRead.current && !tagsAt.current) refreshTags();
     // The server answered wrongly (not a phone that's offline): the owner
     // hears about it.
     if (error instanceof CatalogueError)
@@ -136,15 +169,17 @@ export function CatalogueProvider({ children }: PropsWithChildren) {
         ? was
         : { ...was, hydrated: true, settled: true, offline: !online },
     );
-  }, []);
+  }, [refreshTags]);
 
   useEffect(() => {
     if (catalogueMode !== "remote") return;
     sync();
     readJSON<{ at: number; data: TopicTags } | null>(keys.topicTags, null).then((cached) => {
+      tagsRead.current = true;
       if (cached?.data) {
         tagsAt.current = cached.at;
         setTags(cached.data);
+        setTagState("ready");
       }
       refreshTags();
     });
@@ -176,11 +211,13 @@ export function CatalogueProvider({ children }: PropsWithChildren) {
   );
   const retry = useCallback(() => {
     sync();
-  }, [sync]);
+    refreshTags();
+  }, [sync, refreshTags]);
 
   const value = useMemo<Catalogue>(
     () => ({
       sermons,
+      all,
       find,
       seriesName,
       source: state.source,
@@ -188,8 +225,23 @@ export function CatalogueProvider({ children }: PropsWithChildren) {
       settled: state.settled,
       offline: state.offline,
       retry,
+      tagsReady: tagState === "ready",
+      tagsFailed: tagState === "failed",
+      refreshTags,
     }),
-    [sermons, find, seriesName, state.source, state.hydrated, state.settled, state.offline, retry],
+    [
+      sermons,
+      all,
+      find,
+      seriesName,
+      state.source,
+      state.hydrated,
+      state.settled,
+      state.offline,
+      retry,
+      tagState,
+      refreshTags,
+    ],
   );
 
   return <CatalogueContext.Provider value={value}>{children}</CatalogueContext.Provider>;

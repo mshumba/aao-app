@@ -9,7 +9,7 @@ import { useTopics } from "../../learning";
 import { exitTo, firstParam } from "../../navigation";
 import { MoreButton } from "../../search/parts";
 import { space } from "../../theme";
-import { TopicNotice, sermonCount } from "../../topics";
+import { TopicNotice, findTopic, sermonCount } from "../../topics";
 import { Header, Page, SermonRow, StatePanel } from "../../ui";
 
 /** Sermons listed at first, and how many more each "Show more" adds. */
@@ -25,15 +25,21 @@ function backToTopics() {
  * A topic's sermons, the best match first, a page at a time, under a cover
  * made from them (as a series or a path is): "Topic · 412 sermons", the
  * topic's name and its line. How sermons come to be here is said once,
- * quietly, at the end.
+ * quietly, at the end. An old topic's id (a sample topic's, say) opens the
+ * topic that replaced it.
  */
 export default function TopicScreen() {
   const params = useLocalSearchParams<{ topicId: string | string[] }>();
-  const id = firstParam(params.topicId);
   const { topics, loading } = useTopics();
-  const topic = topics.find((t) => t.id === id);
-  const { sermons } = useCatalogue();
+  const topic = findTopic(topics, firstParam(params.topicId));
+  const { sermons, all, tagsReady, tagsFailed, retry } = useCatalogue();
   const inTopic = useMemo(() => (topic ? sermonsInTopic(sermons, topic.id) : []), [sermons, topic]);
+  // The phones list only sermons whose video is on R2: a topic whose
+  // sermons aren't there yet has them on the way.
+  const coming = useMemo(
+    () => !!topic && !inTopic.length && all.some((sermon) => sermon.topic?.id === topic.id),
+    [topic, inTopic, all],
+  );
   const [shown, setShown] = useState(PAGE);
   // The ivory page's own while there's no topic; then its cover's (CoverNav).
   useStatusBar(topic ? null : "dark");
@@ -54,11 +60,13 @@ export default function TopicScreen() {
       </Page>
     );
   const more = inTopic.length - shown;
+  // Counted once sermons' topics are known, and not while they're on the way.
+  const counted = tagsReady && !coming;
   return (
     <CoverPage
       testID="topic-page"
       title={topic.label}
-      kicker={`Topic · ${sermonCount(inTopic.length)}`}
+      kicker={counted ? `Topic · ${sermonCount(inTopic.length)}` : "Topic"}
       lead={topic.description}
       fan={inTopic}
     >
@@ -79,6 +87,26 @@ export default function TopicScreen() {
             <TopicNotice />
           </View>
         </>
+      ) : coming ? (
+        <StatePanel
+          icon="time-outline"
+          title={`Sermons in ${topic.label} are on their way`}
+          body="They’ll appear here as they’re added to the app. Other topics have sermons to explore."
+          label="Browse other topics"
+          action={backToTopics}
+        />
+      ) : !tagsReady ? (
+        // Which sermons are in which topic hasn't loaded yet: nothing to
+        // say until it has, unless it couldn't.
+        tagsFailed ? (
+          <StatePanel
+            icon="cloud-offline-outline"
+            title="Couldn’t load this topic’s sermons"
+            body="Check your connection and try again."
+            label="Try again"
+            action={retry}
+          />
+        ) : null
       ) : (
         <StatePanel
           icon="leaf-outline"

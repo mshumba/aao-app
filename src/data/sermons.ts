@@ -231,8 +231,8 @@ export const sampleSermons: Sermon[] = sermonsFrom(sampleSnapshot, sampleTags);
 
 // Topics and search -----------------------------------------------------------------
 
-/** A sermon's topic's ID, in a list (none, or one). src/sermon/Sections.tsx reads it by this name. */
-export function sermonCategoryIds(sermon: Pick<Sermon, "topic">): string[] {
+/** A sermon's topic's ID, in a list (none, or one). */
+export function sermonTopicIds(sermon: Pick<Sermon, "topic">): string[] {
   return sermon.topic ? [sermon.topic.id] : [];
 }
 

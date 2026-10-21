@@ -1,6 +1,6 @@
 import { memo, useMemo, type ReactNode } from "react";
 import { Platform, StyleSheet, View, useWindowDimensions } from "react-native";
-import { useCatalogue } from "../catalogue/CatalogueProvider";
+import { catalogueMode, useCatalogue } from "../catalogue/CatalogueProvider";
 import { eventLine, headline } from "../data/display";
 import { sermonsInTopic, type Sermon } from "../data/sermons";
 import { Artwork, NeedChip, spokenText } from "../kit";
@@ -279,7 +279,7 @@ export const NeedCloud = memo(function NeedCloud({
   );
 });
 
-/** A library this size is the real one, not the bundled sample. */
+/** A library this size is the full one, not a part of it. */
 const LIBRARY = 50;
 /** Fewest sermons for a topic card in the real library. */
 const MIN_TOPIC = 6;
@@ -303,8 +303,11 @@ export const TopicCards = memo(function TopicCards() {
   const cards = useMemo(() => {
     const used = new Set<string>();
     // In the whole library a topic with a handful of sermons reads as a
-    // mistake: only well-filled ones show (the small sample shows all).
-    const min = sermons.length >= LIBRARY ? MIN_TOPIC : 0;
+    // mistake: only well-filled ones show. In a smaller list (offline with
+    // a few, or the phones while few sermons are on R2) any with sermons
+    // shows; only the app's own sample (development and the tests) shows
+    // an empty topic too.
+    const min = sermons.length >= LIBRARY ? MIN_TOPIC : catalogueMode === "sample" ? 0 : 1;
     return topics
       .map((topic) => ({ topic, list: sermonsInTopic(sermons, topic.id) }))
       .filter(({ list }) => list.length >= min)

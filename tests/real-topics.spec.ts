@@ -211,46 +211,58 @@ test.describe("a topic's page", () => {
   });
 });
 
+// The four sample topics' ids, as build 5 and older saved them. Each moves
+// onto the topic now holding what it covered (RENAMED in src/topics.tsx, as
+// 20261021000200_topics_interests.sql does for accounts); Prayer kept its id.
 test.describe("old topic ids", () => {
-  const OLD = ["spiritual-growth", "prayer", "faith", "christian-living"];
+  const OLD = ["spiritual-growth", "prayer", "faith", "christian-living", "no-longer-a-topic"];
 
   test.describe("on a guest's device", () => {
     test.use({ viewer: "guest" });
 
-    test("are dropped, keeping the ones that are still topics", async ({ page }) => {
+    test("move onto the topics that replaced them", async ({ page }) => {
       await guestPicks(page, OLD);
       await page.goto("/account");
-      await expect(shown(page.getByRole("button", { name: /^Your topics/ }))).toContainText("Prayer");
-      await expect.poll(() => storedJSON(page, "aao.onboarding.v1")).toEqual({ welcomed: true, interests: ["prayer"] });
+      await expect(shown(page.getByRole("button", { name: /^Your topics/ }))).toContainText(
+        "Hearing God, Prayer, Faith & Hope, Everyday Life",
+      );
+      // Rewritten on the device, in the topics' own order; an id that names
+      // no topic goes.
+      await expect
+        .poll(() => storedJSON(page, "aao.onboarding.v1"))
+        .toEqual({ welcomed: true, interests: ["hearing-god", "prayer", "faith-hope", "everyday-life"] });
       await shown(page.getByRole("button", { name: /^Your topics/ })).click();
-      await expect(page.getByRole("checkbox", { name: "Prayer" })).toHaveAttribute("aria-checked", "true");
-      await expect(page.getByRole("checkbox", { checked: true })).toHaveCount(1);
+      await expect(page.getByRole("checkbox", { checked: true })).toHaveCount(4);
+      for (const name of ["Hearing God", "Prayer", "Faith & Hope", "Everyday Life"])
+        await expect(page.getByRole("checkbox", { name })).toHaveAttribute("aria-checked", "true");
     });
 
-    test("in a link find no topic", async ({ page }) => {
+    test("in a link open the topic that replaced them", async ({ page }) => {
       await page.goto("/topics/faith");
-      await expect(page.getByRole("heading", { name: "This topic isn’t available" })).toBeVisible();
-      await page.goto("/search?category=faith");
-      await expect(
-        shown(page.getByText("That topic link is out of date. Browse the topics below, or ask in your own words.")),
-      ).toBeVisible();
+      await expect(shown(page.getByTestId("topic-page")).getByRole("heading", { level: 1, name: "Faith & Hope" })).toBeVisible();
+      await page.goto("/search?category=spiritual-growth");
+      await expect(page).toHaveURL(/\/topics\/hearing-god$/);
+      await expect(shown(page.getByTestId("topic-page")).getByRole("heading", { level: 1, name: "Hearing God" })).toBeVisible();
+      await page.goto("/sermons?topic=spiritual-growth");
+      await expect(rows(page)).toHaveCount(1);
+      await expect(rows(page).first()).toHaveAttribute("aria-label", /^Apostolic Shift: Day One\./);
     });
   });
 
-  test("in an account are shown only as current topics, and left for the server to remap", async ({ page }) => {
+  test("in an account show as the topics that replaced them, and Save writes those", async ({ page }) => {
     await memberPicks(page, ["faith", "prayer"]);
     await page.goto("/account");
     const row = shown(page.getByRole("button", { name: /^Your topics/ }));
-    await expect(row).toContainText("Prayer");
-    await expect(row).not.toContainText("faith");
+    await expect(row).toContainText("Prayer, Faith & Hope");
     // The app never rewrites an account's topics on its own.
     await page.waitForTimeout(500);
     expect((await storedJSON(page, `aao.local.data.v1.${MEMBER.id}`)).profile.interests).toEqual(["faith", "prayer"]);
     // Saving from Account keeps what they see.
     await row.click();
+    await expect(page.getByRole("checkbox", { name: "Faith & Hope" })).toHaveAttribute("aria-checked", "true");
     await page.getByTestId("save-topics").click();
     await expect
       .poll(async () => (await storedJSON(page, `aao.local.data.v1.${MEMBER.id}`)).profile.interests)
-      .toEqual(["prayer"]);
+      .toEqual(["prayer", "faith-hope"]);
   });
 });

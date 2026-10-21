@@ -2,7 +2,7 @@ import { useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { useAccount } from "../../auth/AccountProvider";
 import { FormAlert, useAuthTask } from "../../auth/ui";
-import { useMyTopics } from "../../learning";
+import { useMyTopics, useTopics } from "../../learning";
 import { useGo } from "../../navigation";
 import { TopicPicker } from "../../onboarding/TopicPicker";
 import { space } from "../../theme";
@@ -23,8 +23,13 @@ export default function YourTopics() {
   const [picked, setPicked] = useState<string[] | null>(null);
   const mine = useMyTopics();
   const value = picked ?? mine.map((topic) => topic.id);
+  // Until the topics have loaded there's nothing to choose from, and
+  // saving would clear what's stored.
+  const { topics } = useTopics();
+  const ready = topics.length > 0;
 
   async function save() {
+    if (!ready) return;
     const saved = await task.run("save", async () => {
       await account.setInterests(value);
       return true;
@@ -52,11 +57,13 @@ export default function YourTopics() {
             setPicked(ids);
             if (task.error) task.setError(null);
           }}
+          offline="The topics will be here once you’re online."
         />
         <FormAlert message={task.error} />
         <Button
           testID="save-topics"
           label="Save topics"
+          disabled={!ready}
           busy={task.busy === "save"}
           onPress={save}
         />
