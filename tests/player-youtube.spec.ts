@@ -153,14 +153,34 @@ test("a slow first buffer gets longer than ten seconds, and it isn't watched unt
   stalled.timers.fire(BUFFER_DEADLINE_MS);
   expect(stalled.stuck.count).toBe(1);
 
-  // Play before YouTube's player is ready never reaches it: nothing to wait for.
+  // Play before YouTube's player is ready never reaches it, so only the cap
+  // waits; once the player is ready it has ten seconds to answer.
   const timers = fakeTimers();
   const early = startWatch(() => {}, timers as unknown as Parameters<typeof startWatch>[1]);
   early.command({ type: "play" });
-  expect(timers.waiting()).toBe(0);
+  expect(timers.waiting(START_DEADLINE_MS)).toBe(0);
+  expect(timers.waiting(BUFFER_DEADLINE_MS)).toBe(1);
   early.ready();
-  early.command({ type: "play" });
   expect(timers.waiting(START_DEADLINE_MS)).toBe(1);
+});
+
+test("YouTube's check is noticed even when its player never says it's ready, or keeps saying it's buffering", () => {
+  // Asked to play, and YouTube's player never becomes ready.
+  const timers = fakeTimers();
+  const stuck = { count: 0 };
+  const never = startWatch(() => stuck.count++, timers as unknown as Parameters<typeof startWatch>[1]);
+  never.command({ type: "play" });
+  timers.fire(BUFFER_DEADLINE_MS);
+  expect(stuck.count).toBe(1);
+
+  // Ready, asked to play, then only buffering reports: they never push the
+  // thirty seconds from the first Play back.
+  const looping = readyWatch();
+  looping.watch.command({ type: "play" });
+  for (let i = 0; i < 5; i++) looping.watch.state(3);
+  expect(looping.timers.waiting(BUFFER_DEADLINE_MS)).toBe(1);
+  looping.timers.fire(BUFFER_DEADLINE_MS);
+  expect(looping.stuck.count).toBe(1);
 });
 
 test("once the sermon has played, a slow restart is only the network: no wait at all", () => {
@@ -263,10 +283,15 @@ test("YouTube's embed that won't start after Play reports YouTube checking the d
 });
 
 test("YouTube's embed isn't hurried: Play before it's ready, a slow first buffer and a rebuffer after it has played aren't its check", () => {
-  // The dock's Play while the embed is still loading never reaches YouTube.
+  // The dock's Play while the embed is still loading: only the thirty-second
+  // cap waits, and YouTube becoming ready and playing ends it.
   const loading = mountEmbed();
   loading.command({ type: "play" });
-  expect(loading.timers.waiting()).toBe(0);
+  expect(loading.timers.waiting(START_DEADLINE_MS)).toBe(0);
+  loading.message(READY);
+  loading.message({ type: "state", state: 1, seconds: 0, duration: 600 });
+  loading.timers.fire();
+  expect(loading.events.some((e) => e.type === "error")).toBe(false);
 
   // A slow network: buffering for longer than ten seconds, then playing.
   const slow = mountEmbed();

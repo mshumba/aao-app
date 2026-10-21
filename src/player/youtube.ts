@@ -88,20 +88,23 @@ export function youtubeErrorCode(code: number) {
   return HELD_BACK.includes(code) ? YOUTUBE_CHECK : code;
 }
 
-/** How long YouTube has to answer Play (playing, or at least buffering). */
+/** How long YouTube has to answer Play once its player is ready (playing, or at least buffering). */
 export const START_DEADLINE_MS = 10_000;
-/** How long a start that is buffering has to begin playing. */
+/** The longest a start may take from the first Play, buffering or not. */
 export const BUFFER_DEADLINE_MS = 30_000;
 
 type Timer = ReturnType<typeof setTimeout>;
 
 /**
- * Notices a YouTube player that won't start the sermon: asked to play once
- * it's ready, it says nothing within START_DEADLINE_MS. That's YouTube
+ * Notices a YouTube player that won't start the sermon. That's YouTube
  * checking the device ("Sign in to confirm you're not a bot") or refusing
- * it, which it doesn't report as an error. Buffering is an answer: a slow
- * network then has BUFFER_DEADLINE_MS from the last buffering report.
- * Playing, ending, a pause or an error ends the wait. Once the sermon has
+ * it, which it doesn't report as an error, and its player may never even
+ * say it's ready. Two waits run from the first Play:
+ * - a start that has had BUFFER_DEADLINE_MS without playing is stuck, however
+ *   often YouTube says it's buffering in between;
+ * - once YouTube's player is ready, it has START_DEADLINE_MS to answer Play,
+ *   and buffering counts as an answer.
+ * Playing, ending, a pause or an error ends the waits. Once the sermon has
  * played YouTube has let this device through, so a slow restart after that
  * is only the network and isn't watched.
  */
@@ -112,37 +115,51 @@ export function startWatch(
     clearTimeout: (timer) => clearTimeout(timer),
   },
 ) {
-  let timer: Timer | null = null;
+  let start: Timer | null = null;
+  let cap: Timer | null = null;
   // YouTube's player has loaded: before that, the page drops Play.
   let ready = false;
   let played = false;
-  const stop = () => {
+  // Asked to play and not yet answered.
+  let wanted = false;
+  const clear = (timer: Timer | null) => {
     if (timer != null) timers.clearTimeout(timer);
-    timer = null;
+    return null;
   };
-  const wait = (ms: number) => {
+  const stop = () => {
+    start = clear(start);
+    cap = clear(cap);
+    wanted = false;
+  };
+  const stuck = () => {
     stop();
-    timer = timers.setTimeout(() => {
-      timer = null;
-      onStuck();
-    }, ms);
+    onStuck();
+  };
+  const waitForAnswer = () => {
+    start = clear(start);
+    start = timers.setTimeout(stuck, START_DEADLINE_MS);
   };
   return {
     /** YouTube's player is ready for commands. */
     ready() {
       ready = true;
+      if (wanted && !played) waitForAnswer();
     },
     /** Whether the sermon has played, so YouTube has let this device through. */
     played: () => played,
     command(command: PlayerCommand) {
       if (command.type === "pause") stop();
-      if (command.type === "play" && ready && !played) wait(START_DEADLINE_MS);
+      if (command.type !== "play" || played) return;
+      wanted = true;
+      if (cap == null) cap = timers.setTimeout(stuck, BUFFER_DEADLINE_MS);
+      if (ready) waitForAnswer();
     },
     /** A state YouTube reported (1 playing, 0 ended, 3 buffering). */
     state(state: number) {
       if (state === 1) played = true;
       if (state === 1 || state === 0) stop();
-      else if (state === 3 && timer != null) wait(BUFFER_DEADLINE_MS);
+      // Buffering answers Play; the cap from the first Play still runs.
+      else if (state === 3) start = clear(start);
     },
     stop,
   };
