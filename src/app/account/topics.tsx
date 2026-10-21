@@ -34,8 +34,7 @@ export default function YourTopics() {
   }
 
   return (
-    <Page>
-      <Header back />
+    <Page header={<Header back />}>
       <PageTitle
         kicker="Account"
         title="Your topics"

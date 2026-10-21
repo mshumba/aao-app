@@ -27,8 +27,7 @@ export default function CategoryScreen() {
   const { sermons } = useCatalogue();
   if (!category)
     return (
-      <Page>
-        <Header back />
+      <Page header={<Header back />}>
         <StatePanel
           level={1}
           icon="pricetags-outline"

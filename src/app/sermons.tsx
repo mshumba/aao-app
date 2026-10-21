@@ -167,6 +167,10 @@ export default function AllSermons() {
 
   return (
     <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
+      {/* Above the list, so Back stays put while the library scrolls. */}
+      <View style={styles.bar}>
+        <Header back />
+      </View>
       <FlatList
         testID="sermons-list"
         data={list}
@@ -196,7 +200,6 @@ const Gap = () => <View style={{ height: space.lg }} />;
 const Intro = memo(function Intro() {
   return (
     <>
-      <Header back />
       <PageTitle
         kicker="The library"
         title="All sermons"
@@ -303,6 +306,12 @@ function Choices({
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: c.bg },
+  bar: {
+    paddingHorizontal: space.gutter,
+    width: "100%",
+    maxWidth: 760,
+    alignSelf: "center",
+  },
   content: {
     width: "100%",
     maxWidth: 760,

@@ -215,3 +215,16 @@ test("Back and the filters answer a 44pt touch", async ({ page }) => {
     expect(reach).toBe(true);
   }
 });
+
+test("Back stays at the top while a page scrolls", async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 500 });
+  for (const path of ["/sermons", "/about", "/privacy"]) {
+    await page.goto(path);
+    const back = page.getByRole("button", { name: "Back", exact: true });
+    await expect(back).toBeInViewport();
+    await page.mouse.move(187, 400);
+    for (let i = 0; i < 6; i++) await page.mouse.wheel(0, 600);
+    await page.waitForTimeout(300);
+    await expect(back, path).toBeInViewport();
+  }
+});

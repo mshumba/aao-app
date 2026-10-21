@@ -48,8 +48,7 @@ export default function DeleteAccount() {
 
   if (!account.ready)
     return (
-      <Page>
-        <Header back />
+      <Page header={<Header back />}>
         <View style={styles.loading}>
           <ActivityIndicator color={c.accent} accessibilityLabel="Loading your account" />
         </View>
@@ -58,8 +57,7 @@ export default function DeleteAccount() {
 
   if (!user)
     return (
-      <Page>
-        <Header back />
+      <Page header={<Header back />}>
         <StatePanel
           level={1}
           icon="person-outline"
@@ -95,10 +93,9 @@ export default function DeleteAccount() {
   }
 
   return (
-    <Page>
+    <Page header={<Header back disabled={busy} />}>
       {/* No leaving while it deletes: it may wait on Apple for a while. */}
       <Stack.Screen options={{ gestureEnabled: !busy }} />
-      <Header back disabled={busy} />
       <PageTitle
         kicker="Account"
         title="Delete your account?"

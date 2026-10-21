@@ -30,8 +30,7 @@ export default function NameScreen() {
   // blind could replace one that's there.
   if (account.user && account.profileError && !retrying)
     return (
-      <Page>
-        <Header back />
+      <Page header={<Header back />}>
         <StatePanel
           level={1}
           tone="error"
@@ -48,8 +47,7 @@ export default function NameScreen() {
   // field starts with the saved name.
   if (!account.ready || (account.user && !account.profile))
     return (
-      <Page>
-        <Header back />
+      <Page header={<Header back />}>
         <View style={styles.loading}>
           <ActivityIndicator color={c.accent} accessibilityLabel="Loading your name" />
         </View>
@@ -58,8 +56,7 @@ export default function NameScreen() {
 
   if (!account.user)
     return (
-      <Page>
-        <Header back />
+      <Page header={<Header back />}>
         <StatePanel
           level={1}
           icon="person-outline"
@@ -110,8 +107,7 @@ function NameForm({ initial }: { initial: string }) {
   }
 
   return (
-    <Page keyboard>
-      <Header back />
+    <Page keyboard header={<Header back />}>
       <PageTitle
         kicker="Account"
         title="Your name"

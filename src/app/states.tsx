@@ -33,8 +33,7 @@ type Sample = (typeof options)[number]["id"];
 export default function States() {
   if (!__DEV__)
     return (
-      <Page>
-        <Header back />
+      <Page header={<Header back />}>
         <StatePanel
           level={1}
           icon="compass-outline"
@@ -56,8 +55,7 @@ function Samples() {
     setState,
   );
   return (
-    <Page>
-      <Header back />
+    <Page header={<Header back />}>
       <PageTitle
         kicker="For testing"
         title="Sample screens"

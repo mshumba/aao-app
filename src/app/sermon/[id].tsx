@@ -72,8 +72,7 @@ export default function SermonScreen() {
   // A sermon newer than the device's copy of the library arrives with the sync.
   if (!sermon && !catalogue.settled)
     return (
-      <Page>
-        <Header back />
+      <Page header={<Header back />}>
         <View style={styles.loading}>
           <ActivityIndicator color={c.accent} accessibilityLabel="Loading sermon" />
         </View>
@@ -81,8 +80,7 @@ export default function SermonScreen() {
     );
   if (!sermon)
     return (
-      <Page>
-        <Header back />
+      <Page header={<Header back />}>
         <StatePanel
           level={1}
           icon="videocam-off-outline"

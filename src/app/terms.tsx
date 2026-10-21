@@ -18,8 +18,7 @@ import {
  */
 export default function Terms() {
   return (
-    <Page>
-      <Header back />
+    <Page header={<Header back />}>
       <PageTitle
         kicker="Using AAO"
         title="Terms of Use"

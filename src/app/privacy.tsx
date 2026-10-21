@@ -22,8 +22,7 @@ import {
  */
 export default function Privacy() {
   return (
-    <Page>
-      <Header back />
+    <Page header={<Header back />}>
       <PageTitle
         kicker="Your information"
         title="Privacy Policy"

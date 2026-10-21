@@ -50,8 +50,7 @@ export default function SeriesScreen() {
 
   if (!list.length && !catalogue.settled)
     return (
-      <Page>
-        <Header back />
+      <Page header={<Header back />}>
         <View style={styles.loading}>
           <ActivityIndicator color={c.accent} accessibilityLabel="Loading series" />
         </View>
@@ -59,8 +58,7 @@ export default function SeriesScreen() {
     );
   if (!list.length)
     return (
-      <Page>
-        <Header back />
+      <Page header={<Header back />}>
         <StatePanel
           level={1}
           icon="albums-outline"

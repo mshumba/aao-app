@@ -40,8 +40,7 @@ export default function Saved() {
     (!catalogue.settled && list.length < saved.saved.length);
 
   return (
-    <Page>
-      <Header back />
+    <Page header={<Header back />}>
       <PageTitle
         title="Saved"
         lead={

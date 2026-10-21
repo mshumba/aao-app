@@ -648,12 +648,18 @@ export function gradient(css: string): ViewStyle {
 
 export function Page({
   children,
+  header,
   keyboard = false,
-}: PropsWithChildren<{ keyboard?: boolean }>) {
+}: PropsWithChildren<{
+  /** Drawn above the scroll (usually a Header), so Back stays put while the page scrolls. */
+  header?: ReactNode;
+  keyboard?: boolean;
+}>) {
   const insets = useSafeAreaInsets();
   const dock = useDockInset();
   return (
     <SafeAreaView style={s.safe} edges={["top", "left", "right"]}>
+      {header ? <View style={s.page}>{header}</View> : null}
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={keyboard && Platform.OS === "ios" ? "padding" : undefined}

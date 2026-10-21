@@ -13,8 +13,7 @@ export default function About() {
   const account = useAccount();
   const { sermons } = useCatalogue();
   return (
-    <Page>
-      <Header back />
+    <Page header={<Header back />}>
       <PageTitle
         kicker="About"
         title="About AAO"

@@ -3,8 +3,7 @@ import { Header, Page, StatePanel } from "../ui";
 
 export default function NotFound() {
   return (
-    <Page>
-      <Header back />
+    <Page header={<Header back />}>
       <StatePanel
         level={1}
         icon="compass-outline"
