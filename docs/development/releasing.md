@@ -21,7 +21,7 @@ The app is linked to the Expo project `@mshumba/aao-app` (`extra.eas.projectId` 
 | `preview` | A release build for the team; an APK on Android | Internal | `preview` |
 | `production` | A store build | App Store / Play | `production` |
 
-`appVersionSource` is `remote`: EAS keeps the build numbers (iOS `buildNumber`, Android `versionCode`) and each production build increments them. The first build after this switch asks where to start the remote numbers. The version people see is `expo.version` in `app.json` (now `0.1.0`); change it by hand for each release.
+`appVersionSource` is `remote`: EAS keeps the build numbers (iOS `buildNumber`, Android `versionCode`) and each production build increments them. The first build after this switch asks where to start the remote numbers. The version people see is `expo.version` in `app.json` (now `0.2.0`, with `version` in `package.json` kept the same); change it by hand for each release.
 
 ## TestFlight
 
@@ -103,6 +103,8 @@ eas update --channel production --environment production --message "Fix sermon t
 ```
 
 Only JavaScript and assets ship this way. Anything native needs a new build: a new native module, a change to `app.json` or `app.config.ts`, the icon or splash, permissions. With the `appVersion` policy a build only takes updates made for the same `expo.version`, so **bump the version for every native change**. Otherwise old builds can be sent JavaScript that expects native code they don't have.
+
+`0.2.0` (iOS build 5 onwards) added native code: expo-video (the R2 player, with background playback and picture in picture) and view-controller-based status bar appearance for iOS 27, and it dropped expo-status-bar. So builds 3 and 4 (`0.1.0`) never receive updates made from `0.2.0` code: they keep the YouTube player and their own JavaScript until testers install build 5, and a JavaScript fix for them would have to be published from a `0.1.0` checkout.
 
 Android APKs built before October 2026 don't include `expo-updates` and won't receive updates; install a new `preview` build.
 
