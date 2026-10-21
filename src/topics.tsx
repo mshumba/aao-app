@@ -31,15 +31,17 @@ export function topicIcon(id: string): IconName {
 /**
  * Topic ids that have been replaced, each with the topic now holding what
  * it covered: the four sample topics' ids before the real topics (Prayer
- * kept its id). Saved picks, links and old builds can still carry them.
+ * kept its id), and Comfort & Healing, which becomes Healing. Saved picks,
+ * links and old builds can still carry them. An id maps only when its
+ * replacement is a topic, so this is safe before the rename lands.
  * supabase/migrations/20261021000200_topics_interests.sql moves accounts'
- * saved picks the same way. When Comfort & Healing becomes Healing, add
- * "comfort-healing": "healing".
+ * saved picks the same way.
  */
 const RENAMED: ReadonlyMap<string, string> = new Map([
   ["spiritual-growth", "hearing-god"],
   ["faith", "faith-hope"],
   ["christian-living", "everyday-life"],
+  ["comfort-healing", "healing"],
 ]);
 
 /**
