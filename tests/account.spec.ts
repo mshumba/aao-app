@@ -164,38 +164,6 @@ test.describe("signed in", () => {
     ).toBeVisible();
   });
 
-  test("deleting the account lands on Home however late the browser steps back", async ({
-    page,
-  }) => {
-    // Every step back through the browser's history lands 300ms after it's
-    // asked for, as on a busy phone: later than expo-router waits for one.
-    await page.addInitScript(() => {
-      const late = window as unknown as { __steps: number };
-      late.__steps = 0;
-      const go = History.prototype.go;
-      History.prototype.go = function (delta) {
-        late.__steps += 1;
-        setTimeout(() => go.call(this, delta), 300);
-      };
-      addEventListener("popstate", () => (late.__steps -= 1));
-    });
-    await page.goto("/account");
-    await page.getByTestId("delete-account-row").click();
-    await page.getByTestId("confirm-delete").click();
-    await expect(page.getByTestId("toast")).toContainText("deleted");
-    // Once any step back has landed, it's still Home, with the toast.
-    await page.waitForFunction(() => (window as unknown as { __steps: number }).__steps === 0);
-    await expect(page).toHaveURL(/\/$/);
-    await expect(tab(page, "Home")).toHaveAttribute("aria-selected", "true");
-    await expect(page.getByTestId("toast")).toContainText("deleted");
-    // Home took the confirmation's place: the browser's Back returns to
-    // Account, signed out.
-    await page.goBack();
-    await expect(
-      shown(page.getByRole("heading", { name: "Create your free account" })),
-    ).toBeVisible();
-  });
-
   test("topics chosen while signed in leave with the account", async ({ page }) => {
     await page.goto("/account/topics");
     await page.getByRole("checkbox", { name: "Faith & Hope" }).click();

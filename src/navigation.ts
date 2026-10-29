@@ -1,4 +1,4 @@
-import { Href, router, useNavigation } from "expo-router";
+import { Href, router, useNavigation, useNavigationContainerRef } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { Platform } from "react-native";
 
@@ -121,17 +121,26 @@ export function useGo() {
   );
 }
 
-/** As much of the main stack as useExitTo reads and resets. */
-type StackRoute = {
+/** As much of the navigation state as useExitTo reads and resets. */
+type Route = {
   key?: string;
   name: string;
   path?: string;
-  state?: { index?: number; routes: StackRoute[] };
+  state?: { index?: number; routes: Route[] };
 };
 type MainStack = {
-  getState(): { routes: StackRoute[] } | undefined;
-  reset(state: { index: number; routes: StackRoute[] }): void;
+  getState(): { routes: Route[] } | undefined;
+  reset(state: { index: number; routes: Route[] }): void;
 };
+
+/** The route with this key, however deep in `state`. */
+function routeWithKey(state: { routes: Route[] } | undefined, key: string): Route | undefined {
+  for (const route of state?.routes ?? []) {
+    if (route.key === key) return route;
+    const found = routeWithKey(route.state, key);
+    if (found) return found;
+  }
+}
 
 /**
  * Leaves the screens opened over the tabs for a tab root ("Browse all
@@ -148,6 +157,7 @@ type MainStack = {
  */
 export function useExitTo() {
   const navigation = useNavigation<MainStack>();
+  const container = useNavigationContainerRef();
   return useCallback(
     (href: "/" | "/search" | "/paths") => {
       if (Platform.OS !== "web") return router.dismissTo(href);
@@ -155,26 +165,28 @@ export function useExitTo() {
       const routes = navigation.getState()?.routes ?? [];
       const at = routes.findIndex((route) => route.name === "(tabs)");
       const tabs = at < 0 ? undefined : routes[at];
-      const shown = tabs?.state;
+      // The tabs as they're drawn, which the container asks each navigator
+      // for. Until the viewer first switches tab, the stack's own copy is
+      // only what the address said: the one tab, with no key.
+      const shown = tabs?.key ? routeWithKey(container.getRootState(), tabs.key)?.state : undefined;
       // A screen opened from an address (a link, a reload) sits over tabs
       // that have no page of their own in the history.
       const fromTab = !!tabs && !routes[at + 1]?.path;
       if (fromTab && shown?.routes[shown.index ?? 0].name === name) return router.dismissAll();
+      // The same tabs, by key so none is drawn afresh, with this one in front.
+      const kept = shown?.routes ?? [];
+      const index = kept.findIndex((route) => route.name === name);
       navigation.reset({
         index: 0,
         routes: [
           {
             ...(tabs ?? { name: "(tabs)" }),
-            // The same tabs (by key, so none is drawn afresh), with this one
-            // in front.
-            state: shown
-              ? { routes: shown.routes, index: shown.routes.findIndex((route) => route.name === name) }
-              : { routes: [{ name }] },
+            state: index < 0 ? { routes: [...kept, { name }], index: kept.length } : { routes: kept, index },
           },
         ],
       });
     },
-    [navigation],
+    [navigation, container],
   );
 }
 
