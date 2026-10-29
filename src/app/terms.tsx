@@ -58,7 +58,8 @@ export default function Terms() {
         </P>
         <P>
           Titles, dates and artwork come from public sources. Topics are
-          matched automatically from each sermon’s transcript.
+          matched, and summaries written, automatically from each sermon’s
+          transcript.
         </P>
         <TextButton
           label="YouTube Terms of Service"

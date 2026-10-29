@@ -1,5 +1,5 @@
 import { formatDay, formatDuration } from "../data/sermons";
-import type { PathStatus, SearchSermon } from "./types";
+import type { PathStatus, SearchSermon, SermonCardData } from "./types";
 
 /**
  * Words the path and search screens share, so every screen says the same
@@ -69,3 +69,45 @@ export function searchSermonMeta(sermon: Pick<SearchSermon, "preachedOn" | "publ
     .join(" · ");
 }
 
+/** What a sermon's page shows of its card. */
+export type ShownCard = { summary: string; points: string[]; scriptures: string[]; forWhom: string | null };
+
+/** The most scriptures a page lists (the most central come first). */
+const SCRIPTURES_SHOWN = 8;
+
+/**
+ * What a sermon's page shows of its card, or null to show nothing. A card
+ * with no main points is one whose transcript couldn't be read, and its
+ * summary only says so: no help to someone choosing a sermon.
+ */
+export function cardShown(card: SermonCardData | null | undefined): ShownCard | null {
+  if (!card) return null;
+  const summary = card.summary.trim();
+  const points = card.mainPoints.map((point) => point.trim()).filter(Boolean);
+  if (!summary || !points.length) return null;
+  return {
+    summary,
+    points,
+    scriptures: card.scriptures
+      .map((ref) => ref.trim())
+      .filter(Boolean)
+      .slice(0, SCRIPTURES_SHOWN),
+    forWhom: forLine(card.forWhom),
+  };
+}
+
+/** First words that keep their capital after "For": "For Christian wives and mothers…". */
+const KEEPS_CAPITAL = /^(Christian|Bible|Spirit|God|Jesus|Christ|Holy)\b/;
+
+/**
+ * Who it's for, as a sentence: "Believers who keep falling into the same
+ * sin" → "For believers who keep falling into the same sin.". Null when the
+ * card names no one ("Not determinable from this transcript…").
+ */
+export function forLine(text: string): string | null {
+  const line = text.trim().replace(/\s+/g, " ");
+  if (!line || /^(no|not|none|nobody|unclear|unknown)\b/i.test(line)) return null;
+  const keep = KEEPS_CAPITAL.test(line) || /^[A-Z]{2,}\b/.test(line);
+  const who = keep ? line : line[0].toLowerCase() + line.slice(1);
+  return `For ${who}${/[.!?]$/.test(who) ? "" : "."}`;
+}

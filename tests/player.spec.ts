@@ -37,16 +37,28 @@ test("before play, the length is given once and the band only times a real place
   await expect(page.getByText("−2:26:20", { exact: true }).filter({ visible: true })).toHaveCount(1);
 });
 
-test("the menu's About this sermon shows the source line, even straight after opening", async ({
+test("the menu's About this sermon shows what it's about, even straight after opening", async ({
   page,
 }) => {
   await page.goto("/");
+  // Pray Without Ceasing, which has a card.
   await rows(page).first().click();
   // At once, before the page below the stage has been drawn.
   await page.getByTestId("stage-header-right").last().click();
   await page.getByRole("menuitem", { name: "About this sermon" }).click();
   const about = page.getByTestId("about-sermon").last();
   await expect(about).toBeInViewport();
+  // Its card's summary leads, with the source line below it.
+  await expect(about.getByTestId("sermon-summary")).toBeInViewport();
+  await expect(about.getByRole("button", { name: "Open in YouTube", exact: true })).toBeVisible();
+});
+
+test("without a card, the menu's About this sermon shows the source line", async ({ page }) => {
+  // Apostolic Shift: Day One has no card.
+  await page.goto("/sermon/WYiA7rjenVI");
+  await page.getByTestId("stage-header-right").last().click();
+  await page.getByRole("menuitem", { name: "About this sermon" }).click();
+  const about = page.getByTestId("about-sermon").last();
   await expect(about.getByRole("button", { name: "Open in YouTube", exact: true })).toBeInViewport();
 });
 

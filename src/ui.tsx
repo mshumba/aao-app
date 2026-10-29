@@ -849,6 +849,28 @@ export function Notice({
   );
 }
 
+/** A list of lines of running text, each with a gold bullet. */
+export function Bullets({ items, style }: { items: readonly string[]; style?: StyleProp<ViewStyle> }) {
+  return (
+    <View style={[s.bullets, style]} role="list">
+      {items.map((item, i) => (
+        <View key={`${i}:${item}`} style={s.bulletRow} role="listitem">
+          {/* Text, so the bullet scales and aligns with the line it marks. */}
+          <T
+            style={s.bullet}
+            accessibilityElementsHidden
+            importantForAccessibility="no"
+            {...web({ "aria-hidden": true })}
+          >
+            •
+          </T>
+          <T style={s.bulletText}>{item}</T>
+        </View>
+      ))}
+    </View>
+  );
+}
+
 export function Badge({ children }: PropsWithChildren) {
   return (
     <View style={s.badge}>
@@ -1349,6 +1371,11 @@ export const s = StyleSheet.create({
     gap: space.sm,
     paddingTop: 1,
   },
+  bullets: { gap: space.sm },
+  bulletRow: { flexDirection: "row", gap: space.sm },
+  bullet: { ...type.body, color: c.gold },
+  // Running text to read, so in the text colour rather than muted.
+  bulletText: { ...type.body, color: c.text, flex: 1 },
   // Sand, so it reads as a label (not a button) on ivory and white alike.
   badge: {
     alignSelf: "flex-start",

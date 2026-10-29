@@ -1,6 +1,6 @@
 import { request } from "./request";
 import { authHeaders, restBase } from "./session";
-import type { Moment, Need, Path, PathDay, PathKind, PathStatus, Topic } from "./types";
+import type { Moment, Need, Path, PathDay, PathKind, PathStatus, SermonCardData, Topic } from "./types";
 
 /**
  * Supabase tables over REST, the same way the catalogue reads (see
@@ -80,6 +80,13 @@ type MomentRow = {
   quote: string;
   score: number | null;
 };
+type CardRow = {
+  youtube_id: string;
+  summary: string | null;
+  main_points: string[] | null;
+  scriptures: string[] | null;
+  for_whom: string | null;
+};
 type PathRow = {
   id: string;
   kind: PathKind | null;
@@ -141,6 +148,21 @@ export async function fetchMoments(youtubeId: string): Promise<Moment[]> {
     quote: r.quote,
     score: r.score,
   }));
+}
+
+/** A sermon's card (only what its page shows), or null when it has none. */
+export async function fetchCard(youtubeId: string): Promise<SermonCardData | null> {
+  const [row] = await table<CardRow>(
+    `sermon_cards?select=youtube_id,summary,main_points,scriptures,for_whom&youtube_id=eq.${encodeURIComponent(youtubeId)}&limit=1`,
+  );
+  if (!row) return null;
+  return {
+    youtubeId: row.youtube_id,
+    summary: row.summary ?? "",
+    mainPoints: row.main_points ?? [],
+    scriptures: row.scriptures ?? [],
+    forWhom: row.for_whom ?? "",
+  };
 }
 
 /**

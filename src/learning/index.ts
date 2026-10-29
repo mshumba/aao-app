@@ -15,15 +15,18 @@ export {
   usePathSuggestions,
   usePaths,
   useRecentSearches,
+  useSermonCard,
   useTopics,
 } from "./LearningProvider";
 export { useSearch } from "./useSearch";
 export {
+  cardShown,
   doneLabel,
   messagesLabel,
   teachingsLabel,
   searchSermonMeta,
   trustLine,
+  type ShownCard,
 } from "./format";
 export { nextDay } from "./progress";
 export * from "./types";

@@ -18,7 +18,7 @@ import { noteDayDone } from "../paths/seen";
 import { NATIVE_VIDEO } from "../player/videoPlatform";
 import { namedTopics } from "../topics";
 import { CompleteDayContext } from "./completeDay";
-import { fixtureDays, fixtureMoments, fixtureNeeds, fixturePaths, fixtureTopics } from "./fixtures";
+import { fakeCard, fakeMoments, fixtureDays, fixtureNeeds, fixturePaths, fixtureTopics } from "./fixtures";
 import {
   activePath,
   applyOp,
@@ -35,6 +35,7 @@ import { createProgressSync, type ProgressSync } from "./progressSync";
 import {
   deleteDayDone,
   deleteEnrollment,
+  fetchCard,
   fetchMoments,
   fetchNeeds,
   fetchPaths,
@@ -46,14 +47,15 @@ import {
   postEnrollment,
 } from "./queries";
 import { accessTokenFor, learningMode } from "./session";
-import type { Moment, Need, Path, PathDay, Topic } from "./types";
+import type { Moment, Need, Path, PathDay, SermonCardData, Topic } from "./types";
 
 /**
- * Needs, topics, paths, moments and the viewer's progress through paths. Shown at
+ * Needs, topics, paths, a sermon's moments and card, and the viewer's
+ * progress through paths. Shown at
  * once from the device's copy (stale-while-revalidate), so screens render
  * instantly on later launches and offline, then brought up to date.
  *
- * - remote: Supabase tables (needs, topics, moments, paths, path_days; the viewer's
+ * - remote: Supabase tables (needs, topics, moments, sermon_cards, paths, path_days; the viewer's
  *   own path_enrollments and path_day_done when signed in).
  * - local (EXPO_PUBLIC_AUTH_MODE=local): the test data in fixtures.ts, with
  *   progress kept on the device per local user.
@@ -69,16 +71,17 @@ const KEYS = {
   // v2: paths carry their kind (guided path or teaching series).
   paths: "aao.learning.paths.v2",
   moments: "aao.learning.moments.v1",
+  cards: "aao.learning.cards.v1",
   progress: (owner: string) => `aao.learning.progress.v1.${owner}`,
   recent: (owner: string) => `aao.learning.recent.v1.${owner}`,
 };
 
 /** Needs, topics and paths are fetched again when the app returns after this long. */
 const STALE_MS = 30 * 60 * 1000;
-/** A sermon's moments are fetched again after this long. */
-const MOMENTS_STALE_MS = 6 * 60 * 60 * 1000;
-/** How many sermons' moments the device keeps. */
-const MOMENTS_KEEP = 40;
+/** A sermon's moments and card are fetched again after this long. */
+const SERMON_STALE_MS = 6 * 60 * 60 * 1000;
+/** How many sermons' moments (and, apart, cards) the device keeps. */
+const SERMON_KEEP = 40;
 /** Progress is re-read from the server when the app returns after this long. */
 const PROGRESS_STALE_MS = 5 * 60 * 1000;
 const RECENT_MAX = 5;
@@ -115,7 +118,8 @@ type PathsValue = {
   error: boolean;
   refresh: () => void;
 };
-type MomentsValue = { byId: Record<string, Moment[]>; load: (youtubeId: string) => void };
+/** One kind of a sermon's data: what's showing for each sermon, and a way to load one. */
+type SermonValue<T> = { byId: Record<string, T>; load: (youtubeId: string) => void };
 type ProgressValue = {
   owner: string;
   state: ProgressState;
@@ -135,7 +139,8 @@ type RecentValue = {
 const NeedsContext = createContext<NeedsValue | null>(null);
 const TopicsContext = createContext<TopicsValue | null>(null);
 const PathsContext = createContext<PathsValue | null>(null);
-const MomentsContext = createContext<MomentsValue | null>(null);
+const MomentsContext = createContext<SermonValue<Moment[]> | null>(null);
+const CardsContext = createContext<SermonValue<SermonCardData | null> | null>(null);
 const ProgressContext = createContext<ProgressValue | null>(null);
 const RecentContext = createContext<RecentValue | null>(null);
 
@@ -153,6 +158,75 @@ function byPath(days: PathDay[]) {
   });
   map.forEach((list) => list.sort((a, b) => a.day - b.day));
   return map;
+}
+
+/**
+ * Data that belongs to one sermon (its moments, its card), fetched as its
+ * page opens. The device's copy shows at once and is fetched again once it's
+ * SERMON_STALE_MS old; the device keeps the SERMON_KEEP sermons fetched most
+ * recently. When a fetch fails (offline, or a table not deployed yet) any
+ * copy stays, and otherwise `none` shows, quietly; the next visit tries
+ * again. With `key` null they're kept in memory only (the local test data).
+ */
+function useSermonData<T>(key: string | null, get: (youtubeId: string) => Promise<T>, none: T) {
+  const [byId, setById] = useState<Record<string, T>>({});
+  const cache = useRef<Record<string, Stamped<T>>>({});
+  const saved = useRef<Promise<void> | null>(null);
+  const inflight = useRef(new Set<string>());
+
+  /**
+   * Shows a sermon's data (`pick` gets what's showing for it now) with the
+   * device's copies not shown yet, so later pages open with theirs at once:
+   * one update, and none when nothing has changed.
+   */
+  const show = useCallback(
+    (youtubeId: string, pick: (shown?: T) => T) =>
+      setById((was) => {
+        const add: Record<string, T> = {};
+        Object.entries(cache.current).forEach(([id, entry]) => {
+          if (!(id in was)) add[id] = entry.data;
+        });
+        const next = pick(was[youtubeId]);
+        if (!same(was[youtubeId], next)) add[youtubeId] = next;
+        return Object.keys(add).length ? { ...was, ...add } : was;
+      }),
+    [],
+  );
+
+  const load = useCallback(
+    (youtubeId: string) => {
+      if (!youtubeId || inflight.current.has(youtubeId)) return;
+      inflight.current.add(youtubeId);
+      if (key)
+        saved.current ??= readJSON<Record<string, Stamped<T>>>(key, {}).then((copy) => {
+          cache.current = { ...copy, ...cache.current };
+        });
+      (async () => {
+        await saved.current;
+        const cached = cache.current[youtubeId];
+        // The device's copy shows at once; a fresh one isn't fetched again.
+        if (cached) show(youtubeId, () => cached.data);
+        if (cached && Date.now() - cached.at < SERMON_STALE_MS) return;
+        try {
+          const data = await get(youtubeId);
+          cache.current[youtubeId] = { at: Date.now(), data };
+          // Keep the most recently fetched sermons only.
+          const kept = Object.entries(cache.current)
+            .sort((a, b) => b[1].at - a[1].at)
+            .slice(0, SERMON_KEEP);
+          cache.current = Object.fromEntries(kept);
+          if (key) writeJSON(key, cache.current);
+          show(youtubeId, () => data);
+        } catch {
+          // Offline or not deployed: keep any copy; otherwise none.
+          show(youtubeId, (shown) => shown ?? none);
+        }
+      })().finally(() => inflight.current.delete(youtubeId));
+    },
+    [key, get, none, show],
+  );
+
+  return useMemo<SermonValue<T>>(() => ({ byId, load }), [byId, load]);
 }
 
 async function send(token: string, op: ProgressOp) {
@@ -319,76 +393,10 @@ export function LearningProvider({ children }: PropsWithChildren) {
     [pathData, daysByPath, daysOf, revalidate],
   );
 
-  // ---- Moments ----------------------------------------------------------------------
+  // ---- A sermon's moments and card --------------------------------------------------
 
-  const [moments, setMoments] = useState<Record<string, Moment[]>>({});
-  const momentCache = useRef<Record<string, Stamped<Moment[]>>>({});
-  const momentsRead = useRef<Promise<void> | null>(null);
-  const inflight = useRef(new Set<string>());
-
-  /**
-   * Shows a sermon's moments (`pick` gets what's showing for it now) with
-   * the device's copies not shown yet, so later pages open with theirs at
-   * once: one update, and none when nothing has changed.
-   */
-  const showMoments = useCallback(
-    (youtubeId: string, pick: (shown?: Moment[]) => Moment[]) =>
-      setMoments((was) => {
-        const add: Record<string, Moment[]> = {};
-        Object.entries(momentCache.current).forEach(([id, entry]) => {
-          if (!was[id]) add[id] = entry.data;
-        });
-        const next = pick(was[youtubeId]);
-        if (!same(was[youtubeId], next)) add[youtubeId] = next;
-        return Object.keys(add).length ? { ...was, ...add } : was;
-      }),
-    [],
-  );
-
-  const loadMoments = useCallback((youtubeId: string) => {
-    if (!youtubeId) return;
-    if (local) {
-      setMoments((was) =>
-        was[youtubeId]
-          ? was
-          : { ...was, [youtubeId]: fixtureMoments.filter((m) => m.youtubeId === youtubeId) },
-      );
-      return;
-    }
-    if (inflight.current.has(youtubeId)) return;
-    inflight.current.add(youtubeId);
-    momentsRead.current ??= readJSON<Record<string, Stamped<Moment[]>>>(KEYS.moments, {}).then(
-      (cache) => {
-        momentCache.current = { ...cache, ...momentCache.current };
-      },
-    );
-    (async () => {
-      await momentsRead.current;
-      const cached = momentCache.current[youtubeId];
-      // The device's copy shows at once; a fresh one isn't fetched again.
-      if (cached) showMoments(youtubeId, () => cached.data);
-      if (cached && Date.now() - cached.at < MOMENTS_STALE_MS) return;
-      try {
-        const list = await fetchMoments(youtubeId);
-        momentCache.current[youtubeId] = { at: Date.now(), data: list };
-        // Keep the most recently fetched sermons only.
-        const kept = Object.entries(momentCache.current)
-          .sort((a, b) => b[1].at - a[1].at)
-          .slice(0, MOMENTS_KEEP);
-        momentCache.current = Object.fromEntries(kept);
-        writeJSON(KEYS.moments, momentCache.current);
-        showMoments(youtubeId, () => list);
-      } catch {
-        // Offline or not deployed: keep any copy; otherwise no moments.
-        showMoments(youtubeId, (shown) => shown ?? EMPTY_MOMENTS);
-      }
-    })().finally(() => inflight.current.delete(youtubeId));
-  }, [showMoments]);
-
-  const momentsValue = useMemo<MomentsValue>(
-    () => ({ byId: moments, load: loadMoments }),
-    [moments, loadMoments],
-  );
+  const momentsValue = useSermonData(local ? null : KEYS.moments, local ? fakeMoments : fetchMoments, EMPTY_MOMENTS);
+  const cardsValue = useSermonData(local ? null : KEYS.cards, local ? fakeCard : fetchCard, null);
 
   // ---- Progress -----------------------------------------------------------------------
 
@@ -607,11 +615,13 @@ export function LearningProvider({ children }: PropsWithChildren) {
       <TopicsContext.Provider value={topicsValue}>
         <PathsContext.Provider value={pathsValue}>
           <MomentsContext.Provider value={momentsValue}>
-            <ProgressContext.Provider value={progressValue}>
-              <CompleteDayContext.Provider value={complete}>
-                <RecentContext.Provider value={recentValue}>{children}</RecentContext.Provider>
-              </CompleteDayContext.Provider>
-            </ProgressContext.Provider>
+            <CardsContext.Provider value={cardsValue}>
+              <ProgressContext.Provider value={progressValue}>
+                <CompleteDayContext.Provider value={complete}>
+                  <RecentContext.Provider value={recentValue}>{children}</RecentContext.Provider>
+                </CompleteDayContext.Provider>
+              </ProgressContext.Provider>
+            </CardsContext.Provider>
           </MomentsContext.Provider>
         </PathsContext.Provider>
       </TopicsContext.Provider>
@@ -698,6 +708,19 @@ export function usePath(id?: string | null) {
     missing: !value.loading && !path,
     error: value.error,
   };
+}
+
+/**
+ * A sermon's card (its summary, main points, scriptures and who it's for),
+ * fetched as its page opens: null while it loads, and when it has none or
+ * it couldn't be loaded.
+ */
+export function useSermonCard(youtubeId?: string | null) {
+  const { byId, load } = need(useContext(CardsContext), "useSermonCard");
+  useEffect(() => {
+    if (youtubeId) load(youtubeId);
+  }, [youtubeId, load]);
+  return (youtubeId ? byId[youtubeId] : null) ?? null;
 }
 
 /** A sermon's verified moments in playing order; empty when it has none. */

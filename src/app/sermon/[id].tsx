@@ -21,7 +21,7 @@ import { headline } from "../../data/display";
 import { Sermon, seriesSermons } from "../../data/sermons";
 import { Wash, clockText, parseDuration } from "../../kit";
 import { useStatusBar } from "../../kit/statusBar";
-import { useMoments } from "../../learning";
+import { useMoments, useSermonCard } from "../../learning";
 import { LockedDaySheet } from "../../paths/LockedDaySheet";
 import { pathWords, stateOf } from "../../paths/model";
 import { usePlayDay } from "../../paths/navigation";
@@ -171,6 +171,8 @@ function NowPlayingScreen({ sermon, link }: { sermon: Sermon; link: SermonParams
   const scroll = useRef<NativeScrollView>(null);
   const about = useRef<View>(null);
   const { moments } = useMoments(sermon.id);
+  // Fetched as the page opens, so About has it by the time it's drawn.
+  const card = useSermonCard(sermon.id);
   const pathDay = usePathDay(sermon.id, link);
   // Full screen hides the status bar (and Android's navigation bar).
   useStatusBar("dark", overlay.fullscreen);
@@ -382,7 +384,7 @@ function NowPlayingScreen({ sermon, link }: { sermon: Sermon; link: SermonParams
   }, [sermon]);
 
   // "About this sermon" in the drawer: switches to the About tab and scrolls
-  // the source line into view.
+  // what it's about (its card, then the source line) into view.
   const aboutAsked = useRef(false);
   const scrollToAbout = useCallback(() => {
     const target = about.current;
@@ -487,6 +489,7 @@ function NowPlayingScreen({ sermon, link }: { sermon: Sermon; link: SermonParams
           <AboutSermon
             ref={about}
             sermon={sermon}
+            card={card}
             onYouTube={openYouTube}
             onLayout={onAbout}
           />

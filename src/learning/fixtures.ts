@@ -24,6 +24,7 @@ import {
   type SearchMoment,
   type SearchResponse,
   type SearchSermon,
+  type SermonCardData,
   type Topic,
 } from "./types";
 
@@ -271,6 +272,105 @@ export const fixtureMoments: Moment[] = [
 
 /** A member partway through the published path, for the kit gallery. */
 export const fixtureProgress = { pathId: HABIT, done: [1, 2], partial: 0.57 };
+
+// ---- Sermon cards ---------------------------------------------------------------
+
+/**
+ * The live cards of three sample sermons (public.sermon_cards, read 20 Oct
+ * 2026), so these do describe them. Day One has none here, as 81 of the
+ * library's 2,850 sermons have none, so a page without one can be seen.
+ * Day Two Morning lists 10 scriptures, as about 220 cards list more than 8.
+ */
+export const fixtureCards: SermonCardData[] = [
+  {
+    youtubeId: PRAY,
+    summary:
+      "At the grand finale of the Lioness Conference, the Apostle teaches from Acts 2 and 4 that prayer was the apostolic strategy for opposition, bringing boldness, great grace, unity and the supernatural. He then leads the women in long travail and intercession for Nigeria, followed by healing, deliverance and prophetic ministration, testimonies, and closing announcements.",
+    mainPoints: [
+      "Acts 1-2 shows Jesus building capacity in his followers, who continued steadfastly in doctrine, fellowship, breaking of bread and prayers.",
+      "In Acts 4 the church answered threats with prayer, asking for boldness, and God shook the place and filled them.",
+      "Corporate intercession produces unity, breaks possessiveness, and makes the supernatural common, giving access to great grace and power.",
+      "In Acts 6 the apostles refused to leave prayer and the word even in an emergency; do not let emergencies stop devotion.",
+      "Travail from Isaiah 66 is needed for Nigeria, whose revival is the fulfilment of prophecy, followed by corporate prayer for the nation.",
+      "Healing, deliverance, word of knowledge and prayer for the barren follow, with testimonies.",
+    ],
+    scriptures: ["Acts 4:23-33", "Acts 2:42", "Acts 6:2-4", "Isaiah 66:7-9", "Judges 5:1-4", "1 Corinthians 3:10"],
+    forWhom:
+      "Women and intercessors who want to pray persistently for their families and nation and walk in boldness and grace.",
+  },
+  {
+    youtubeId: FINALE,
+    summary:
+      "The Apostle teaches from Hebrews 3, 1 Corinthians 12:13 and Numbers 11 that God wants a body and not only congregations. Jesus was sent as an apostle to build God's house, and the Spirit's baptism into one body means believers must hear what the Spirit says to the churches in a territory. The service ends with a long healing and deliverance ministration, many testimonies including phone-in miracles, and prayer for the ministers of Benin.",
+    mainPoints: [
+      "Believers have a heavenly calling and must fix their gaze on Jesus as apostle and high priest, like a navigator's northern star.",
+      "Jesus as apostle was sent to build God's house, the church, as seen in Peter's confession and Ephesians 2.",
+      "On Pentecost, 120 of 500 tarried; the Spirit's baptism made them one body, so tarrying is a culture we must recover.",
+      "A congregation is organised by a man, but the body is organised by the Holy Ghost, in generations, as with the 70 elders.",
+      "God speaks one voice to the body in a territory; those with an ear will hear and move beyond denominations.",
+      "Healing and deliverance ministration follows with many testimonies, including healings received through phone calls.",
+    ],
+    scriptures: [
+      "1 Corinthians 12:13",
+      "Hebrews 3:1-6",
+      "Ephesians 2:18-22",
+      "Numbers 11:24-29",
+      "Luke 24:49",
+      "Matthew 16:13-18",
+      "Matthew 28:16-18",
+      "Revelation 2:7",
+    ],
+    forWhom:
+      "Pastors and believers in a city who want to understand the body of Christ beyond denominations, and the sick who need healing.",
+  },
+  {
+    youtubeId: DAY_TWO,
+    summary:
+      "At a conference morning session that opens with the dedication of a new church building and the ordination of pastors, the Apostle teaches from Acts 1 on Judas's fall and replacement. He explains that a ministry office can be filled by another when someone falls by transgression, so character, intimacy with Jesus, and a clear kingdom message matter more than anointing. He calls ministers to share Christ's death and resurrection, to labour in the travail of prayer, and to live in holiness.",
+    mainPoints: [
+      "Judas fell from apostleship by deliberate transgression; his office can be taken by another, but his place in heaven stays vacant.",
+      "This is a season of replacements: demotions and promotions are happening among ministers.",
+      "Bishopric qualifications in 1 Timothy 3 are about character, not anointing; ministers are tested over time and restored if they fall.",
+      "A true apostle must have been with Jesus from His baptism to His ascension: Spirit baptism, death to self, resurrection life.",
+      "Ministers must be taught the kingdom agenda, not prosperity or a narrow mandate; discipleship is one.",
+      "All functionaries must join the days of travail in prayer, which enlarges the 'womb' to receive heaven's things.",
+    ],
+    scriptures: [
+      "Acts 1:15-26",
+      "Psalm 109:8",
+      "1 Timothy 3:1-7",
+      "John 20:21-22",
+      "Acts 1:3",
+      "Acts 1:8",
+      "Philippians 3:10",
+      "Isaiah 66:8",
+      "Matthew 6:33",
+      "Ephesians 4:11-12",
+    ],
+    forWhom:
+      "Ministers and workers in the church who want to understand the character, intimacy with Christ and kingdom focus that sustain a calling.",
+  },
+];
+
+/** A sermon's moments, as the moments table answers. */
+export async function fakeMoments(youtubeId: string): Promise<Moment[]> {
+  return fixtureMoments.filter((m) => m.youtubeId === youtubeId);
+}
+
+/**
+ * Development builds only: set `globalThis.__aaoCardFault` to "offline" and
+ * a card fails to load, as it does without a connection.
+ */
+function cardFault(): "offline" | null {
+  if (typeof __DEV__ === "undefined" || !__DEV__) return null;
+  return (globalThis as { __aaoCardFault?: "offline" | null }).__aaoCardFault ?? null;
+}
+
+/** A sermon's card, as the sermon_cards table answers: null when it has none. */
+export async function fakeCard(youtubeId: string): Promise<SermonCardData | null> {
+  if (cardFault() === "offline") throw new LearningError("offline", "No connection");
+  return fixtureCards.find((card) => card.youtubeId === youtubeId) ?? null;
+}
 
 // ---- Fake Edge Functions ------------------------------------------------------
 

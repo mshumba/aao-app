@@ -2,6 +2,7 @@ import { PropsWithChildren } from "react";
 import { Linking, StyleSheet, View } from "react-native";
 import { space, type } from "../theme";
 import {
+  Bullets,
   Header,
   Page,
   PageTitle,
@@ -10,7 +11,6 @@ import {
   TextButton,
   c,
   s,
-  web,
 } from "../ui";
 
 /**
@@ -251,32 +251,8 @@ function P({ children }: PropsWithChildren) {
   return <T style={styles.body}>{children}</T>;
 }
 
-function Bullets({ items }: { items: string[] }) {
-  return (
-    <View style={styles.list} role="list">
-      {items.map((item) => (
-        <View key={item} style={styles.item} role="listitem">
-          {/* Text, so the bullet scales and aligns with the line it marks. */}
-          <T
-            style={styles.bullet}
-            accessibilityElementsHidden
-            importantForAccessibility="no"
-            {...web({ "aria-hidden": true })}
-          >
-            •
-          </T>
-          <T style={[styles.body, { flex: 1 }]}>{item}</T>
-        </View>
-      ))}
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
   section: { gap: space.md },
   // Running text to read, so in the text colour rather than muted.
   body: { ...type.body, color: c.text },
-  bullet: { ...type.body, color: c.gold },
-  list: { gap: space.sm },
-  item: { flexDirection: "row", gap: space.sm },
 });

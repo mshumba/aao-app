@@ -50,6 +50,24 @@ export type Moment = {
   score: number | null;
 };
 
+/**
+ * A sermon's card (public.sermon_cards): what was written automatically
+ * after reading its whole transcript (scripts/read-sermons.py). It describes
+ * the sermon; none of it is the Apostle's own words, so it's never set as a
+ * quote. Its page shows it through `cardShown` (format.ts).
+ */
+export type SermonCardData = {
+  youtubeId: string;
+  /** 2-3 sentences on what it teaches ("The Apostle teaches that…"). */
+  summary: string;
+  /** 3-6 short points, in the order he makes them. None: the transcript couldn't be read. */
+  mainPoints: string[];
+  /** The passages he reads or builds on, most central first: "Hebrews 11:1". */
+  scriptures: string[];
+  /** One line on who it would help most: "Believers who keep falling into the same sin." */
+  forWhom: string;
+};
+
 export type PathStatus = "draft" | "published";
 
 /**
