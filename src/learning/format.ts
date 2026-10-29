@@ -99,8 +99,14 @@ export function cardShown(card: SermonCardData | null | undefined): ShownCard | 
   };
 }
 
-/** Words about what was read rather than what he preached. */
-const ABOUT_TRANSCRIPT = /\b(transcript|captions?)\b/i;
+/**
+ * Words about what was read rather than what he preached: the transcript,
+ * its captions and the parts of the service they caught ("The captured
+ * portion contains…", "Within the excerpts…", "no sermon is captured").
+ * Not every "captured", though: "the captured ark" is the sermon's own.
+ */
+const ABOUT_TRANSCRIPT =
+  /\b(transcript|captions?|(available|captured) (portions?|excerpts|passages)|portions? (provided|available)|(sampled|within the) excerpts|(no|any) (sermon|teaching|preaching) is captured|fragments of the (message|service) are captured)\b/i;
 
 /**
  * The summary as a description of the sermon, or "" when it isn't one.
@@ -143,11 +149,18 @@ function sentences(text: string) {
 }
 
 /**
- * Straight double quotes made curly, as in the app's own copy: a teaching
- * titled “The Seven Spirits of God”. (The cards' quotes always come in pairs.)
+ * Straight quotes made curly, as in the app's own copy: a teaching titled
+ * “The Seven Spirits of God”, God’s set time, Paul’s word ‘wrestle’. A
+ * quote opens at the start, after a space or after an opening bracket, dash
+ * or quote; any other is a closing quote or an apostrophe, as is one before
+ * a digit (the October ’20 Contact). The cards' quotes always come in pairs.
  */
 function curlyQuotes(text: string) {
-  return text.replace(/"/g, (_quote, at: number) => (at === 0 || /[\s([{–—]/.test(text[at - 1]) ? "“" : "”"));
+  const opens = (before: string) => !before || /[\s([{–—“]/.test(before);
+  return text
+    .replace(/"/g, (_quote, at: number) => (opens(text[at - 1]) ? "“" : "”"))
+    .replace(/'(?=\d)/g, "’")
+    .replace(/'/g, (_quote, at: number, curled: string) => (opens(curled[at - 1]) ? "‘" : "’"));
 }
 
 /** A "who it's for" that names no one: "Not enough transcript to say…". */

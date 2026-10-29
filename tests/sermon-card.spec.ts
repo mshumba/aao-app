@@ -81,6 +81,20 @@ const MERCY: SermonCardData = {
   ],
   forWhom: "Believers who want to intercede for the church and nation and approach God with repentance and sincerity.",
 };
+const CAPTURED: SermonCardData = {
+  youtubeId: "4_nYBsjQm74",
+  summary:
+    "This 28-minute segment of the Apostolic Invasion in Northern Ghana is almost entirely worship, a song ministration, praise and a host's introduction. It ends as the Apostle begins a short opening prayer for God's power and Spirit, and no sermon is captured.",
+  mainPoints: [
+    "Extended worship and singing, including 'I am your sacrifice' and 'Leave me at the altar'",
+    "A song ministration and a call to praise with expectation",
+    "The host thanks God for the Friday, Saturday and Sunday night meetings",
+    "The host asks for no clapping or distractions so the Holy Spirit can have ascendancy",
+    "The Apostle prays for God's power, Spirit and anointing to come",
+  ],
+  scriptures: [],
+  forWhom: "Those wanting to join in worship at the Northern Ghana Apostolic Invasion; not a teaching resource.",
+};
 
 const failCards = (page: Page) =>
   page.addInitScript(() => {
@@ -125,11 +139,26 @@ test.describe("what the page shows of a card", () => {
     expect(cardShown(EXCERPTS)).toEqual({
       summary:
         "The Apostle teaches from Matthew 16:24-27 that salvation does not end with the new birth. The soul must also be saved through daily self-denial, and this present age is an age of investment before an age of evaluation and judgment. He closes with a short healing prayer for eyesight, followed by testimonies.",
-      points: EXCERPTS.mainPoints,
+      points: EXCERPTS.mainPoints.map((point) => point.replace("Christ's", "Christ’s")),
       scriptures: EXCERPTS.scriptures,
       forWhom:
         "For believers who want to grow beyond new birth and learn to deny fleshly desires so their souls are saved.",
     });
+    // So is one about the parts of the service it caught.
+    expect(cardShown(CAPTURED)!.summary).toBe(
+      "This 28-minute segment of the Apostolic Invasion in Northern Ghana is almost entirely worship, a song ministration, praise and a host’s introduction.",
+    );
+    expect(
+      cardShown(
+        card({
+          summary:
+            "This is the final-night inaugural service of RCN Ghana at AEC 2020. The captured portion contains an opening exhortation to focus on Jesus, long guided prayer points, worship, announcements, and testimonies from people impacted by Apostle Arome Osayi's ministry. The transcript ends as the next minister is invited, before any main message is heard.",
+        }),
+      )!.summary,
+    ).toBe("This is the final-night inaugural service of RCN Ghana at AEC 2020.");
+    // Not every “captured” is about it, though.
+    const ark = "Religion without regeneration fails, as shown by the sons of Eli and the captured ark.";
+    expect(cardShown(card({ summary: ark }))!.summary).toBe(ark);
     // So is an aside in brackets.
     expect(cardShown(ELTON)!.summary).toBe(
       "The Apostle teaches that God has a reward system in which those who serve Him faithfully, and those who receive and refresh His true messengers, are rewarded now and in the age to come. He uses the life of the missionary-prophet Elton, who lived in a small Nigerian town because God told him to, as an example of a man whose heart was set on the reward.",
@@ -155,7 +184,7 @@ test.describe("what the page shows of a card", () => {
         }),
       )!.summary,
     ).toBe(
-      "The Apostle teaches a Bible study on the four aspects of Jesus's ministry (teaching, preaching, healing and deliverance) and then on the reality of demons as personal beings with will, emotion and intellect. He shows how Satan works through the question “Had God said?” to undermine what God has spoken, and urges believers to stand on God's word rather than emotion.",
+      "The Apostle teaches a Bible study on the four aspects of Jesus’s ministry (teaching, preaching, healing and deliverance) and then on the reality of demons as personal beings with will, emotion and intellect. He shows how Satan works through the question “Had God said?” to undermine what God has spoken, and urges believers to stand on God’s word rather than emotion.",
     );
     // Talking about it earlier on, the rest leans on that sentence: nothing shows.
     expect(
@@ -163,6 +192,14 @@ test.describe("what the page shows of a card", () => {
         card({
           summary:
             "A weekly prayer meeting in the series \"Spirits and Man\" that opens with long prayer, worship and prophetic ministration before a teaching. The teacher, whose name the transcript never gives, uses Ezekiel 48:35 (Jehovah Shammah) to show God's postures toward us: for us, with us, and inside us. He says the Holy Spirit inside a believer is the greatest, and that obedience to God's instructions keeps us aligned with Him.",
+        }),
+      ),
+    ).toBeNull();
+    expect(
+      cardShown(
+        card({
+          summary:
+            "The Apostle opens in Genesis 2, the executive summary of creation, to lay a foundation on how the invisible and the visible layers of creation are bound together. Only fragments of the message are captured. He later urges believers to wrestle in intercession and take the pressure, and ends by calling the church to seek God's grace for impossible things.",
         }),
       ),
     ).toBeNull();
@@ -185,15 +222,30 @@ test.describe("what the page shows of a card", () => {
     );
   });
 
-  test("quotation marks are curly, as in the app's own words", () => {
+  test("quotation marks and apostrophes are curly, as in the app's own words", () => {
     const shown = cardShown(MERCY)!;
     expect(shown.summary).toBe(
-      "Rev. Shaala Ukaa leads a prayer meeting titled “O Lord Have Mercy”. He teaches from Psalm 102, Romans 9 and Daniel 9 that affliction signals God's set time to visit His people. He calls the church to repent, unite as one man and cry for mercy, then leads extended prayer.",
+      "Rev. Shaala Ukaa leads a prayer meeting titled “O Lord Have Mercy”. He teaches from Psalm 102, Romans 9 and Daniel 9 that affliction signals God’s set time to visit His people. He calls the church to repent, unite as one man and cry for mercy, then leads extended prayer.",
     );
     expect(shown.points[4]).toBe(
-      "Daniel prayed in the first person, “we have sinned”, showing the intercessor's posture of identification.",
+      "Daniel prayed in the first person, “we have sinned”, showing the intercessor’s posture of identification.",
     );
-    expect(shown.points.filter((point, i) => point !== MERCY.mainPoints[i])).toHaveLength(1);
+    expect([shown.summary, ...shown.points, shown.forWhom].join(" ")).not.toMatch(/["']/);
+    // Single quotes too, and an apostrophe before a year.
+    const wrestle = "Paul's word 'wrestle' in Ephesians means feeling the intensity of the opposition in intercession.";
+    expect(cardShown(card({ mainPoints: [wrestle] }))!.points).toEqual([
+      "Paul’s word ‘wrestle’ in Ephesians means feeling the intensity of the opposition in intercession.",
+    ]);
+    expect(
+      cardShown(
+        card({
+          summary:
+            "This final night of the October '20 Contact is a long, intense session of prayer and declaration for Nigeria and the church, mixed with short teaching moments.",
+        }),
+      )!.summary,
+    ).toBe(
+      "This final night of the October ’20 Contact is a long, intense session of prayer and declaration for Nigeria and the church, mixed with short teaching moments.",
+    );
   });
 
   test("at most 8 scriptures, the most central first", () => {
@@ -208,7 +260,7 @@ test.describe("what the page shows of a card", () => {
       "For believers who keep falling into the same sin.",
     );
     expect(forLine("The sick and believers who want to see Christ's healing power")).toBe(
-      "For the sick and believers who want to see Christ's healing power.",
+      "For the sick and believers who want to see Christ’s healing power.",
     );
     // Words that keep their capital, and short forms.
     expect(forLine("Christian wives and mothers who want to build godly homes.")).toBe(
