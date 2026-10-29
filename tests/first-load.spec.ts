@@ -32,7 +32,7 @@ const WAITED_MS = 1_000;
  * the time is work, which takes as long as the machine makes it: running
  * the 13 MB development script, React's first renders and the test's trace
  * recorder reading that script back over DevTools. About 0.55 s of work on a
- * laptop came to 1.15 s in all; GitHub's two-core runners took 1.3 to 1.95 s,
+ * laptop came to 1.15 s in all; GitHub's two-core runners took 1.3 to 2 s,
  * either side of the 1.8 s this bound used to be. So this only catches
  * start-up doing far more work than it does; WAITED_MS and
  * WORK_PER_EVALUATION are the bounds that hold on any machine.
@@ -45,13 +45,14 @@ const AFTER_SCRIPT_MS = 4_000;
  * Both take as long as the machine makes them, so the ratio holds where a
  * bound in milliseconds can't. That script is React's first renders and the
  * app's own start-up (reading storage and the library, setting up the
- * fonts): 1 to 2 times the evaluation (about 110 ms) on a laptop, and the
- * same with its processor four times slower. 400 ms more work before the
- * first page (a busy loop that long at full speed) makes it 4.6 to 5.6 at
- * either speed; it runs while fonts hold the first frame, so on a laptop the
- * whole time barely moved and the 1.8 s bound let it through. Work done as
- * the script is evaluated, at the top of a module, counts as evaluating it,
- * so only AFTER_SCRIPT_MS catches that.
+ * fonts): 1 to 2.1 times the evaluation on a laptop, at full speed (where
+ * evaluating takes about 110 ms) or four times slower, and 1.8 times on
+ * GitHub's runners. 400 ms more work before the first page (a busy loop
+ * that long at full speed) makes it 4.6 to 5.6 at either speed; it runs
+ * while fonts hold the first frame, so on a laptop the whole time barely
+ * moved and the 1.8 s bound let it through. Work done as the script is
+ * evaluated, at the top of a module, counts as evaluating it, so only
+ * AFTER_SCRIPT_MS catches that.
  */
 const WORK_PER_EVALUATION = 3.5;
 

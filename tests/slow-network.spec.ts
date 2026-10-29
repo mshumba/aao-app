@@ -21,19 +21,22 @@ const SLOW = { offline: false, latency: 150, downloadThroughput: 1600 * KBPS, up
  * thread spent at work (as first-load bounds the first page). Fonts may hold
  * the first frame for at most 600 ms, and the hero finishes drawing under
  * the start-up cover (its words no longer rise in; they rose 300 ms after
- * the page, over 360 ms, until 16 October 2026): 635 to 680 ms on a laptop,
- * at full speed or four times slower. Anything Home fetched on this link
- * would add its 150 ms round trip and half a second per 100 KB (a font file
- * is 97 to 130 KB), so this sits below that hold plus any one fetch. Before,
- * Watch's icon waited for the icon font (5 to 9 s more in a production
- * export on this link) and the words for the artwork.
+ * the page, over 360 ms, until 16 October 2026): 625 to 680 ms on a laptop,
+ * at full speed or four times slower, and on GitHub's runners. Anything
+ * Home fetched on this link would add its 150 ms round trip and half a
+ * second per 100 KB (a font file is 97 to 130 KB), so this sits below that
+ * hold plus any one fetch. Holding the first frame for 1.5 s fails it at
+ * any speed; the 2.5 s this test allowed in all let that through on a
+ * laptop and failed the app itself with its processor four times slower.
+ * Before, Watch's icon waited for the icon font (5 to 9 s more in a
+ * production export on this link) and the words for the artwork.
  */
 const HOME_WAITED_MS = 1_000;
 
 /**
  * A backstop on the whole time from the script to a usable Home, for
  * start-up doing far more work than it does; it can't be tighter for the
- * reasons first-load's AFTER_SCRIPT_MS gives. 1.2 s on a laptop, 1.8 to 2 s
+ * reasons first-load's AFTER_SCRIPT_MS gives. 1.2 s on a laptop, 1.5 to 2 s
  * on GitHub's runners.
  */
 const HOME_AFTER_SCRIPT_MS = 4_000;
