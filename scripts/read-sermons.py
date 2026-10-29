@@ -325,13 +325,22 @@ def save(cards):
     print("tags:", ", ".join(f"{r['label']} {r['n']}" for r in counts))
 
 
-def ids_joined(argv):
-    """The arguments with `--ids X` written `--ids=X`, so X is always taken
-    as the ids: argparse takes a value that starts with '-' for an option, and
-    some ids do (-MNPWdJ28wE)."""
+def ids_joined(argv, options):
+    """The arguments with `--ids X` written `--ids=X`, so X is taken as the
+    ids: argparse takes a value that starts with '-' for an option, and some
+    ids do (-MNPWdJ28wE). X is left as it is when it's one of `options`, the
+    script's own (`--ids -h`, `--ids --ids-file=F`), so argparse still says
+    --ids was given no ids rather than reading none."""
+
+    def own(word):
+        name = word.split("=", 1)[0]
+        # argparse also takes the start of a long option for it (--ids-f);
+        # no id can be one, as every id is longer than every option.
+        return name in options or name.startswith("--") and any(o.startswith(name) for o in options)
+
     out, k = [], 0
     while k < len(argv):
-        if argv[k] == "--ids" and k + 1 < len(argv):
+        if argv[k] == "--ids" and k + 1 < len(argv) and not own(argv[k + 1]):
             out.append("--ids=" + argv[k + 1])
             k += 2
         else:
@@ -348,7 +357,8 @@ def main():
     parser.add_argument("--ids-file", help="`sample` reads exactly the ids in this file, one per line")
     parser.add_argument("--out", default="docs/sermon-cards")
     parser.add_argument("--cap", type=float, default=85.0, help="dollars the whole run may cost")
-    args = parser.parse_args(ids_joined(sys.argv[1:]))
+    # argparse's own table of the option strings it knows, -h and --help among them.
+    args = parser.parse_args(ids_joined(sys.argv[1:], parser._option_string_actions))
     os.makedirs(args.out, exist_ok=True)
     cards_path = os.path.join(args.out, "cards.jsonl")
     spend_path = os.path.join(args.out, "spend.jsonl")
