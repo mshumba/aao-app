@@ -6,6 +6,8 @@ import { importExclusions } from "../src/catalogue/importExclusions.ts";
 import { buildCatalogueRow, catalogueSeries, type CatalogueImportRow } from "./catalogue-rows.ts";
 
 export const LIMITS = { pages: 100, pageSize: 50, attempts: 3, requestMs: 15_000, runMs: 480_000, inserts: 25 } as const;
+/** Every sermon in the library runs at least 20 minutes; shorter uploads are clips, prayer snippets and reports. */
+export const MIN_SERMON_SECONDS = 1200;
 const VIDEO_ID = /^[A-Za-z0-9_-]{11}$/;
 const CHANNEL_ID = /^UC[A-Za-z0-9_-]{22}$/;
 
@@ -19,7 +21,7 @@ type Dependencies = {
 export type SermonRow = Omit<CatalogueImportRow, "series">;
 export type ImportSummary = {
   dryRun: boolean; playlistPages: number; discovered: number; existing: number;
-  unavailable: number; skipped: number; short: number; ageRestricted: number; excluded: number; eligible: number;
+  unavailable: number; skipped: number; clips: number; ageRestricted: number; excluded: number; eligible: number;
   insertedSermonsConfirmed: number; insertedSeriesConfirmed: number; youtubeRequests: number; supabaseRequests: number;
   candidates: { id: string; durationSeconds: number }[];
   attemptedIds: string[]; insertedIds: string[]; rejectedIds: string[];
@@ -84,7 +86,7 @@ export function durationSeconds(value: unknown): number | null {
   return Number.isSafeInteger(seconds) && seconds > 0 && seconds <= 2147483647 ? seconds : null;
 }
 
-function candidate(value: unknown, channelId: string): CatalogueImportRow | "short" | "ageRestricted" | null {
+function candidate(value: unknown, channelId: string): CatalogueImportRow | "clip" | "ageRestricted" | null {
   const video = object(value), snippet = object(video.snippet), status = object(video.status);
   const details = object(video.contentDetails);
   if (status.privacyStatus !== "public" || status.embeddable !== true || status.uploadStatus !== "processed" ||
@@ -92,7 +94,7 @@ function candidate(value: unknown, channelId: string): CatalogueImportRow | "sho
   if (object(details.contentRating).ytRating === "ytAgeRestricted") return "ageRestricted";
   const id = video.id, title = snippet.title, published = snippet.publishedAt;
   const seconds = durationSeconds(details.duration);
-  if (seconds !== null && seconds <= 180) return "short";
+  if (seconds !== null && seconds < MIN_SERMON_SECONDS) return "clip";
   if (typeof id !== "string" || !VIDEO_ID.test(id) || typeof title !== "string" ||
       typeof published !== "string" || !/^\d{4}-\d{2}-\d{2}T/.test(published) || !Number.isFinite(Date.parse(published)) || seconds === null) return null;
   const thumbs = object(snippet.thumbnails);
@@ -135,7 +137,7 @@ export async function importNewSermons(config: Config, options: ImportOptions = 
   const sleep = deps.sleep ?? ((ms) => new Promise((done) => setTimeout(done, ms)));
   const runSignal = AbortSignal.any([AbortSignal.timeout(LIMITS.runMs), ...(deps.signal ? [deps.signal] : [])]);
   const counts: ImportSummary = { dryRun: options.dryRun, playlistPages: 0, discovered: 0, existing: 0,
-    unavailable: 0, skipped: 0, short: 0, ageRestricted: 0, excluded: 0, eligible: 0,
+    unavailable: 0, skipped: 0, clips: 0, ageRestricted: 0, excluded: 0, eligible: 0,
     insertedSermonsConfirmed: 0, insertedSeriesConfirmed: 0, youtubeRequests: 0, supabaseRequests: 0,
     candidates: [], attemptedIds: [], insertedIds: [], rejectedIds: [],
     attemptedSeriesKeys: [], insertedSeriesKeys: [], rejectedSeriesKeys: [] };
@@ -234,7 +236,7 @@ export async function importNewSermons(config: Config, options: ImportOptions = 
         if (typeof id !== "string" || !missing.includes(id) || seen.has(id)) throw new ImportError("YouTube videos: unexpected or duplicate video ID");
         seen.add(id);
         const eligible = candidate(video, config.channelId);
-        if (eligible === "short") counts.short++;
+        if (eligible === "clip") counts.clips++;
         else if (eligible === "ageRestricted") counts.ageRestricted++;
         else if (eligible) candidates.push(eligible);
         else counts.skipped++;

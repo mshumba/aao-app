@@ -306,13 +306,13 @@ test("CLI options default to a dry run and reject unknown, repeated and conflict
   }
 });
 
-test("only videos longer than 180 seconds qualify; Shorts and age restrictions have separate counts", async () => {
-  const entries = [45, 180, 181, 3600].map((seconds, i) => ({
-    ...video(id(i)), contentDetails: { duration: `PT${seconds}S`, ...(i === 3 ? { contentRating: { ytRating: "ytAgeRestricted" } } : {}) },
+test("only videos of 20 minutes or more qualify, as every sermon in the library does; clips and age restrictions have separate counts", async () => {
+  const entries = [45, 180, 1199, 1200, 3600].map((seconds, i) => ({
+    ...video(id(i)), contentDetails: { duration: `PT${seconds}S`, ...(i === 4 ? { contentRating: { ytRating: "ytAgeRestricted" } } : {}) },
   }));
   const fake = service([entries.map((entry) => entry.id)], entries);
-  expect(await run(fake)).toMatchObject({ short: 2, ageRestricted: 1, skipped: 0, eligible: 1, insertedIds: [id(2)] });
-  expect([...fake.sermons.keys()]).toEqual([id(2)]);
+  expect(await run(fake)).toMatchObject({ clips: 3, ageRestricted: 1, skipped: 0, eligible: 1, insertedIds: [id(3)] });
+  expect([...fake.sermons.keys()]).toEqual([id(3)]);
 });
 
 test("dry run reports every candidate and duration over the cap, with zero writes", async () => {
