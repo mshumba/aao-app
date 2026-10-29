@@ -8,7 +8,7 @@ The app is linked to the Expo project `@mshumba/aao-app` (`extra.eas.projectId` 
 
 ## GitHub CI
 
-`.github/workflows/ci.yml` runs on push and pull request in the public source repository. It has read-only contents permission, no persisted checkout credentials, SHA-pinned official actions, a 20-minute timeout and cancellation of superseded runs. It installs the lockfile, typechecks, lints, runs pinned Expo Doctor, exports all platforms, installs Playwright Chromium and runs the deterministic suite against the on-device account stand-in. Only failed-test evidence is retained for seven days. It has no release job, secrets or account setup. A green CI run verifies these checks, not phone playback or real sign-in.
+`.github/workflows/ci.yml` runs on push and pull request in the public source repository. It has read-only contents permission, no persisted checkout credentials, SHA-pinned official actions, a 20-minute timeout per job and cancellation of superseded runs. One job installs the lockfile, typechecks, lints, runs pinned Expo Doctor and exports all platforms. Four more install Playwright Chromium and each run a quarter of the deterministic suite's files against the on-device account stand-in. Only failed-test evidence is retained for seven days. It has no release job, secrets or account setup. A green CI run verifies these checks, not phone playback or real sign-in.
 
 ## Build profiles
 
