@@ -27,6 +27,16 @@ export const test = base.extend<{ viewer: Viewer }>({
       /^https:\/\/(i\.ytimg\.com|img\.youtube\.com)\//,
       (route) => route.abort(),
     );
+    // When the page was last pressed, for pastDoubleTap.
+    await page.addInitScript(() =>
+      addEventListener(
+        "pointerdown",
+        () => {
+          (window as unknown as { __lastPress: number }).__lastPress = Date.now();
+        },
+        true,
+      ),
+    );
     // Seed storage once per tab, before the app's first load; later reloads
     // in the same test keep whatever the app stored since.
     await page.addInitScript(
@@ -69,6 +79,21 @@ export type TabName = "Home" | "Paths" | "Search" | "Account";
 
 export function tab(page: Page, name: TabName) {
   return page.getByRole("tab", { name, exact: true });
+}
+
+/**
+ * Waits until the page's last press is 400ms old. On the web a press that
+ * starts within 400ms of the press that navigated, and near where it was,
+ * is the second tap of a double tap and is dropped (src/navigation.ts). A
+ * test that presses again as a screen opens or closes can land there
+ * whenever the new screen has a control under the last press; a person
+ * reading the screen first never does.
+ */
+export async function pastDoubleTap(page: Page) {
+  await page.waitForFunction(() => {
+    const last = (window as unknown as { __lastPress?: number }).__lastPress;
+    return last === undefined || Date.now() - last >= 400;
+  });
 }
 
 /**

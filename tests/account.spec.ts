@@ -1,6 +1,6 @@
 import type { Session } from "@supabase/supabase-js";
 import { signInMethod } from "../src/auth/signInMethod";
-import { CODE, MEMBER, expect, goOffline, goOnline, shown, tab, test } from "./fixtures";
+import { CODE, MEMBER, expect, goOffline, goOnline, pastDoubleTap, shown, tab, test } from "./fixtures";
 
 // Account made with Google on the web, then signed into with Apple (same
 // email) on an iPhone, then with Google on the web again.
@@ -123,12 +123,21 @@ test.describe("signed in", () => {
     ).toBeVisible();
     // No Apple ID linked, so no word about one.
     await expect(page.getByText(/stop using Apple ID with AAO/)).toHaveCount(0);
+    // Where the row was pressed depends on how Account had scrolled, and
+    // "Keep my account" can sit within a few points of it, so each press
+    // waits out the double tap the last one could have started.
+    await pastDoubleTap(page);
     await page.getByRole("button", { name: "Keep my account" }).click();
-    await expect(shown(page.getByText(MEMBER.email))).toBeVisible();
+    // Back on Account, under its own heading: the question names the email
+    // too.
+    await expect(
+      page.getByRole("heading", { level: 1, name: "Delete your account?" }),
+    ).toBeHidden();
+    await expect(
+      shown(page.getByRole("heading", { level: 1, name: MEMBER.email, exact: true })),
+    ).toBeVisible();
 
-    // The row sits where "Keep my account" was: a press there within 400ms
-    // would be taken for the second tap of a double tap (navigation.ts).
-    await page.waitForTimeout(450);
+    await pastDoubleTap(page);
     await page.getByTestId("delete-account-row").click();
     await page.getByTestId("confirm-delete").click();
     // There's no leaving while it deletes.
