@@ -50,6 +50,23 @@ export type Moment = {
   score: number | null;
 };
 
+/**
+ * What Claude recorded after reading a sermon's whole transcript
+ * (public.sermon_cards), as much of it as the sermon page shows. The
+ * summary describes the sermon: never show it as the Apostle's own words.
+ */
+export type SermonCard = {
+  youtubeId: string;
+  /** Two or three sentences. */
+  summary: string;
+  /** Three to six; none when the transcript couldn't be made out. */
+  mainPoints: string[];
+  /** Up to eight references: "Hebrews 11:1". */
+  scriptures: string[];
+  /** One line on who it's for: "Believers who want …". May be empty. */
+  forWhom: string;
+};
+
 export type PathStatus = "draft" | "published";
 
 /**

@@ -21,7 +21,7 @@ import { headline } from "../../data/display";
 import { Sermon, seriesSermons } from "../../data/sermons";
 import { Wash, clockText, parseDuration } from "../../kit";
 import { useStatusBar } from "../../kit/statusBar";
-import { useMoments } from "../../learning";
+import { useMoments, useSermonCard } from "../../learning";
 import { LockedDaySheet } from "../../paths/LockedDaySheet";
 import { pathWords, stateOf } from "../../paths/model";
 import { usePlayDay } from "../../paths/navigation";
@@ -171,6 +171,8 @@ function NowPlayingScreen({ sermon, link }: { sermon: Sermon; link: SermonParams
   const scroll = useRef<NativeScrollView>(null);
   const about = useRef<View>(null);
   const { moments } = useMoments(sermon.id);
+  // Read as the page opens, so it's there when About is.
+  const card = useSermonCard(sermon.id);
   const pathDay = usePathDay(sermon.id, link);
   // Full screen hides the status bar (and Android's navigation bar).
   useStatusBar("dark", overlay.fullscreen);
@@ -487,6 +489,7 @@ function NowPlayingScreen({ sermon, link }: { sermon: Sermon; link: SermonParams
           <AboutSermon
             ref={about}
             sermon={sermon}
+            card={card}
             onYouTube={openYouTube}
             onLayout={onAbout}
           />

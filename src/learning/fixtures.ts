@@ -11,6 +11,8 @@
  * One path is published and one is a draft, so both honesty states show.
  * Two teaching series follow the paths (kind "series"): one of four
  * teachings (the live ones have 6 or 12) and one of a single teaching.
+ * Apostolic Shift: Day One has its real card (public.sermon_cards, as
+ * read on 20 Oct 2026); the others have none, so both states show.
  */
 import { sampleRecords } from "../data/sermons";
 import { inDistress } from "../search/care";
@@ -24,6 +26,7 @@ import {
   type SearchMoment,
   type SearchResponse,
   type SearchSermon,
+  type SermonCard,
   type Topic,
 } from "./types";
 
@@ -268,6 +271,38 @@ export const fixtureMoments: Moment[] = [
   moment("fx-n3", PRAY, 6878, "Keep the condition", "The proof that you believe in a conditional promise is that you are busy fulfilling the condition.", "waiting", 0.71),
   moment("fx-n4", PRAY, 9120, "Prayer is who we are", "Prayer is who we are and not what we do.", "prayer", 0.82),
 ];
+
+const fixtureCards: SermonCard[] = [
+  {
+    youtubeId: DAY_ONE,
+    summary:
+      "The Apostle teaches from Jesus' baptism and wilderness temptation that man is designed to live by every proceeding word of God, and that God now speaks through the 'testimony of Jesus' entrusted to people. Using Saul's encounter in Acts 9 and 26, he urges believers to drop their own 'letters' and wait for a personal testimony and commission. The service closes with prayer over Benin City, an altar call and deliverance ministration.",
+    mainPoints: [
+      "Jesus' baptism accredited Him, and His wilderness temptation was the 'second leg' against Satan after Adam's defeat.",
+      "Jesus answered Satan with Matthew 4:4: man lives by every proceeding word of God, not by acting in the flesh.",
+      "The testimony of Jesus is the spirit of prophecy, an entrustment from God that validates ministry.",
+      "Saul carried letters of authority until Jesus appeared to him and gave him a commission and testimony.",
+      "Believers must wait on God's voice and not move without it in this season.",
+      "Prayer to break the seal over Benin City, followed by an altar call and deliverance.",
+    ],
+    scriptures: ["Matthew 4:1-4", "Revelation 19:9-10", "Acts 9:1-6", "Acts 26:16-18", "Hebrews 1:1-2", "Revelation 1:1", "1 John 5:6-8"],
+    forWhom: "Ministers and believers who want to move only by God's voice and receive a personal commission and testimony from Him.",
+  },
+];
+
+/**
+ * The stand-in for reading a sermon's card. Development builds only: with
+ * `globalThis.__aaoCardFault = "offline"` it fails as a dropped connection
+ * does, so the page's quiet failure can be seen and tested.
+ */
+export async function fakeCard(youtubeId: string): Promise<SermonCard | null> {
+  const fault =
+    typeof __DEV__ !== "undefined" && __DEV__
+      ? (globalThis as { __aaoCardFault?: "offline" | null }).__aaoCardFault
+      : null;
+  if (fault === "offline") throw new TypeError("Network request failed");
+  return fixtureCards.find((card) => card.youtubeId === youtubeId) ?? null;
+}
 
 /** A member partway through the published path, for the kit gallery. */
 export const fixtureProgress = { pathId: HABIT, done: [1, 2], partial: 0.57 };
