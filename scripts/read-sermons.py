@@ -9,17 +9,25 @@ service it is, and where the preaching starts and ends.
     python3 -I scripts/read-sermons.py submit         # the rest, through the Batch API (half price)
     python3 -I scripts/read-sermons.py collect        # waits for the batches, then saves their cards
     python3 -I scripts/read-sermons.py save           # writes the cards to the database and re-tags topics
+    python3 -I scripts/read-sermons.py sample --ids-file ids.txt   # reads exactly these again, at full price
 
 Cards go to --out (default docs/sermon-cards, which git ignores) as
 cards.jsonl, one JSON object per line keyed by youtube_id. A sermon that
-already has a card is never read again, so every step can be re-run.
+already has a card is read again only when named with --ids or --ids-file,
+so every step can be re-run.
 
 `save` upserts every card into public.sermon_cards, then rebuilds
 public.sermon_topics from them: a sermon gets its card's topic when the fit
 is 4 or 5, scored by the fit plus a tenth of the embedding match. For new
 sermons: `sample N` reads the N newest without a card, then `save`. To read
-some again (after the instructions below change), delete their lines from
-cards.jsonl, `sample N`, review the new cards, and only then `save`.
+some again (after the instructions below change), put their ids in a file,
+one per line, and run `sample --ids-file FILE` (or `sample --ids ID1,ID2`).
+It reads exactly those, says which it skipped because they aren't sermons
+with a transcript, and puts each new card in place of its sermon's line in
+cards.jsonl. Review the new cards, and only then `save`: until then the
+database keeps the old ones. `sample` is charged at full price, twice what
+the Batch API charges (`submit` can't do this: it reads only sermons
+without a card, and only once).
 
 `submit` estimates the cost from the sample's real token counts and stops
 before sending anything if the whole run would pass --cap dollars (default
@@ -30,6 +38,7 @@ API) and ANTHROPIC_API_KEY: the coordinator's .env, never a helper's.
 import argparse
 import json
 import os
+import re
 import sys
 import time
 import urllib.error
@@ -151,23 +160,47 @@ def clock(seconds):
     return f"{s // 3600}:{s % 3600 // 60:02d}:{s % 60:02d}"
 
 
+HAS_TRANSCRIPT = "exists (select 1 from public.passages p where p.youtube_id = s.youtube_id and p.dup_of is null)"
+YOUTUBE_ID = re.compile(r"[A-Za-z0-9_-]{11}")
+
+
+def quoted(ids):
+    return ",".join("'" + i + "'" for i in ids)
+
+
 def sermons_to_read(done):
-    rows = sql("""select s.youtube_id from public.sermons s
-      where exists (select 1 from public.passages p where p.youtube_id = s.youtube_id and p.dup_of is null)
-      order by s.published_at desc""")
+    rows = sql(f"select s.youtube_id from public.sermons s where {HAS_TRANSCRIPT} order by s.published_at desc")
     return [r["youtube_id"] for r in rows if r["youtube_id"] not in done]
+
+
+def listed_ids(text):
+    """The ids given to --ids or in an --ids-file, in order and once each."""
+    return list(dict.fromkeys(y for y in re.split(r"[\s,]+", text) if y))
+
+
+def readable(ids):
+    """Which of these sermons have a transcript. Only well-formed ids reach the query."""
+    ids = [y for y in ids if YOUTUBE_ID.fullmatch(y)]
+    if not ids:
+        return set()
+    rows = sql(f"select s.youtube_id from public.sermons s where s.youtube_id in ({quoted(ids)}) and {HAS_TRANSCRIPT}")
+    return {r["youtube_id"] for r in rows}
+
+
+def picked(wanted, can_read):
+    """The wanted ids that can be read, in the order given, and the ones skipped."""
+    return [y for y in wanted if y in can_read], [y for y in wanted if y not in can_read]
 
 
 def transcripts(ids):
     """{youtube_id: user message text}, fetched 40 sermons at a time."""
     out = {}
     for k in range(0, len(ids), 40):
-        chunk = ",".join("'" + i + "'" for i in ids[k:k + 40])
         rows = sql(f"""select s.youtube_id, s.title, s.event, s.speaker, s.published_at::date as published,
             s.duration_seconds,
             (select string_agg('[' || p.start_s::int || '] ' || replace(p.text, E'\\n', ' '), E'\\n' order by p.start_s)
                from public.passages p where p.youtube_id = s.youtube_id and p.dup_of is null) as body
-          from public.sermons s where s.youtube_id in ({chunk})""")
+          from public.sermons s where s.youtube_id in ({quoted(ids[k:k + 40])})""")
         for r in rows:
             lines = []
             for line in (r["body"] or "").split("\n"):
@@ -226,6 +259,18 @@ def append(path, rows):
             f.write(json.dumps(row, ensure_ascii=False) + "\n")
 
 
+def keep(path, card):
+    """Adds a card to cards.jsonl, in place of its sermon's old card if it has one."""
+    cards = load(path)
+    if all(c["youtube_id"] != card["youtube_id"] for c in cards):
+        append(path, [card])
+        return
+    with open(path + ".tmp", "w") as f:
+        for c in cards:
+            f.write(json.dumps(card if c["youtube_id"] == card["youtube_id"] else c, ensure_ascii=False) + "\n")
+    os.replace(path + ".tmp", path)
+
+
 # The card's topic counts when the card rates the fit this high or higher.
 TAG_FIT = 4
 CARD_COLUMNS = ("youtube_id text, summary text, main_points jsonb, scriptures jsonb, topic text, topic_fit int, "
@@ -280,7 +325,9 @@ def save(cards):
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("step", choices=["sample", "submit", "collect", "save"])
-    parser.add_argument("count", nargs="?", type=int, default=10)
+    parser.add_argument("count", nargs="?", type=int, help="how many new sermons `sample` reads (default 10)")
+    parser.add_argument("--ids", default="", help="`sample` reads exactly these, by youtube_id, separated by commas")
+    parser.add_argument("--ids-file", help="`sample` reads exactly the ids in this file, one per line")
     parser.add_argument("--out", default="docs/sermon-cards")
     parser.add_argument("--cap", type=float, default=85.0, help="dollars the whole run may cost")
     args = parser.parse_args()
@@ -291,7 +338,19 @@ def main():
     done = {c["youtube_id"] for c in load(cards_path)}
 
     if args.step == "sample":
-        ids = sermons_to_read(done)[: args.count]
+        if args.ids or args.ids_file:
+            if args.count is not None:
+                sys.exit("Give `sample` a count or ids, not both.")
+            text = args.ids
+            if args.ids_file:
+                with open(args.ids_file) as f:
+                    text += "\n" + f.read()
+            wanted = listed_ids(text)
+            ids, skipped = picked(wanted, readable(wanted))
+            if skipped:
+                print(f"Skipped {len(skipped)} that aren't sermons with a transcript: {', '.join(skipped)}")
+        else:
+            ids = sermons_to_read(done)[: 10 if args.count is None else args.count]
         texts = transcripts(ids)
         for y in ids:
             message = json.loads(anthropic("messages", params(texts[y])))
@@ -300,7 +359,7 @@ def main():
             append(spend_path, [{"youtube_id": y, "mode": "sample", "chars": len(texts[y]), "usage": usage,
                                  "dollars": round(cost(usage), 5)}])
             if card:
-                append(cards_path, [{"youtube_id": y, **card}])
+                keep(cards_path, {"youtube_id": y, **card})
             print(f"{y}  {card and card.get('topic')}  fit {card and card.get('topic_fit')}  "
                   f"in {usage.get('input_tokens')} out {usage.get('output_tokens')}  ${cost(usage):.3f}", flush=True)
         return
