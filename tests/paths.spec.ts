@@ -6,6 +6,7 @@ import {
   WAIT,
   expect,
   fakeYouTube,
+  pastDoubleTap,
   playhead,
   seedPathProgress,
   seedWatchProgress,
@@ -243,8 +244,9 @@ test("starting a path plays Day 1, whole, from where the preaching starts, and H
 
   await page.getByRole("button", { name: "Back", exact: true }).click();
   await expect(day(page, 1)).toContainText("Day 1 · Today");
-  // A second Back within 350ms counts as a double tap; pace it like a person.
-  await page.waitForTimeout(400);
+  // The path's Back sits where the sermon's was: pressed at once, it's the
+  // second tap of a double tap. Pace it like a person.
+  await pastDoubleTap(page);
   await page.getByTestId("path-back").click();
   await tab(page, "Home").click();
   const card = page.getByTestId("your-path");
@@ -396,7 +398,7 @@ test.describe("part way through a path", () => {
     await expect(page.getByTestId("playback-status")).toHaveText("Playing");
     await expect.poll(() => playhead(page)).toBeGreaterThanOrEqual(NEARLY_WATCHED - 25);
     await page.getByRole("button", { name: "Back", exact: true }).click();
-    await page.waitForTimeout(400);
+    await pastDoubleTap(page);
     await page.getByTestId("path-back").click();
     await expect(page.getByTestId("your-path")).toBeVisible();
     await expect(page.getByTestId("player-dock")).toBeVisible();
@@ -551,7 +553,7 @@ test("finishing the last day completes the path", async ({ page }) => {
   // Finished, the row goes back to Day 1.
   await expect.poll(() => inView(page, 1)).toBe("whole");
   // Finished, Home offers paths to start again, and the Paths tab says so.
-  await page.waitForTimeout(400);
+  await pastDoubleTap(page);
   await page.getByTestId("path-back").click();
   await tab(page, "Home").click();
   await expect(page.getByTestId("your-path")).toHaveCount(0);

@@ -1,5 +1,5 @@
 import type { Page } from "@playwright/test";
-import { expect, rows, shown, tab, test, type TabName } from "./fixtures";
+import { expect, pastDoubleTap, rows, shown, tab, test, type TabName } from "./fixtures";
 
 // Tabs are Home · Paths · Search · Account. Topics are no longer a tab:
 // Search's empty field lists them under "Browse by topic", and each topic
@@ -96,8 +96,9 @@ test("topic cards, topic page and sermon keep the return path", async ({ page })
   await expect(
     page.getByRole("heading", { level: 1, name: "Hearing God" }),
   ).toBeVisible();
-  // A second Back within 350ms counts as a double tap; pace it like a person.
-  await page.waitForTimeout(400);
+  // This Back sits where the sermon's was: pressed at once, it's the second
+  // tap of a double tap. Pace it like a person.
+  await pastDoubleTap(page);
   await page.getByRole("button", { name: "Back", exact: true }).click();
   await expect(tab(page, "Search")).toHaveAttribute("aria-selected", "true");
 });

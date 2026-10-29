@@ -87,7 +87,9 @@ export function tab(page: Page, name: TabName) {
  * is the second tap of a double tap and is dropped (src/navigation.ts). A
  * test that presses again as a screen opens or closes can land there
  * whenever the new screen has a control under the last press; a person
- * reading the screen first never does.
+ * reading the screen first never does. A test's press is over in a few
+ * milliseconds, so this outlasts the 350ms after a Back in which another
+ * Back is dropped too.
  */
 export async function pastDoubleTap(page: Page) {
   await page.waitForFunction(() => {
