@@ -1,9 +1,10 @@
 import { formatDay, formatDuration } from "../data/sermons";
-import type { PathStatus, SearchSermon } from "./types";
+import type { PathStatus, SearchSermon, SermonCard } from "./types";
 
 /**
- * Words the path and search screens share, so every screen says the same
- * thing the same way, and drafts are never presented as the ministry's.
+ * Words the path, search and sermon screens share, so every screen says the
+ * same thing the same way, drafts are never presented as the ministry's and
+ * a sermon's card never as the Apostle's words.
  */
 
 /**
@@ -69,3 +70,48 @@ export function searchSermonMeta(sermon: Pick<SearchSermon, "preachedOn" | "publ
     .join(" · ");
 }
 
+/** Straight quotation marks and apostrophes curled, as the app writes them. */
+export function curlQuotes(text: string) {
+  return text
+    .replace(/(^|[\s([{—–-])"/g, "$1“")
+    .replace(/"/g, "”")
+    .replace(/(^|[\s([{—–-])'/g, "$1‘")
+    .replace(/'/g, "’");
+}
+
+/** First words that keep their capital after "For": names, and the Spirit's. */
+const NAMED = /^(?:Bible|Christ|Christians?|God|Jesus|Holy|Spirit|Remnant|Apostle|[A-Z]{2,})\b/;
+
+/**
+ * "For ministers and believers who …", when the card's line says who the
+ * sermon is for plainly: only the part before a semicolon (after it come
+ * the reader's asides, "not a teaching message"), and nothing when it says
+ * no one can be pointed to it or talks about the transcript instead.
+ */
+export function forLine(forWhom: string) {
+  const who = curlQuotes(forWhom.split(";")[0].trim().replace(/[.,:]+$/, ""));
+  if (!who || /^(?:not|no|nobody|none|unclear|unknown)\b/i.test(who)) return null;
+  if (/\b(?:transcripts?|captions?|excerpt|audio|video)\b/i.test(who)) return null;
+  const start = NAMED.test(who) ? who : who[0].toLowerCase() + who.slice(1);
+  return `For ${start}.`;
+}
+
+/**
+ * A sermon's card as its page shows it, or null when it says nothing about
+ * the sermon (the reader couldn't make out the transcript, so it found no
+ * main points). The summary describes the sermon; show it as plain text,
+ * never in quotation marks.
+ */
+export function cardText(card: SermonCard) {
+  const summary = curlQuotes(card.summary.trim());
+  const points = card.mainPoints.map((point) => curlQuotes(point.trim())).filter(Boolean);
+  if (!summary || !points.length) return null;
+  return {
+    summary,
+    points,
+    scriptures: [...new Set(card.scriptures.map((ref) => ref.trim()).filter(Boolean))],
+    forLine: forLine(card.forWhom),
+  };
+}
+
+export type CardText = NonNullable<ReturnType<typeof cardText>>;
