@@ -4,7 +4,6 @@ import {
   AuthError,
   AuthResult,
   AuthUser,
-  CodePurpose,
   Profile,
   Provider,
   WatchProgress,
@@ -110,8 +109,9 @@ export function createLocalBackend(): AuthBackend {
     if (code !== LOCAL_CODE) throw new AuthError("invalid_code");
   }
 
-  // A code was "sent" for these addresses; verifying signs in as them.
-  const pending = new Map<string, { purpose: CodePurpose; name?: string }>();
+  // The name given at sign-up, for when its emailed code is entered. A code
+  // sent since for another reason replaces the sign-up's, name and all.
+  const signUpNames = new Map<string, string | undefined>();
 
   return {
     kind: "local",
@@ -128,7 +128,7 @@ export function createLocalBackend(): AuthBackend {
       if (email.trim().toLowerCase() === TAKEN) throw new AuthError("email_taken");
       if (password.length < 8) throw new AuthError("weak_password");
       // Like Supabase with "Confirm email" on: verify the address first.
-      pending.set(email.trim().toLowerCase(), { purpose: "confirm", name: displayName });
+      signUpNames.set(email.trim().toLowerCase(), displayName);
       return { status: "codeSent", email, purpose: "confirm" };
     },
     async signInWithPassword(email, password) {
@@ -141,15 +141,15 @@ export function createLocalBackend(): AuthBackend {
     },
     async sendEmailCode(email) {
       await wait();
-      pending.set(email.trim().toLowerCase(), { purpose: "sign-in" });
+      signUpNames.delete(email.trim().toLowerCase());
       return { status: "codeSent", email, purpose: "sign-in" };
     },
-    async verifyCode(email, code, purpose): Promise<AuthResult> {
+    async verifyCode(email, code): Promise<AuthResult> {
       await wait(350);
       checkCode(code);
-      const entry = pending.get(email.trim().toLowerCase());
-      pending.delete(email.trim().toLowerCase());
-      return signIn(email, "email", entry?.name ?? undefined).then(() => ({
+      const name = signUpNames.get(email.trim().toLowerCase());
+      signUpNames.delete(email.trim().toLowerCase());
+      return signIn(email, "email", name).then(() => ({
         status: "signedIn" as const,
       }));
     },
@@ -172,7 +172,7 @@ export function createLocalBackend(): AuthBackend {
     },
     async sendPasswordReset(email) {
       await wait();
-      pending.set(email.trim().toLowerCase(), { purpose: "recovery" });
+      signUpNames.delete(email.trim().toLowerCase());
       return { status: "codeSent", email, purpose: "recovery" };
     },
     async updatePassword(password) {
