@@ -20,7 +20,7 @@ export type Stamped<T> = { at: number; data: T };
 /** Each sermon's data with when it was fetched, as the device keeps it. */
 export type SermonCopies<T> = Record<string, Stamped<T>>;
 
-export type SermonCacheDeps<T> = {
+type SermonCacheDeps<T> = {
   /** Where the device keeps its copies; null keeps them in memory only (the local test data). */
   storage: { read: () => Promise<SermonCopies<T>>; write: (copies: SermonCopies<T>) => void } | null;
   /** Fetches a sermon's data; throws when it can't. */

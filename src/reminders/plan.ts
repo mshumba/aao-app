@@ -164,7 +164,7 @@ export function lastShownAt(was: string | null | undefined, waiting: readonly st
 }
 
 /** What a reminder says: the day is ready, or, after a missed day, still there. */
-export function reminderCopy(target: ReminderTarget, nudge: boolean) {
+function reminderCopy(target: ReminderTarget, nudge: boolean) {
   const day = `Day ${target.day} of ${target.name}`;
   return nudge
     ? { title: `${day} is here when you’re ready`, body: "No rush. Pick it up whenever suits you." }
