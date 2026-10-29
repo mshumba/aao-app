@@ -156,9 +156,34 @@ test.describe("what the page shows of a card", () => {
         }),
       )!.summary,
     ).toBe("This is the final-night inaugural service of RCN Ghana at AEC 2020.");
+    // Or what the excerpts held.
+    expect(
+      cardShown(
+        card({
+          summary:
+            "The Apostle teaches on faith that operates beyond natural limits, drawing on Abraham and Isaac, where God quickens the dead and calls things that are not as though they were. Within the excerpts he also insists that grace must be joined with truth, warning against preaching grace without truth. The transcript covers only a few fragments of the 1:21 message.",
+        }),
+      )!.summary,
+    ).toBe(
+      "The Apostle teaches on faith that operates beyond natural limits, drawing on Abraham and Isaac, where God quickens the dead and calls things that are not as though they were.",
+    );
+    expect(
+      cardShown(
+        card({
+          summary:
+            "Rev. Mrs. Dinna Osayi calls believers to return to the Lord's order, especially by setting homes, marriages and children in order under Christ. The available excerpts include her testimony of an encounter with Jesus, a charge to fathers and parents to restore the altar in the home, and prayer ministration for singles, businesses and freedom from ancestral altars.",
+        }),
+      )!.summary,
+    ).toBe(
+      "Rev. Mrs. Dinna Osayi calls believers to return to the Lord’s order, especially by setting homes, marriages and children in order under Christ.",
+    );
     // Not every “captured” is about it, though.
     const ark = "Religion without regeneration fails, as shown by the sons of Eli and the captured ark.";
     expect(cardShown(card({ summary: ark }))!.summary).toBe(ark);
+    // The captured passages are.
+    expect(
+      cardShown(card({ summary: `${ark} There is no teaching or preaching in the captured passages.` }))!.summary,
+    ).toBe(ark);
     // So is an aside in brackets.
     expect(cardShown(ELTON)!.summary).toBe(
       "The Apostle teaches that God has a reward system in which those who serve Him faithfully, and those who receive and refresh His true messengers, are rewarded now and in the age to come. He uses the life of the missionary-prophet Elton, who lived in a small Nigerian town because God told him to, as an example of a man whose heart was set on the reward.",
@@ -203,6 +228,14 @@ test.describe("what the page shows of a card", () => {
         }),
       ),
     ).toBeNull();
+    expect(
+      cardShown(
+        card({
+          summary:
+            "A long weekly prayer meeting made up of several sessions with sampled excerpts. The Apostle speaks on the fracture in the Nigerian church and the need to cry for mercy and prayer. He also teaches on the anointing breaking oppression, on Jesus as the Christ, on Lucifer's failed ambition, and on God being mindful of man because He wants to dwell in him. The meeting includes fire-tarrying, prayer and healing ministration.",
+        }),
+      ),
+    ).toBeNull();
     // Nor does a "For" line about it.
     expect(
       cardShown(
@@ -236,6 +269,10 @@ test.describe("what the page shows of a card", () => {
     expect(cardShown(card({ mainPoints: [wrestle] }))!.points).toEqual([
       "Paul’s word ‘wrestle’ in Ephesians means feeling the intensity of the opposition in intercession.",
     ]);
+    // A single quote just inside a double one opens too.
+    expect(
+      cardShown(card({ mainPoints: [`He teaches that "'Abba, Father' is the cry of sons", not of servants.`] }))!.points,
+    ).toEqual(["He teaches that “‘Abba, Father’ is the cry of sons”, not of servants."]);
     expect(
       cardShown(
         card({
