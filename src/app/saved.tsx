@@ -85,7 +85,6 @@ export default function Saved() {
       ) : saved.savedError ? (
         <StatePanel
           icon="cloud-offline-outline"
-          tone="error"
           title="Your saved sermons didn’t load"
           body="Check your connection and try again."
           label="Try again"

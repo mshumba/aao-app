@@ -1,5 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import React, {
+import {
   ComponentProps,
   PropsWithChildren,
   ReactNode,
@@ -882,8 +882,7 @@ export function Badge({ children }: PropsWithChildren) {
 /**
  * What happened, in one serif line; why, in one muted line; and the way
  * forward as pills. A white card on the ivory page with a sand icon well,
- * as Search's calm states are drawn. Errors stay calm (navy, never red):
- * `tone` is kept for older callers.
+ * as Search's calm states are drawn. Errors stay calm: navy, never red.
  */
 export function StatePanel({
   icon = "albums-outline",
@@ -893,7 +892,6 @@ export function StatePanel({
   label,
   secondaryAction,
   secondaryLabel,
-  tone = "neutral",
   level = 2,
   testID,
   children,
@@ -905,7 +903,6 @@ export function StatePanel({
   label?: string;
   secondaryAction?: () => void;
   secondaryLabel?: string;
-  tone?: "neutral" | "error";
   level?: 1 | 2;
   testID?: string;
   children?: ReactNode;

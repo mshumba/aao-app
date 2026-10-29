@@ -33,7 +33,6 @@ export default function NameScreen() {
       <Page header={<Header back />}>
         <StatePanel
           level={1}
-          tone="error"
           icon="cloud-offline-outline"
           title="Your name didn’t load"
           body="Check your connection and try again."

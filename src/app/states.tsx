@@ -119,7 +119,6 @@ function Samples() {
         {state === "error" && (
           <StatePanel
             icon="alert-circle-outline"
-            tone="error"
             title="The player didn’t load"
             body="Check your connection and try again."
             label="Try again"

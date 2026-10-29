@@ -159,7 +159,6 @@ export default function AuthCallback() {
       <Frame>
         <StatePanel
           level={1}
-          tone="error"
           icon="alert-circle-outline"
           title="Sign-in didn’t finish"
           body={failure}
