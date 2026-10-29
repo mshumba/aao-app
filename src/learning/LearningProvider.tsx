@@ -46,6 +46,7 @@ import {
   postDayDone,
   postEnrollment,
 } from "./queries";
+import { createSermonCache, type SermonCopies, type Stamped } from "./sermonCache";
 import { accessTokenFor, learningMode } from "./session";
 import type { Moment, Need, Path, PathDay, SermonCardData, Topic } from "./types";
 
@@ -78,15 +79,9 @@ const KEYS = {
 
 /** Needs, topics and paths are fetched again when the app returns after this long. */
 const STALE_MS = 30 * 60 * 1000;
-/** A sermon's moments and card are fetched again after this long. */
-const SERMON_STALE_MS = 6 * 60 * 60 * 1000;
-/** How many sermons' moments (and, apart, cards) the device keeps. */
-const SERMON_KEEP = 40;
 /** Progress is re-read from the server when the app returns after this long. */
 const PROGRESS_STALE_MS = 5 * 60 * 1000;
 const RECENT_MAX = 5;
-
-type Stamped<T> = { at: number; data: T };
 
 const local = learningMode === "local";
 const EMPTY_MOMENTS: Moment[] = [];
@@ -161,71 +156,36 @@ function byPath(days: PathDay[]) {
 }
 
 /**
- * Data that belongs to one sermon (its moments, its card), fetched as its
- * page opens. The device's copy shows at once and is fetched again once it's
- * SERMON_STALE_MS old; the device keeps the SERMON_KEEP sermons fetched most
- * recently. When a fetch fails (offline, or a table not deployed yet) any
- * copy stays, and otherwise `none` shows, quietly; the next visit tries
- * again. With `key` null they're kept in memory only (the local test data).
+ * What shows of one kind of a sermon's data (its moments, its card), loaded
+ * as its page opens and kept on the device (sermonCache.ts). With `key` null
+ * it's kept in memory only (the local test data). `key`, `get` and `none`
+ * stay the same for the provider's life.
  */
 function useSermonData<T>(key: string | null, get: (youtubeId: string) => Promise<T>, none: T) {
   const [byId, setById] = useState<Record<string, T>>({});
-  const cache = useRef<Record<string, Stamped<T>>>({});
-  const saved = useRef<Promise<void> | null>(null);
-  const inflight = useRef(new Set<string>());
-
-  /**
-   * Shows a sermon's data (`pick` gets what's showing for it now) with the
-   * device's copies not shown yet, so later pages open with theirs at once:
-   * one update, and none when nothing has changed.
-   */
-  const show = useCallback(
-    (youtubeId: string, pick: (shown?: T) => T) =>
-      setById((was) => {
-        const add: Record<string, T> = {};
-        Object.entries(cache.current).forEach(([id, entry]) => {
-          if (!(id in was)) add[id] = entry.data;
-        });
-        const next = pick(was[youtubeId]);
-        if (!same(was[youtubeId], next)) add[youtubeId] = next;
-        return Object.keys(add).length ? { ...was, ...add } : was;
-      }),
-    [],
+  const [cache] = useState(() =>
+    createSermonCache<T>({
+      storage: key
+        ? { read: () => readJSON<SermonCopies<T>>(key, {}), write: (copies) => writeJSON(key, copies) }
+        : null,
+      get,
+      now: Date.now,
+      none,
+      // One update, with the device's copies not shown yet, and none when
+      // nothing has changed.
+      show: (youtubeId, pick, copies) =>
+        setById((was) => {
+          const add: Record<string, T> = {};
+          Object.entries(copies).forEach(([id, data]) => {
+            if (!(id in was)) add[id] = data;
+          });
+          const next = pick(was[youtubeId]);
+          if (!same(was[youtubeId], next)) add[youtubeId] = next;
+          return Object.keys(add).length ? { ...was, ...add } : was;
+        }),
+    }),
   );
-
-  const load = useCallback(
-    (youtubeId: string) => {
-      if (!youtubeId || inflight.current.has(youtubeId)) return;
-      inflight.current.add(youtubeId);
-      if (key)
-        saved.current ??= readJSON<Record<string, Stamped<T>>>(key, {}).then((copy) => {
-          cache.current = { ...copy, ...cache.current };
-        });
-      (async () => {
-        await saved.current;
-        const cached = cache.current[youtubeId];
-        // The device's copy shows at once; a fresh one isn't fetched again.
-        if (cached) show(youtubeId, () => cached.data);
-        if (cached && Date.now() - cached.at < SERMON_STALE_MS) return;
-        try {
-          const data = await get(youtubeId);
-          cache.current[youtubeId] = { at: Date.now(), data };
-          // Keep the most recently fetched sermons only.
-          const kept = Object.entries(cache.current)
-            .sort((a, b) => b[1].at - a[1].at)
-            .slice(0, SERMON_KEEP);
-          cache.current = Object.fromEntries(kept);
-          if (key) writeJSON(key, cache.current);
-          show(youtubeId, () => data);
-        } catch {
-          // Offline or not deployed: keep any copy; otherwise none.
-          show(youtubeId, (shown) => shown ?? none);
-        }
-      })().finally(() => inflight.current.delete(youtubeId));
-    },
-    [key, get, none, show],
-  );
-
+  const load = useCallback((youtubeId: string) => void cache.load(youtubeId), [cache]);
   return useMemo<SermonValue<T>>(() => ({ byId, load }), [byId, load]);
 }
 

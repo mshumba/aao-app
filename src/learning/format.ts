@@ -77,17 +77,20 @@ const SCRIPTURES_SHOWN = 8;
 
 /**
  * What a sermon's page shows of its card, or null to show nothing. A card
- * with no main points is one whose transcript couldn't be read, and its
- * summary only says so: no help to someone choosing a sermon.
+ * with no main points, or one that can't say who it's for, is one whose
+ * transcript couldn't be read: no help to someone choosing a sermon. Its
+ * summary keeps to the sermon, never the transcript (`aboutTheSermon`), and
+ * shows nothing when it can't.
  */
 export function cardShown(card: SermonCardData | null | undefined): ShownCard | null {
   if (!card) return null;
-  const summary = card.summary.trim();
+  if (card.forWhom.trim() && namesNoOne(card.forWhom)) return null;
+  const summary = aboutTheSermon(card.summary);
   const points = card.mainPoints.map((point) => point.trim()).filter(Boolean);
   if (!summary || !points.length) return null;
   return {
-    summary,
-    points,
+    summary: curlyQuotes(summary),
+    points: points.map(curlyQuotes),
     scriptures: card.scriptures
       .map((ref) => ref.trim())
       .filter(Boolean)
@@ -96,18 +99,75 @@ export function cardShown(card: SermonCardData | null | undefined): ShownCard | 
   };
 }
 
+/** Words about what was read rather than what he preached. */
+const ABOUT_TRANSCRIPT = /\b(transcript|captions?)\b/i;
+
+/**
+ * The summary as a description of the sermon, or "" when it isn't one.
+ * Some summaries say what the captions held ("The transcript ends as the
+ * next minister is invited…"), which the whole video may well contradict.
+ * An aside in brackets about them ("Elton (Pilton in the captions)") and
+ * closing sentences about them are left out. A card that mentions them
+ * anywhere else shows nothing, since what follows leans on that sentence
+ * ("He…", "They…").
+ */
+function aboutTheSermon(text: string) {
+  const summary = text
+    .trim()
+    .replace(/\s*\([^()]*\)/g, (aside) => (ABOUT_TRANSCRIPT.test(aside) ? "" : aside));
+  if (!ABOUT_TRANSCRIPT.test(summary)) return summary;
+  const kept = sentences(summary);
+  while (kept.length && ABOUT_TRANSCRIPT.test(kept[kept.length - 1])) kept.pop();
+  return kept.some((sentence) => ABOUT_TRANSCRIPT.test(sentence)) ? "" : kept.join(" ");
+}
+
+/** Titles whose full stop doesn't end a sentence: "Rev. Tony George preaches…". */
+const TITLE_STOP = /\b(Rev|Pst|Dr|Mr|Mrs|Ms|Prof|St|Bro|Sis|Evang|Engr)\.$/;
+
+/**
+ * A summary's sentences: split after . ! or ? (and any closing quote or
+ * bracket) and a space, but not after a title, nor before a word that
+ * carries on the sentence (the question “Had God said?” to undermine…).
+ */
+function sentences(text: string) {
+  const out: string[] = [];
+  text
+    .replace(/([.!?]["”’')]*)\s+/g, "$1\u0000")
+    .split("\u0000")
+    .forEach((piece) => {
+      const last = out.length - 1;
+      if (last >= 0 && (TITLE_STOP.test(out[last]) || /^[a-z]/.test(piece))) out[last] += ` ${piece}`;
+      else out.push(piece);
+    });
+  return out;
+}
+
+/**
+ * Straight double quotes made curly, as in the app's own copy: a teaching
+ * titled “The Seven Spirits of God”. (The cards' quotes always come in pairs.)
+ */
+function curlyQuotes(text: string) {
+  return text.replace(/"/g, (_quote, at: number) => (at === 0 || /[\s([{–—]/.test(text[at - 1]) ? "“" : "”"));
+}
+
+/** A "who it's for" that names no one: "Not enough transcript to say…". */
+function namesNoOne(text: string) {
+  return /^(no|not|none|nobody|unclear|unknown)\b/i.test(text.trim());
+}
+
 /** First words that keep their capital after "For": "For Christian wives and mothers…". */
 const KEEPS_CAPITAL = /^(Christian|Bible|Spirit|God|Jesus|Christ|Holy)\b/;
 
 /**
  * Who it's for, as a sentence: "Believers who keep falling into the same
  * sin" → "For believers who keep falling into the same sin.". Null when the
- * card names no one ("Not determinable from this transcript…").
+ * card names no one ("Not determinable from this transcript…"), or talks
+ * about the transcript ("…; the sermon itself is not in this transcript.").
  */
 export function forLine(text: string): string | null {
   const line = text.trim().replace(/\s+/g, " ");
-  if (!line || /^(no|not|none|nobody|unclear|unknown)\b/i.test(line)) return null;
+  if (!line || namesNoOne(line) || ABOUT_TRANSCRIPT.test(line)) return null;
   const keep = KEEPS_CAPITAL.test(line) || /^[A-Z]{2,}\b/.test(line);
   const who = keep ? line : line[0].toLowerCase() + line.slice(1);
-  return `For ${who}${/[.!?]$/.test(who) ? "" : "."}`;
+  return curlyQuotes(`For ${who}${/[.!?]$/.test(who) ? "" : "."}`);
 }

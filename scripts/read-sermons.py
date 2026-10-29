@@ -17,7 +17,9 @@ already has a card is never read again, so every step can be re-run.
 `save` upserts every card into public.sermon_cards, then rebuilds
 public.sermon_topics from them: a sermon gets its card's topic when the fit
 is 4 or 5, scored by the fit plus a tenth of the embedding match. For new
-sermons: `sample N` reads the N newest without a card, then `save`.
+sermons: `sample N` reads the N newest without a card, then `save`. To read
+some again (after the instructions below change), delete their lines from
+cards.jsonl, `sample N`, review the new cards, and only then `save`.
 
 `submit` estimates the cost from the sample's real token counts and stops
 before sending anything if the whole run would pass --cap dollars (default
@@ -63,6 +65,8 @@ What to record:
 - preaching_end: seconds where the preaching ends, before closing prayer, ministration or announcements; null if it runs to the end.
 - language: the main language spoken, as an ISO code ("en", "fr", "pcm").
 - flags: any that apply: garbled_captions (the captions are mostly nonsense or machine-translated), mostly_prayer, mostly_worship, not_english, partial_transcript (the transcript clearly covers only part of the service), several_speakers.
+
+How to write it: describe the sermon itself, never the transcript or captions. Don't say what they cover, where they end, what they leave out or how a name is spelt in them; the flags record that. If too little can be made out to describe any teaching, leave main_points empty. Write in British English (favour, honour, centre, labour, saviour, fulfil, recognise), with no comma before the "and" or "or" that ends a list ("prayer, worship and testimonies") and with curly quotation marks and apostrophes (“ ”, ‘ ’ and ’).
 
 The 8 topics:
 - hearing-god (Hearing God): recognising God's voice and receiving direction: Scripture, inner witness, dreams, visions, prophetic perception, discerning God's leading. Gifts of prophecy and revelation belong here.
