@@ -17,6 +17,8 @@ import { sermonHref } from "../paths/model";
 import { device } from "./device";
 import {
   cleanTime,
+  comesAt,
+  keptTime,
   lastShownAt,
   planReminders,
   reminderTarget,
@@ -55,9 +57,12 @@ type Stored = {
   armedAt: string | null;
   /** The day due on their guided path as this device saw it; missing until it has looked. */
   due?: DueRecord | null;
-  /** When each reminder put on the phone comes (ISO), as last put there. */
+  /**
+   * When each reminder put on the phone comes, as last put there and as the
+   * phone keeps it (plan.ts keptTime: on iOS the date and time on its clock).
+   */
   waiting?: string[];
-  /** When the last of them came, so a new time never brings a second that day. */
+  /** When the last of them came, kept the same way, so a new time never brings a second that day. */
   lastShown?: string | null;
 };
 
@@ -188,7 +193,7 @@ export function RemindersProvider({ children }: { children: ReactNode }) {
             now,
             due: { since: new Date(due.since), watched: due.watched },
             armedAt: stored.armedAt ? new Date(stored.armedAt) : now,
-            lastShown: lastShown ? new Date(lastShown) : null,
+            lastShown: lastShown ? new Date(comesAt(lastShown)) : null,
           })
         : [];
     const another = stored !== saved;
@@ -205,7 +210,7 @@ export function RemindersProvider({ children }: { children: ReactNode }) {
       if (another || (moved && stored.due !== undefined)) await device.clearDelivered();
       try {
         await device.replace(list);
-        const waiting = list.map((r) => r.at.toISOString());
+        const waiting = list.map((r) => keptTime(r.at, device.onClock));
         theirs((latest) =>
           latest.lastShown === lastShown && JSON.stringify(latest.waiting) === JSON.stringify(waiting)
             ? latest

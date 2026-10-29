@@ -3,6 +3,7 @@ import type { ReminderDevice } from "./types";
 /** No reminders here: the web, or a phone build made without them. */
 export const noReminders: ReminderDevice = {
   supported: false,
+  onClock: false,
   permission: async () => "denied",
   request: async () => "denied",
   replace: async () => {},

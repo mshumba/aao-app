@@ -58,12 +58,19 @@ export function reminderTarget(active: ActivePath | null): ReminderTarget | null
   };
 }
 
+const DAY_MS = 86_400_000;
+
 /**
- * Keeps the record of the day due up to date. A new day (or path) is due
- * from when the viewer moved on to it, wherever they did, when that's known
- * (never later than now). Otherwise it's due from now, as this device saw it
- * change, and the first one it ever sees (`was` undefined) isn't watched.
- * Returns `was` itself when nothing changed.
+ * Keeps the record of the day due up to date. A new day is due from when
+ * the viewer moved on to it, wherever they did (never later than now), when
+ * that move is what changed it: a day of the same path done after the day
+ * before became due or, coming from another path or none, a move since then
+ * and in the last day (a path started on the web last night). Otherwise the
+ * path's own time can't say when it took over (an older path back as the
+ * newer one is finished or left, a day un-marked, a lapsed path handed
+ * over), so it's due from now, as this device saw it change, and the first
+ * one it ever sees (`was` undefined) isn't watched. Returns `was` itself
+ * when nothing changed.
  */
 export function trackDue(
   was: DueRecord | null | undefined,
@@ -73,7 +80,9 @@ export function trackDue(
   if (!target) return null;
   if (was && was.pathId === target.pathId && was.day === target.day) return was;
   const moved = target.dueSince ? Date.parse(target.dueSince) : NaN;
-  if (Number.isFinite(moved))
+  const before = was ? Date.parse(was.since) : -Infinity;
+  const after = was?.pathId === target.pathId ? before : Math.max(before, now.getTime() - DAY_MS);
+  if (moved > after)
     return {
       pathId: target.pathId,
       day: target.day,
@@ -116,16 +125,42 @@ export function firstReminder(
   return lastShown && sameDay(first, lastShown) ? on(first, 1, time) : first;
 }
 
+const pad = (n: number) => String(n).padStart(2, "0");
+
 /**
- * When the last reminder came: the latest of those put on the phone
- * (`waiting`, ISO times) that has come by `now`, or `was` if that's later.
+ * When a reminder put on the phone comes, kept as the phone keeps it, so
+ * the app can tell later which have come. `onClock` (iOS): its date and
+ * time on the phone's clock with no time zone ("2026-10-20T20:00"), as the
+ * trigger has them, so it comes at that time wherever the phone is.
+ * Otherwise (Android) the moment (ISO), which stays put until the app plans
+ * again.
+ */
+export function keptTime(at: Date, onClock: boolean) {
+  if (!onClock) return at.toISOString();
+  const day = `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}`;
+  return `${day}T${pad(at.getHours())}:${pad(at.getMinutes())}`;
+}
+
+/**
+ * The moment a kept time comes, on the phone's clock as it is now (NaN if
+ * it isn't one). A moment (Android's, or one an iPhone kept in the earlier
+ * form) is read as it is.
+ */
+export function comesAt(kept: string) {
+  const parts = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(kept)?.slice(1).map(Number);
+  if (!parts) return Date.parse(kept);
+  const [year, month, day, hour, minute] = parts;
+  return new Date(year, month - 1, day, hour, minute).getTime();
+}
+
+/**
+ * When the last reminder came, as kept: the latest of those put on the
+ * phone (`waiting`, keptTime's) that has come by `now`, or `was` if that's
+ * later.
  */
 export function lastShownAt(was: string | null | undefined, waiting: readonly string[] | undefined, now: Date) {
-  const times = [
-    ...(was ? [Date.parse(was)] : []),
-    ...(waiting ?? []).map((at) => Date.parse(at)).filter((t) => t <= now.getTime()),
-  ].filter(Number.isFinite);
-  return times.length ? new Date(Math.max(...times)).toISOString() : null;
+  const come = [...(was ? [was] : []), ...(waiting ?? []).filter((kept) => comesAt(kept) <= now.getTime())];
+  return come.filter((kept) => Number.isFinite(comesAt(kept))).sort((a, b) => comesAt(b) - comesAt(a))[0] ?? null;
 }
 
 /** What a reminder says: the day is ready, or, after a missed day, still there. */

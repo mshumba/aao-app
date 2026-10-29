@@ -34,6 +34,8 @@ const standIn =
 function stoodIn(phone: ReminderStandIn): ReminderDevice {
   return {
     supported: true,
+    // Kept on the clock, as an iPhone's are.
+    onClock: true,
     permission: async () => phone.permission,
     request: async () => {
       if (phone.permission === "undetermined") {

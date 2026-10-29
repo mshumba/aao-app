@@ -31,6 +31,11 @@ export type Permission = "granted" | "denied" | "undetermined";
 export type ReminderDevice = {
   /** False on the web: reminders come through the phone apps. */
   supported: boolean;
+  /**
+   * Each comes at a date and time on the phone's clock, following it into
+   * another time zone (iOS), rather than at a moment (Android).
+   */
+  onClock: boolean;
   permission: () => Promise<Permission>;
   /** Shows the system's question when it's undetermined; otherwise answers without asking. */
   request: () => Promise<Permission>;

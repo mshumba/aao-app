@@ -87,6 +87,7 @@ function onPhone(N: Notifications): ReminderDevice {
 
   return {
     supported: true,
+    onClock: Platform.OS === "ios",
     permission: async () => permissionOf(await N.getPermissionsAsync()),
     request: async () => {
       await ensureChannel();
