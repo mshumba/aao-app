@@ -13,21 +13,24 @@ service it is, and where the preaching starts and ends.
 
 Cards go to --out (default docs/sermon-cards, which git ignores) as
 cards.jsonl, one JSON object per line keyed by youtube_id. A sermon that
-already has a card is read again only when named with --ids or --ids-file,
-so every step can be re-run.
+already has a card is read again only when named with --ids or --ids-file:
+`sample N`, `submit`, `collect` and `save` can be re-run without paying to
+read a sermon twice, but each run of `sample --ids` or `--ids-file` reads
+every sermon named and is charged again.
 
 `save` upserts every card into public.sermon_cards, then rebuilds
 public.sermon_topics from them: a sermon gets its card's topic when the fit
 is 4 or 5, scored by the fit plus a tenth of the embedding match. For new
 sermons: `sample N` reads the N newest without a card, then `save`. To read
 some again (after the instructions below change), put their ids in a file,
-one per line, and run `sample --ids-file FILE` (or `sample --ids ID1,ID2`).
+one per line, and run `sample --ids-file FILE` (or `sample --ids=ID1,ID2`).
 It reads exactly those, says which it skipped because they aren't sermons
 with a transcript, and puts each new card in place of its sermon's line in
-cards.jsonl. Review the new cards, and only then `save`: until then the
-database keeps the old ones. `sample` is charged at full price, twice what
-the Batch API charges (`submit` can't do this: it reads only sermons
-without a card, and only once).
+cards.jsonl; an empty --ids or file stops it before it reads anything.
+Review the new cards, and only then `save`: until then the database keeps
+the old ones. `sample` is charged at full price, twice what the Batch API
+charges (`submit` can't do this: it reads only sermons without a card, and
+only once).
 
 `submit` estimates the cost from the sample's real token counts and stops
 before sending anything if the whole run would pass --cap dollars (default
@@ -322,15 +325,30 @@ def save(cards):
     print("tags:", ", ".join(f"{r['label']} {r['n']}" for r in counts))
 
 
+def ids_joined(argv):
+    """The arguments with `--ids X` written `--ids=X`, so X is always taken
+    as the ids: argparse takes a value that starts with '-' for an option, and
+    some ids do (-MNPWdJ28wE)."""
+    out, k = [], 0
+    while k < len(argv):
+        if argv[k] == "--ids" and k + 1 < len(argv):
+            out.append("--ids=" + argv[k + 1])
+            k += 2
+        else:
+            out.append(argv[k])
+            k += 1
+    return out
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("step", choices=["sample", "submit", "collect", "save"])
     parser.add_argument("count", nargs="?", type=int, help="how many new sermons `sample` reads (default 10)")
-    parser.add_argument("--ids", default="", help="`sample` reads exactly these, by youtube_id, separated by commas")
+    parser.add_argument("--ids", help="`sample` reads exactly these, by youtube_id, separated by commas")
     parser.add_argument("--ids-file", help="`sample` reads exactly the ids in this file, one per line")
     parser.add_argument("--out", default="docs/sermon-cards")
     parser.add_argument("--cap", type=float, default=85.0, help="dollars the whole run may cost")
-    args = parser.parse_args()
+    args = parser.parse_args(ids_joined(sys.argv[1:]))
     os.makedirs(args.out, exist_ok=True)
     cards_path = os.path.join(args.out, "cards.jsonl")
     spend_path = os.path.join(args.out, "spend.jsonl")
@@ -338,14 +356,16 @@ def main():
     done = {c["youtube_id"] for c in load(cards_path)}
 
     if args.step == "sample":
-        if args.ids or args.ids_file:
+        if args.ids is not None or args.ids_file is not None:
             if args.count is not None:
                 sys.exit("Give `sample` a count or ids, not both.")
-            text = args.ids
-            if args.ids_file:
+            text = args.ids or ""
+            if args.ids_file is not None:
                 with open(args.ids_file) as f:
                     text += "\n" + f.read()
             wanted = listed_ids(text)
+            if not wanted:
+                sys.exit("No ids were given, so nothing was read.")
             ids, skipped = picked(wanted, readable(wanted))
             if skipped:
                 print(f"Skipped {len(skipped)} that aren't sermons with a transcript: {', '.join(skipped)}")
