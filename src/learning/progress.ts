@@ -21,15 +21,27 @@ export type ProgressState = {
   enrollments: Record<string, { startedAt: string; finishedAt: string | null }>;
   /** Day numbers done per path, ascending. */
   done: Record<string, number[]>;
+  /**
+   * When a day of each path was last done (the latest), so the daily
+   * reminder knows when the viewer moved on, here or on another device.
+   * Progress kept on a device before 0.3.0 has none.
+   */
+  doneAt: Record<string, string>;
   /** Members only: changes the server hasn't confirmed yet, oldest first. */
   pending: ProgressOp[];
 };
 
-export const emptyProgress: ProgressState = { enrollments: {}, done: {}, pending: [] };
+export const emptyProgress: ProgressState = { enrollments: {}, done: {}, doneAt: {}, pending: [] };
+
+/** The later of two times (ISO), or the one there is. */
+function later(a: string | undefined, b: string) {
+  return a && Date.parse(a) >= Date.parse(b) ? a : b;
+}
 
 export function applyOp(state: ProgressState, op: ProgressOp): ProgressState {
   const enrollments = { ...state.enrollments };
   const done = { ...state.done };
+  const doneAt = { ...state.doneAt };
   switch (op.kind) {
     case "start":
       // Starting again keeps the first start, and re-opens a finished path.
@@ -42,6 +54,7 @@ export function applyOp(state: ProgressState, op: ProgressOp): ProgressState {
     case "done": {
       const list = done[op.pathId] ?? [];
       if (!list.includes(op.day)) done[op.pathId] = [...list, op.day].sort((a, b) => a - b);
+      doneAt[op.pathId] = later(doneAt[op.pathId], op.at);
       enrollments[op.pathId] ??= { startedAt: op.at, finishedAt: null };
       break;
     }
@@ -55,20 +68,22 @@ export function applyOp(state: ProgressState, op: ProgressOp): ProgressState {
     case "leave":
       delete enrollments[op.pathId];
       delete done[op.pathId];
+      delete doneAt[op.pathId];
       break;
   }
-  return { ...state, enrollments, done };
+  return { ...state, enrollments, done, doneAt };
 }
 
 /** The server's rows, with this device's unconfirmed changes on top. */
 export function fromRemote(remote: RemoteProgress, pending: ProgressOp[]): ProgressState {
-  let state: ProgressState = { enrollments: {}, done: {}, pending };
+  let state: ProgressState = { enrollments: {}, done: {}, doneAt: {}, pending };
   remote.enrollments.forEach((e) => {
     state.enrollments[e.path_id] = { startedAt: e.started_at, finishedAt: e.finished_at };
   });
   remote.done.forEach((d) => {
     const list = (state.done[d.path_id] ??= []);
     if (!list.includes(d.day)) list.push(d.day);
+    state.doneAt[d.path_id] = later(state.doneAt[d.path_id], d.done_at);
   });
   Object.values(state.done).forEach((list) => list.sort((a, b) => a - b));
   pending.forEach((op) => {
@@ -122,6 +137,7 @@ export function activePath(
       days: joined,
       today: joined.find((d) => d.day === day),
       startedAt: e.startedAt,
+      dueSince: done.length ? (state.doneAt[pathId] ?? null) : e.startedAt,
     };
   }
   return null;

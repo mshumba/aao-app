@@ -71,7 +71,7 @@ function Choices({
         >
           {chosen}
         </T>
-        <T style={styles.lead}>Each day, by your phone’s clock.</T>
+        <T style={styles.lead}>Each day, while you’re on a guided path.</T>
       </View>
 
       <View accessibilityRole="radiogroup" accessibilityLabel="Hour" style={styles.groups}>

@@ -1,5 +1,9 @@
 import { requireOptionalNativeModule } from "expo";
-import type { NotificationPermissionsStatus, NotificationResponse } from "expo-notifications";
+import type {
+  NotificationPermissionsStatus,
+  NotificationResponse,
+  SchedulableNotificationTriggerInput,
+} from "expo-notifications";
 import { Linking, Platform } from "react-native";
 import { noReminders } from "./none";
 import type { Permission, ReminderData, ReminderDevice } from "./types";
@@ -7,8 +11,15 @@ import type { Permission, ReminderData, ReminderDevice } from "./types";
 /**
  * The phone's notifications through expo-notifications: local ones, put on
  * the phone's own schedule, with no push server. The daily path reminder is
- * the app's only notification, so replacing or clearing them all touches
- * nothing else. The web has none (device.web.ts).
+ * the only one the app schedules, so replacing them all touches nothing
+ * else. It isn't the only one it shows: on Android the player's media
+ * controls are a notification too, so clearing shown reminders takes only
+ * theirs. The web has none (device.web.ts).
+ *
+ * On iOS each comes at a date and time on the phone's clock, so it follows
+ * the phone into another time zone. Android has no such one-off trigger: a
+ * reminder there comes at the moment worked out when it was planned, in the
+ * zone the phone was in then, until the app next opens and plans again.
  *
  * A build made before expo-notifications was added (0.2.0, build 5 and
  * earlier) lacks its native module, and loading the library there would
@@ -51,6 +62,23 @@ function onPhone(N: Notifications): ReminderDevice {
     });
   };
 
+  /**
+   * iOS: the date and time on the phone's clock, with no time zone, so it
+   * comes at that time wherever the phone is. Android: that moment.
+   */
+  const triggerAt = (at: Date): SchedulableNotificationTriggerInput =>
+    Platform.OS === "ios"
+      ? {
+          type: N.SchedulableTriggerInputTypes.CALENDAR,
+          year: at.getFullYear(),
+          month: at.getMonth() + 1,
+          day: at.getDate(),
+          hour: at.getHours(),
+          minute: at.getMinutes(),
+          repeats: false,
+        }
+      : { type: N.SchedulableTriggerInputTypes.DATE, date: at, channelId: CHANNEL };
+
   /** iOS asks once; Android 13 may ask twice, so a first "no" there can still be asked again. */
   const permissionOf = (status: NotificationPermissionsStatus): Permission => {
     if (status.granted || status.ios?.status === N.IosAuthorizationStatus.PROVISIONAL) return "granted";
@@ -74,10 +102,17 @@ function onPhone(N: Notifications): ReminderDevice {
         await N.scheduleNotificationAsync({
           identifier: reminder.id,
           content: { title: reminder.title, body: reminder.body, data: reminder.data, sound: "default" },
-          trigger: { type: N.SchedulableTriggerInputTypes.DATE, date: reminder.at, channelId: CHANNEL },
+          trigger: triggerAt(reminder.at),
         });
     },
-    clearDelivered: () => N.dismissAllNotificationsAsync(),
+    clearDelivered: async () => {
+      const shown = await N.getPresentedNotificationsAsync();
+      await Promise.all(
+        shown
+          .filter((n) => isReminder(n.request.content.data))
+          .map((n) => N.dismissNotificationAsync(n.request.identifier)),
+      );
+    },
     openSettings: () => Linking.openSettings(),
     onOpen: (listener) => {
       const seen = new Set<string>();

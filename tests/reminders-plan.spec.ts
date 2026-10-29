@@ -1,9 +1,10 @@
 import { expect, test } from "@playwright/test";
 import type { ActivePath } from "../src/learning/types";
 import {
-  MAX_PENDING,
+  NUDGE_DAYS,
   cleanTime,
   firstReminder,
+  lastShownAt,
   planReminders,
   reminderTarget,
   suggestedTime,
@@ -27,6 +28,7 @@ const WAIT: ReminderTarget = {
   day: 3,
   theme: "Renewed strength while you wait",
   youtubeId: "ZSO5mhxiaq0",
+  dueSince: null,
 };
 const EIGHT_PM = { hour: 20, minute: 0 };
 
@@ -55,8 +57,16 @@ test.describe("what's scheduled", () => {
       due: seen(at(10, 21, 9, 14)),
       armedAt: at(10, 21, 9, 15),
     });
-    // Tonight, then the next day (a missed day), two days later and a week on.
-    expect(when(plan)).toEqual(["10/21 20:00", "10/22 20:00", "10/24 20:00", "10/28 20:00"]);
+    // Tonight, then the next day (a missed day), two days later, then weekly for four weeks.
+    expect(when(plan)).toEqual([
+      "10/21 20:00",
+      "10/22 20:00",
+      "10/24 20:00",
+      "10/28 20:00",
+      "11/4 20:00",
+      "11/11 20:00",
+      "11/18 20:00",
+    ]);
     expect(plan[0]).toMatchObject({
       title: "Day 3 of Learning to wait on God is ready",
       body: "Renewed strength while you wait",
@@ -142,13 +152,70 @@ test.describe("what's scheduled", () => {
     expect(plan[0].title).toBe("Day 3 of Learning to wait on God is ready");
   });
 
-  test("one a day at most, and only a few waiting at once", () => {
+  test("a later time chosen after today's reminder has come starts tomorrow", () => {
+    // Day 3 due since 6pm yesterday; today's 8am "is ready" has come. At
+    // 10am the viewer chooses 9pm: tonight would be a second one today.
+    const ninePm = { hour: 21, minute: 0 };
+    const plan = planReminders({
+      target: WAIT,
+      time: ninePm,
+      now: at(10, 21, 10),
+      due: watched(at(10, 20, 18)),
+      armedAt: at(10, 21, 10),
+      lastShown: at(10, 21, 8),
+    });
+    expect(when(plan)[0]).toBe("10/22 21:00");
+    expect(plan[0].title).toBe("Day 3 of Learning to wait on God is ready");
+    // Yesterday's doesn't hold tonight's back.
+    expect(firstReminder(ninePm, watched(at(10, 20, 18)), at(10, 21, 10), at(10, 20, 20))).toEqual(at(10, 21, 21));
+    // Nor does one that came days ago move the nudges still to come.
+    const nudges = planReminders({
+      target: WAIT,
+      time: EIGHT_PM,
+      now: at(10, 23, 10),
+      due: watched(at(10, 14, 21)),
+      armedAt: at(10, 1, 12),
+      lastShown: at(10, 22, 20),
+    });
+    expect(when(nudges)[0]).toBe("10/29 20:00");
+  });
+
+  test("when the last one came: the latest put on the phone that has come", () => {
+    const now = at(10, 21, 10);
+    const waiting = [at(10, 21, 8), at(10, 22, 8), at(10, 24, 8)].map((d) => d.toISOString());
+    expect(lastShownAt(null, waiting, now)).toBe(at(10, 21, 8).toISOString());
+    // None has come yet: the one before stays.
+    expect(lastShownAt(at(10, 20, 8).toISOString(), waiting.slice(1), now)).toBe(at(10, 20, 8).toISOString());
+    expect(lastShownAt(undefined, undefined, now)).toBeNull();
+  });
+
+  test("one a day at most, and every one still to come waits on the phone", () => {
     const plan = planReminders({ target: WAIT, time: EIGHT_PM, now: at(10, 21), due: seen(at(10, 21)), armedAt: at(10, 21) });
-    expect(plan.length).toBe(MAX_PENDING);
-    expect(MAX_PENDING).toBeLessThan(64);
+    expect(plan.length).toBe(NUDGE_DAYS.length);
+    expect(plan.length).toBeLessThan(64);
     expect(new Set(plan.map((r) => r.at.toDateString())).size).toBe(plan.length);
     expect(new Set(plan.map((r) => r.id)).size).toBe(plan.length);
     expect(plan.every((r) => r.at.getHours() === 20 && r.at.getMinutes() === 0)).toBe(true);
+  });
+
+  test("a viewer who doesn't open the app still gets the weekly nudges, to four weeks", () => {
+    // Planned once, the evening Day 3 became due, and never again.
+    const plan = planReminders({
+      target: WAIT,
+      time: EIGHT_PM,
+      now: at(10, 14, 21, 1),
+      due: watched(at(10, 14, 21)),
+      armedAt: at(10, 1, 12),
+    });
+    expect(when(plan)).toEqual([
+      "10/15 20:00",
+      "10/16 20:00",
+      "10/18 20:00",
+      "10/22 20:00",
+      "10/29 20:00",
+      "11/5 20:00",
+      "11/12 20:00",
+    ]);
   });
 
   test("a day with no theme still says something", () => {
@@ -170,34 +237,75 @@ test.describe("the day due", () => {
       path: { id: WAIT.pathId, name: WAIT.name, kind: "path" },
       day: 3,
       today: { theme: WAIT.theme, youtubeId: WAIT.youtubeId },
+      dueSince: "2026-10-20T19:00:00.000Z",
     } as unknown as ActivePath;
-    expect(reminderTarget(active)).toEqual(WAIT);
+    expect(reminderTarget(active)).toEqual({ ...WAIT, dueSince: "2026-10-20T19:00:00.000Z" });
     expect(reminderTarget({ ...active, today: undefined })).toBeNull();
   });
 
-  test("is tracked as it changes, here or on another device", () => {
+  test("is tracked as it changes, from when the viewer moved on where that's known", () => {
     const now = at(10, 21, 9);
-    // The first this phone sees: due for who knows how long.
+    // The first this phone sees, with no time for it: due for who knows how long.
     const first = trackDue(undefined, WAIT, now);
     expect(first).toEqual({ pathId: WAIT.pathId, day: 3, since: now.toISOString(), watched: false });
     // Nothing changed: the same record, so nothing is written.
     expect(trackDue(first, WAIT, at(10, 22))).toBe(first);
-    // Day 3 done: Day 4 is due from now.
+    // Day 3 done here a moment ago: Day 4 is due from then.
+    const doneHere = at(10, 21, 8, 59);
+    expect(trackDue(first, { ...WAIT, day: 4, dueSince: doneHere.toISOString() }, now)).toEqual({
+      pathId: WAIT.pathId,
+      day: 4,
+      since: doneHere.toISOString(),
+      watched: true,
+    });
+    // With no time for it (progress kept before 0.3.0): due from when this phone saw it.
     expect(trackDue(first, { ...WAIT, day: 4 }, now)).toEqual({
       pathId: WAIT.pathId,
       day: 4,
       since: now.toISOString(),
       watched: true,
     });
+    // A clock ahead elsewhere never puts it in the future.
+    expect(trackDue(first, { ...WAIT, day: 4, dueSince: at(10, 21, 11).toISOString() }, now)?.since).toBe(
+      now.toISOString(),
+    );
     // Path finished or left.
     expect(trackDue(first, null, now)).toBeNull();
     // A new path started after none.
-    expect(trackDue(null, { ...WAIT, day: 1 }, now)).toEqual({
+    expect(trackDue(null, { ...WAIT, day: 1, dueSince: now.toISOString() }, now)).toEqual({
       pathId: WAIT.pathId,
       day: 1,
       since: now.toISOString(),
       watched: true,
     });
+  });
+
+  test("a day done on another device the evening before is reminded of tonight", () => {
+    // Day 2 done on the web at 9pm Monday; the phone opens at 7am Tuesday.
+    const due = trackDue(
+      { pathId: WAIT.pathId, day: 2, since: at(10, 19, 7).toISOString(), watched: true },
+      { ...WAIT, dueSince: at(10, 19, 21).toISOString() },
+      at(10, 20, 7),
+    )!;
+    expect(due).toMatchObject({ day: 3, since: at(10, 19, 21).toISOString(), watched: true });
+    const plan = planReminders({
+      target: WAIT,
+      time: EIGHT_PM,
+      now: at(10, 20, 7),
+      due: { since: new Date(due.since), watched: due.watched },
+      armedAt: at(10, 1, 12),
+    });
+    expect(when(plan)[0]).toBe("10/20 20:00");
+    expect(plan[0].title).toBe("Day 3 of Learning to wait on God is ready");
+    // Done on the web this morning instead: not today, but tomorrow.
+    const morning = trackDue(
+      { pathId: WAIT.pathId, day: 2, since: at(10, 19, 7).toISOString(), watched: true },
+      { ...WAIT, dueSince: at(10, 20, 6, 30).toISOString() },
+      at(10, 20, 7),
+    )!;
+    expect(
+      firstReminder(EIGHT_PM, { since: new Date(morning.since), watched: morning.watched }, at(10, 1, 12)),
+    ).toEqual(at(10, 21, 20));
   });
 });
 

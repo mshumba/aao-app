@@ -76,6 +76,17 @@ test.describe("path progress", () => {
     state = run([{ kind: "leave", pathId: HABIT }], state);
     expect(enrollmentOf(state, HABIT)).toBeNull();
     expect(state.done[HABIT]).toBeUndefined();
+    expect(state.doneAt[HABIT]).toBeUndefined();
+  });
+
+  test("when a day was last done is kept, for the daily reminder", () => {
+    const state = run([
+      { kind: "start", pathId: HABIT, at: at(1) },
+      { kind: "done", pathId: HABIT, day: 1, at: at(3) },
+      // A late copy of an older change doesn't move it back.
+      { kind: "done", pathId: HABIT, day: 2, at: at(2) },
+    ]);
+    expect(state.doneAt).toEqual({ [HABIT]: at(3) });
   });
 
   test("a day marked done before the path's start is recorded still enrols", () => {
@@ -101,6 +112,12 @@ test.describe("path progress", () => {
     );
     expect(state.done[HABIT]).toEqual([2, 3]);
     expect(state.pending).toEqual(pending);
+    // The latest day done, the server's or this device's.
+    expect(state.doneAt[HABIT]).toBe(at(9));
+    const served = "2026-10-02T21:00:00+00:00";
+    expect(fromRemote({ enrollments: [], done: [{ path_id: HABIT, day: 1, done_at: served }] }, []).doneAt).toEqual({
+      [HABIT]: served,
+    });
   });
 
   test("today is the first day not done, and none once all are", () => {
@@ -121,10 +138,15 @@ test.describe("path progress", () => {
     let active = activePath(state, fixturePaths, days, find)!;
     expect(active.path.id).toBe(WAIT);
     expect(active.day).toBe(1);
+    // Day 1 has been due since the path started.
+    expect(active.dueSince).toBe(at(3));
     // Finish the newer one: the older one is active again, on Day 3.
     const finished = run([{ kind: "finish", pathId: WAIT, at: at(4) }], state);
     active = activePath(finished, fixturePaths, days, find)!;
-    expect(active).toMatchObject({ day: 3, done: [1, 2], total: 7, startedAt: at(1) });
+    // Day 3 has been due since Day 2 was done.
+    expect(active).toMatchObject({ day: 3, done: [1, 2], total: 7, startedAt: at(1), dueSince: at(2) });
+    // Days done with no times (progress kept before 0.3.0): not known.
+    expect(activePath({ ...finished, doneAt: {} }, fixturePaths, days, find)?.dueSince).toBeNull();
     expect(active.today?.youtubeId).toBe("yUDzMcZsVk8");
     expect(active.today?.sermon?.id).toBe("yUDzMcZsVk8");
     // A path that's gone (taken down for review) is skipped.

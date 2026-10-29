@@ -237,4 +237,10 @@ export type ActivePath = {
   /** The day to play now (days[day - 1]). */
   today: PathDayWithSermon | undefined;
   startedAt: string;
+  /**
+   * When the viewer last moved on in the path (a day done, or the start
+   * before any), here or on another device: when today's day became due.
+   * Null when the days done have no times (kept before 0.3.0).
+   */
+  dueSince: string | null;
 };

@@ -1,4 +1,4 @@
-import { router } from "expo-router";
+import { router, useGlobalSearchParams, usePathname } from "expo-router";
 import {
   createContext,
   useCallback,
@@ -17,6 +17,7 @@ import { sermonHref } from "../paths/model";
 import { device } from "./device";
 import {
   cleanTime,
+  lastShownAt,
   planReminders,
   reminderTarget,
   suggestedTime,
@@ -34,11 +35,12 @@ import type { Permission, PlannedReminder, ReminderTime } from "./types";
  * notifications, put on the phone's own schedule (device.ts); the web has
  * none.
  *
- * Kept on this device for whoever is using it. Another viewer (signing in,
- * signing out, deleting the account) starts with reminders off, and the
- * last one's stop. Whenever the app opens or comes back, or the day due
- * changes (a day done, the path finished or left), the next few are put on
- * the phone again; with no path, none are.
+ * Kept on this device for whoever is using it. A guest who makes an
+ * account or signs in keeps the reminder they set; anyone else who takes
+ * over (signing in, signing out, deleting the account) starts with
+ * reminders off, and the last one's stop. Whenever the app opens or comes
+ * back, or the day due changes (a day done, the path finished or left), the
+ * ones still to come are put on the phone again; with no path, none are.
  */
 
 type Stored = {
@@ -53,9 +55,16 @@ type Stored = {
   armedAt: string | null;
   /** The day due on their guided path as this device saw it; missing until it has looked. */
   due?: DueRecord | null;
+  /** When each reminder put on the phone comes (ISO), as last put there. */
+  waiting?: string[];
+  /** When the last of them came, so a new time never brings a second that day. */
+  lastShown?: string | null;
 };
 
 const fresh = (owner: string): Stored => ({ owner, enabled: false, time: null, asked: false, armedAt: null });
+
+/** A guest's setting as they make an account or sign in here: theirs still, with the day due seen afresh. */
+const handOver = (guest: Stored, owner: string): Stored => ({ ...guest, owner, due: undefined });
 
 type Reminders = {
   /** Reminders work here (the phone apps); the web explains instead. */
@@ -71,8 +80,8 @@ type Reminders = {
   permission: Permission | null;
   /** The guided path the reminders are about, while they're on one. */
   target: ReminderTarget | null;
-  /** What's waiting on the phone, soonest first, and when that was worked out. */
-  upcoming: { list: PlannedReminder[]; at: Date };
+  /** What's waiting on the phone, soonest first, as last put there (some may have come since). */
+  upcoming: PlannedReminder[];
   /** Turns them on at this time, asking the phone first; resolves what the phone allows. */
   turnOn: (time: ReminderTime) => Promise<Permission>;
   turnOff: () => void;
@@ -94,13 +103,17 @@ export function RemindersProvider({ children }: { children: ReactNode }) {
 
   // The device's copy as read or last written.
   const [saved, setSaved] = useState<Stored | null>(null);
-  // This viewer's, once the device's copy and the account are known. Another
-  // viewer's (someone signed in or out, or deleted the account) reads as
-  // off: theirs start fresh, and the last one's stop below.
-  const stored = useMemo(
-    () => (!saved || !account.ready ? null : saved.owner === owner ? saved : fresh(owner)),
-    [saved, account.ready, owner],
-  );
+  // This viewer's, once the device's copy and the account are known. A
+  // guest's carries on as they make an account or sign in here (the
+  // reminder they turned on, perhaps before starting a path, which asks a
+  // guest for an account). Any other viewer's (someone signed in or out, or
+  // deleted the account) reads as off: theirs start fresh, and the last
+  // one's stop below.
+  const stored = useMemo(() => {
+    if (!saved || !account.ready) return null;
+    if (saved.owner === owner) return saved;
+    return saved.owner === "guest" && owner !== "guest" ? handOver(saved, owner) : fresh(owner);
+  }, [saved, account.ready, owner]);
   const current = useRef<Stored | null>(null);
   useEffect(() => {
     current.current = stored;
@@ -109,7 +122,7 @@ export function RemindersProvider({ children }: { children: ReactNode }) {
   // Bumped when the app comes back, so what's waiting is worked out again.
   const [wake, setWake] = useState(0);
   const [offered, setOffered] = useState(() => suggestedTime(new Date()));
-  const [upcoming, setUpcoming] = useState<Reminders["upcoming"]>(() => ({ list: [], at: new Date() }));
+  const [upcoming, setUpcoming] = useState<PlannedReminder[]>([]);
 
   const change = useCallback((edit: (was: Stored) => Stored) => {
     if (!current.current) return;
@@ -159,12 +172,14 @@ export function RemindersProvider({ children }: { children: ReactNode }) {
   // the day due or what the phone allows changes, and when the app comes
   // back. The day due is kept as it changes (a day done, the path started,
   // finished or left, here or elsewhere); what was shown about the day
-  // before, or about another viewer's, is out of date.
+  // before, or about another viewer's, is out of date. What was put there
+  // is kept too, so the day the last one came is known.
   const applied = useRef<string | null>(null);
   useEffect(() => {
     if (!stored || loading || permission == null) return;
     const now = new Date();
     const due = trackDue(stored.due, target, now);
+    const lastShown = lastShownAt(stored.lastShown, stored.waiting, now);
     const list =
       stored.enabled && stored.time && target && due && permission === "granted"
         ? planReminders({
@@ -173,6 +188,7 @@ export function RemindersProvider({ children }: { children: ReactNode }) {
             now,
             due: { since: new Date(due.since), watched: due.watched },
             armedAt: stored.armedAt ? new Date(stored.armedAt) : now,
+            lastShown: lastShown ? new Date(lastShown) : null,
           })
         : [];
     const another = stored !== saved;
@@ -183,11 +199,19 @@ export function RemindersProvider({ children }: { children: ReactNode }) {
     run(async () => {
       // On the latest setting, which a tap may have changed meanwhile, and
       // only while it's still this viewer's.
-      if (another || moved) change((latest) => (latest.owner === stored.owner ? { ...latest, due } : latest));
+      const theirs = (edit: (latest: Stored) => Stored) =>
+        change((latest) => (latest.owner === stored.owner ? edit(latest) : latest));
+      if (another || moved) theirs((latest) => ({ ...latest, due }));
       if (another || (moved && stored.due !== undefined)) await device.clearDelivered();
       try {
         await device.replace(list);
-        setUpcoming({ list, at: now });
+        const waiting = list.map((r) => r.at.toISOString());
+        theirs((latest) =>
+          latest.lastShown === lastShown && JSON.stringify(latest.waiting) === JSON.stringify(waiting)
+            ? latest
+            : { ...latest, waiting, lastShown },
+        );
+        setUpcoming(list);
       } catch {
         // Tried again the next time anything changes, or the app comes back.
         applied.current = null;
@@ -259,14 +283,23 @@ export function useReminders() {
 /**
  * A tapped reminder opens its day: the sermon's page as that day of the
  * path, ready to play. Mounted beside the screens, so it can open one as
- * the app starts from the tap.
+ * the app starts from the tap. When that day is already the page on top
+ * (the app was left on it), it stays: a second copy would stack under Back.
  */
 export function ReminderTaps() {
+  const pathname = usePathname();
+  const params = useGlobalSearchParams<{ path?: string; day?: string }>();
+  const here = useRef({ pathname, params });
+  useEffect(() => {
+    here.current = { pathname, params };
+  });
   useEffect(
     () =>
-      device.onOpen((data) =>
-        router.push(sermonHref(data.youtubeId, { path: { id: data.pathId, day: data.day } })),
-      ),
+      device.onOpen((data) => {
+        const { pathname: at, params: on } = here.current;
+        if (at === `/sermon/${data.youtubeId}` && on.path === data.pathId && on.day === String(data.day)) return;
+        router.push(sermonHref(data.youtubeId, { path: { id: data.pathId, day: data.day } }));
+      }),
     [],
   );
   return null;

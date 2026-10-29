@@ -1,3 +1,4 @@
+import { MONTHS, WEEKDAYS } from "../lib/dates";
 import { headline, words } from "./display";
 import type { Sermon } from "./sermons";
 
@@ -55,9 +56,6 @@ export function splitSession(session: string) {
   const match = session.match(/^(Day \d+)\b\s*(.*)$/i);
   return match ? { day: match[1], rest: match[2].trim() } : { day: null, rest: session.trim() };
 }
-
-const WEEKDAYS = "Sunday Monday Tuesday Wednesday Thursday Friday Saturday".split(" ");
-const MONTHS = "January February March April May June July August September October November December".split(" ");
 
 /**
  * "2024-05-21" → "Tue 21 May", or "Tuesday 21 May" to be read aloud. No

@@ -5,6 +5,7 @@ import {
   type Snapshot,
 } from "../catalogue/records";
 import { parseDuration } from "../kit/time";
+import { MONTHS, SHORT_MONTHS } from "../lib/dates";
 import { takeTurns } from "../lib/turns";
 
 /**
@@ -59,15 +60,11 @@ export type TopicTags = Record<string, SermonTopic>;
 
 export const CHANNEL = "Apostle Arome Osayi";
 
-const MONTHS = "Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split(" ");
-const LONG_MONTHS =
-  "January February March April May June July August September October November December".split(" ");
-
 /** "2026-09-27" → "27 Sep 2026" (or "27 September 2026" when long). */
 export function formatDay(day: string, long = false) {
   const [y, m, d] = day.split("-").map(Number);
   if (!y || !m || !d) return day;
-  return `${d} ${(long ? LONG_MONTHS : MONTHS)[m - 1]} ${y}`;
+  return `${d} ${(long ? MONTHS : SHORT_MONTHS)[m - 1]} ${y}`;
 }
 
 /** 12914 → "3 hr 35 min" (whole minutes, as YouTube rounds down). */

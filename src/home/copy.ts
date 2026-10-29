@@ -1,5 +1,6 @@
 import type { Sermon } from "../data/sermons";
 import { messagesLabel } from "../learning/format";
+import { SHORT_MONTHS } from "../lib/dates";
 
 /**
  * Home's words, in one place so the hero, the cards and their accessibility
@@ -7,7 +8,6 @@ import { messagesLabel } from "../learning/format";
  */
 
 const WEEK = 7 * 24 * 60 * 60 * 1000;
-const MONTHS = "Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split(" ");
 
 /** "morning" before noon, "afternoon" until five, then "evening". */
 export function partOfDay(now = new Date()) {
@@ -25,7 +25,7 @@ export function greeting(name: string | null | undefined, now = new Date()) {
 export function shortDay(day: string, now = new Date()) {
   const [y, m, d] = day.split("-").map(Number);
   if (!y || !m || !d) return day;
-  const base = `${d} ${MONTHS[m - 1]}`;
+  const base = `${d} ${SHORT_MONTHS[m - 1]}`;
   return y === now.getFullYear() ? base : `${base} ${y}`;
 }
 

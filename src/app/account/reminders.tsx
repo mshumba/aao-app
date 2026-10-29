@@ -25,13 +25,16 @@ export default function RemindersScreen() {
     }
   }
 
-  const next = reminders.upcoming.list[0];
+  // From the clock now, not when they were put on the phone: the app may
+  // have come back a day or more later, with some come since.
+  const now = new Date();
+  const next = reminders.upcoming.find((r) => r.at > now);
   const note = !reminders.enabled || reminders.permission !== "granted"
     ? undefined
     : !reminders.target
       ? "You’re not on a guided path just now. Start one and we’ll remind you each day."
       : next
-        ? `Next: Day ${next.data.day} of ${reminders.target.name}, ${whenText(next.at, reminders.upcoming.at)}.`
+        ? `Next: Day ${next.data.day} of ${reminders.target.name}, ${whenText(next.at, now)}.`
         : undefined;
 
   return (

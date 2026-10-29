@@ -1,5 +1,6 @@
 import type { Page } from "@playwright/test";
 import type { ReminderStandIn } from "../src/reminders/device.web";
+import { NUDGE_DAYS } from "../src/reminders/plan";
 import {
   HABIT,
   LENGTH,
@@ -176,7 +177,7 @@ test.describe("on a phone", () => {
     await expect(offer(page)).toHaveCount(0);
     // The phone asked once, and the first reminder is tomorrow: the path
     // started today.
-    await expect.poll(async () => (await phone(page)).scheduled.length).toBe(4);
+    await expect.poll(async () => (await phone(page)).scheduled.length).toBe(NUDGE_DAYS.length);
     expect((await phone(page)).asked).toBe(1);
     expect(await nextReminder(page)).toEqual({
       title: "Day 1 of Learning to wait on God is ready",
@@ -226,7 +227,7 @@ test.describe("on a phone", () => {
     await toggle.click();
     await expect(toggle).toHaveAttribute("aria-checked", "true");
     await expect(page.getByTestId("reminder-time")).toBeVisible();
-    await expect.poll(async () => (await phone(page)).scheduled.length).toBe(4);
+    await expect.poll(async () => (await phone(page)).scheduled.length).toBe(NUDGE_DAYS.length);
     // Already allowed: nothing to ask.
     expect((await phone(page)).asked).toBe(0);
     await expect(page.getByText(/^Next: Day 1 of Learning to wait on God, tomorrow at /)).toBeVisible();
@@ -270,7 +271,7 @@ test.describe("on a phone", () => {
     });
     await bringBack(page);
     await expect(page.getByTestId("reminders-denied")).toHaveCount(0);
-    await expect.poll(async () => (await phone(page)).scheduled.length).toBe(4);
+    await expect.poll(async () => (await phone(page)).scheduled.length).toBe(NUDGE_DAYS.length);
     expect((await nextReminder(page))?.title).toBe("Day 1 of Learning to wait on God is ready");
   });
 
@@ -286,7 +287,7 @@ test.describe("on a phone", () => {
     await card.getByRole("button", { name: "Allow notifications" }).click();
     await expect(card).toHaveCount(0);
     expect((await phone(page)).asked).toBe(1);
-    await expect.poll(async () => (await phone(page)).scheduled.length).toBe(4);
+    await expect.poll(async () => (await phone(page)).scheduled.length).toBe(NUDGE_DAYS.length);
   });
 
   test("the reminder follows the path: the next day once one is done, none once it's finished", async ({
@@ -360,7 +361,7 @@ test.describe("on a phone", () => {
     await remindersOn(page);
     await seedPathProgress(page, { [WAIT]: [1, 2] });
     await page.goto("/account");
-    await expect.poll(async () => (await phone(page)).scheduled.length).toBe(4);
+    await expect.poll(async () => (await phone(page)).scheduled.length).toBe(NUDGE_DAYS.length);
     await expect(shown(page.getByTestId("reminder-row"))).toHaveAccessibleName("Daily reminder, On · 8pm");
 
     await shown(page.getByTestId("sign-out")).click();
@@ -378,7 +379,7 @@ test.describe("on a phone", () => {
     await remindersOn(page);
     await seedPathProgress(page, { [WAIT]: [1, 2] });
     await page.goto("/account/delete");
-    await expect.poll(async () => (await phone(page)).scheduled.length).toBe(4);
+    await expect.poll(async () => (await phone(page)).scheduled.length).toBe(NUDGE_DAYS.length);
     await page.getByTestId("confirm-delete").click();
     await expect(page.getByTestId("toast")).toContainText("deleted");
     await expect.poll(async () => (await phone(page)).scheduled).toEqual([]);
@@ -407,5 +408,71 @@ test.describe("on a phone", () => {
     await expect(page.getByTestId("part-of-path")).toHaveAccessibleName(
       "Part of your path. Day 3 of 5. Learning to wait on God. 2 of 5 done.",
     );
+
+    // Tapped again while that day is on top (the app was left on it): it
+    // stays, with no second copy behind it.
+    const pages = await page.evaluate(() => history.length);
+    await page.evaluate(
+      ({ pathId, youtubeId }) =>
+        (window as unknown as { __aaoReminders: ReminderStandIn }).__aaoReminders.open?.({
+          kind: "path-reminder",
+          pathId,
+          day: 3,
+          youtubeId,
+        }),
+      { pathId: WAIT, youtubeId: SERMON.dayOne },
+    );
+    await page.waitForTimeout(500);
+    expect(await page.evaluate(() => history.length)).toBe(pages);
+    await expect(page).toHaveURL(new RegExp(`/sermon/${SERMON.dayOne}\\?path=${WAIT}&day=3$`));
+  });
+
+  test("the next one is counted from now when the app comes back a day later", async ({ page }) => {
+    // Planned on Monday evening: Day 3's first is Tuesday at 8pm.
+    await page.clock.setFixedTime(new Date(2026, 9, 26, 21, 0));
+    await standInPhone(page, { permission: "granted" });
+    await remindersOn(page, 20);
+    await seedPathProgress(page, { [WAIT]: [1, 2] });
+    await page.goto("/account/reminders");
+    await expect(page.getByText("Next: Day 3 of Learning to wait on God, tomorrow at 8pm.")).toBeVisible();
+
+    // Back on Tuesday morning, with nothing to plan again.
+    await sendToBackground(page);
+    await page.clock.setFixedTime(new Date(2026, 9, 27, 10, 0));
+    await bringBack(page);
+    await expect(page.getByText("Next: Day 3 of Learning to wait on God, today at 8pm.")).toBeVisible();
+  });
+});
+
+test.describe("on a phone, as a guest", () => {
+  test.use({ viewer: "guest" });
+
+  test("a reminder turned on before starting a path carries on through signing up", async ({ page }) => {
+    await standInPhone(page, { permission: "granted" });
+    await openReminderSettings(page);
+    await page.getByRole("switch", { name: "Remind me each day" }).click();
+    await expect(
+      page.getByText("You’re not on a guided path just now. Start one and we’ll remind you each day."),
+    ).toBeVisible();
+
+    // Starting a path asks a guest for an account.
+    await fakeYouTube(page, { duration: LENGTH[SERMON.dayOne] });
+    await page.goto(`/path/${HABIT}`);
+    await page.getByTestId("path-cta").click();
+    await page.getByTestId("continue-google").click();
+    await expect(page.getByTestId("toast")).toContainText("signed in");
+    await expect(page).toHaveURL(new RegExp(`/sermon/${SERMON.dayOne}\\?path=${HABIT}&day=1$`));
+
+    // Still on, for the new account, and Day 1's first comes tomorrow.
+    await expect.poll(async () => (await nextReminder(page))?.title).toBe(
+      "Day 1 of Breaking free from habitual sin is ready",
+    );
+    expect((await nextReminder(page))?.days).toBe(1);
+    await expect
+      .poll(() => page.evaluate((key) => JSON.parse(localStorage.getItem(key)!), REMINDERS_KEY))
+      .toMatchObject({ owner: "local:google.viewer@example.com", enabled: true, asked: true });
+    // Asked already, so the day doesn't offer it again.
+    await expect(page.getByTestId("part-of-path")).toBeVisible();
+    await expect(offer(page)).toHaveCount(0);
   });
 });
