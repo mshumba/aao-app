@@ -9,8 +9,8 @@ import type { PlannedReminder, ReminderTime } from "./types";
  *
  * - One a day at most, at the viewer's time, for the guided path they're on
  *   (never a teaching series), naming the day: "Day 3 of Learning to wait on
- *   God is ready". A new time chosen after that day's has come starts the
- *   next day.
+ *   God is ready". A new time chosen after that day's has come brings the
+ *   next day's nudge, not a second that day.
  * - Never on a day they've moved on in it (a day done, the path started, here
  *   or on another device): the first comes the day after.
  * - A day left undone gets gentle nudges, further apart each time: the next
@@ -105,24 +105,17 @@ const sameDay = (a: Date, b: Date) => on(a, 0, MIDNIGHT).getTime() === on(b, 0, 
 /**
  * When a day's first reminder comes: the viewer's time next to come after
  * the day was due (`since`), but never on the day it became due as the
- * device watched, never before reminders were turned on or set to this
- * time (`armedAt`), and never on the day the last one came (`lastShown`):
- * a later time chosen after it would bring a second that day.
+ * device watched, and never before reminders were turned on or set to this
+ * time (`armedAt`).
  */
-export function firstReminder(
-  time: ReminderTime,
-  due: { since: Date; watched: boolean },
-  armedAt: Date,
-  lastShown?: Date | null,
-) {
+export function firstReminder(time: ReminderTime, due: { since: Date; watched: boolean }, armedAt: Date) {
   const after = (moment: Date, nextDay: boolean) => {
     const same = on(moment, 0, time);
     return !nextDay && same > moment ? same : on(moment, 1, time);
   };
   const armed = after(armedAt, false);
   const dueFrom = after(due.since, due.watched);
-  const first = armed > dueFrom ? armed : dueFrom;
-  return lastShown && sameDay(first, lastShown) ? on(first, 1, time) : first;
+  return armed > dueFrom ? armed : dueFrom;
 }
 
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -171,7 +164,12 @@ function reminderCopy(target: ReminderTarget, nudge: boolean) {
     : { title: `${day} is ready`, body: target.theme || "Your next message is waiting for you." };
 }
 
-/** The reminders to have waiting now, soonest first. */
+/**
+ * The reminders to have waiting now, soonest first. The nudges keep to
+ * their days, counted from the first, whenever the app plans: none comes on
+ * the day the last one came, so a later time chosen after it waits for the
+ * next.
+ */
 export function planReminders({
   target,
   time,
@@ -188,15 +186,60 @@ export function planReminders({
   /** When the last reminder came, if one has. */
   lastShown?: Date | null;
 }): PlannedReminder[] {
-  const first = firstReminder(time, due, armedAt, lastShown);
+  const first = firstReminder(time, due, armedAt);
   return NUDGE_DAYS.map((days, i) => ({ i, at: on(first, days, time) }))
-    .filter(({ at }) => at > now)
+    .filter(({ at }) => at > now && !(lastShown && sameDay(at, lastShown)))
     .map(({ i, at }) => ({
       id: `path-reminder-${i}`,
       at,
       ...reminderCopy(target, i > 0),
       data: { kind: "path-reminder", pathId: target.pathId, day: target.day, youtubeId: target.youtubeId },
     }));
+}
+
+/**
+ * Each time the app plans (RemindersProvider: as it opens or comes back,
+ * or the setting or the day due changes): when the last reminder came, from
+ * what the device kept, then the reminders to have waiting now (none unless
+ * `enabled`, with a time and a day due) and when each comes, kept as the
+ * phone keeps it (`onClock`: iOS).
+ */
+export function planForPhone(
+  kept: {
+    time: ReminderTime | null;
+    /** When reminders were last turned on or given a new time. */
+    armedAt: string | null;
+    waiting?: readonly string[];
+    lastShown?: string | null;
+  },
+  {
+    target,
+    due,
+    now,
+    enabled,
+    onClock,
+  }: {
+    target: ReminderTarget | null;
+    due: DueRecord | null;
+    now: Date;
+    /** Reminders are on, and the phone allows them. */
+    enabled: boolean;
+    onClock: boolean;
+  },
+) {
+  const lastShown = lastShownAt(kept.lastShown, kept.waiting, now);
+  const list =
+    enabled && kept.time && target && due
+      ? planReminders({
+          target,
+          time: kept.time,
+          now,
+          due: { since: new Date(due.since), watched: due.watched },
+          armedAt: kept.armedAt ? new Date(kept.armedAt) : now,
+          lastShown: lastShown ? new Date(comesAt(lastShown)) : null,
+        })
+      : [];
+  return { list, waiting: list.map((r) => keptTime(r.at, onClock)), lastShown };
 }
 
 /** 7:00 → "7am", 20:30 → "8:30pm". */

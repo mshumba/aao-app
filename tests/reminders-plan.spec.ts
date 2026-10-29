@@ -11,6 +11,7 @@ import {
   firstReminder,
   keptTime,
   lastShownAt,
+  planForPhone,
   planReminders,
   reminderTarget,
   suggestedTime,
@@ -20,6 +21,7 @@ import {
   type DueRecord,
   type ReminderTarget,
 } from "../src/reminders/plan";
+import type { ReminderTime } from "../src/reminders/types";
 
 // The daily path reminder's rules (src/reminders/plan.ts), run without the
 // app or a phone: what's scheduled, given the day due on the viewer's path,
@@ -53,6 +55,47 @@ function when(list: { at: Date }[]) {
         r.at.getMinutes(),
       ).padStart(2, "0")}`,
   );
+}
+
+/** What the device keeps between plans: when each reminder put on the phone comes, and when the last one came. */
+type Kept = { waiting: string[]; lastShown: string | null };
+
+const NOTHING_KEPT: Kept = { waiting: [], lastShown: null };
+/** Day 3, due since Day 2 was done on Monday 19 October at 2pm in London (9am in New York). */
+const DAY_3: DueRecord = { pathId: WAIT.pathId, day: 3, since: "2026-10-19T13:00:00.000Z", watched: true };
+/** 8pm, set at the start of the month. */
+const SET = { time: EIGHT_PM, armedAt: "2026-10-01T11:00:00.000Z" };
+
+/**
+ * The app plans as it opens, as RemindersProvider does (planForPhone):
+ * what has come, then what to put on the phone, kept as this phone keeps
+ * it (`onClock`: iOS, otherwise Android).
+ */
+function opens(kept: Kept, now: Date, onClock: boolean, { time, armedAt } = SET, due = DAY_3) {
+  const { list, ...next } = planForPhone(
+    { ...kept, time, armedAt },
+    { target: WAIT, due, now, enabled: true, onClock },
+  );
+  return { plan: list, kept: next };
+}
+
+/**
+ * What comes on an iPhone the app plans on each time it's opened, with a
+ * new time if one is chosen then, until `until`: every reminder still
+ * waiting when its time comes, as "10/20 20:00 ready" or "… nudge".
+ */
+function comes(opened: { now: Date; time?: ReminderTime }[], until: Date) {
+  let kept = NOTHING_KEPT;
+  let setting = SET;
+  return opened.flatMap(({ now, time }, k) => {
+    if (time) setting = { time, armedAt: now.toISOString() };
+    const { plan, kept: after } = opens(kept, now, true, setting);
+    kept = after;
+    const next = opened[k + 1]?.now ?? until;
+    return plan
+      .filter((r) => r.at < next)
+      .map((r) => `${when([r])[0]} ${r.title.endsWith("is ready") ? "ready" : "nudge"}`);
+  });
 }
 
 test.describe("what's scheduled", () => {
@@ -160,22 +203,31 @@ test.describe("what's scheduled", () => {
     expect(plan[0].title).toBe("Day 3 of Learning to wait on God is ready");
   });
 
-  test("a later time chosen after today's reminder has come starts tomorrow", () => {
+  test("a later time chosen after today's reminder has come brings tomorrow's nudge, not a second today", () => {
     // Day 3 due since 6pm yesterday; today's 8am "is ready" has come. At
     // 10am the viewer chooses 9pm: tonight would be a second one today.
     const ninePm = { hour: 21, minute: 0 };
-    const plan = planReminders({
+    const retimed = {
       target: WAIT,
       time: ninePm,
       now: at(10, 21, 10),
       due: watched(at(10, 20, 18)),
       armedAt: at(10, 21, 10),
-      lastShown: at(10, 21, 8),
-    });
-    expect(when(plan)[0]).toBe("10/22 21:00");
-    expect(plan[0].title).toBe("Day 3 of Learning to wait on God is ready");
+    };
+    const plan = planReminders({ ...retimed, lastShown: at(10, 21, 8) });
+    expect(when(plan)).toEqual([
+      "10/22 21:00",
+      "10/24 21:00",
+      "10/28 21:00",
+      "11/4 21:00",
+      "11/11 21:00",
+      "11/18 21:00",
+    ]);
+    expect(plan[0].title).toBe("Day 3 of Learning to wait on God is here when you’re ready");
     // Yesterday's doesn't hold tonight's back.
-    expect(firstReminder(ninePm, watched(at(10, 20, 18)), at(10, 21, 10), at(10, 20, 20))).toEqual(at(10, 21, 21));
+    const tonight = planReminders({ ...retimed, lastShown: at(10, 20, 20) });
+    expect(when(tonight)[0]).toBe("10/21 21:00");
+    expect(tonight[0].title).toBe("Day 3 of Learning to wait on God is ready");
     // Nor does one that came days ago move the nudges still to come.
     const nudges = planReminders({
       target: WAIT,
@@ -186,6 +238,35 @@ test.describe("what's scheduled", () => {
       lastShown: at(10, 22, 20),
     });
     expect(when(nudges)[0]).toBe("10/29 20:00");
+  });
+
+  test("opening the app after a day's reminder has come never starts the nudges again", () => {
+    inZone("Europe/London", () => {
+      // Day 2 done on Monday 19 October at 2pm, and the app opened again on
+      // Tuesday and Thursday at 10pm, each time after that day's had come:
+      // Tuesday's is ready, then Wednesday's, Friday's and weekly nudges.
+      const monday = { now: at(10, 19, 14) };
+      expect(comes([monday, { now: at(10, 20, 22) }, { now: at(10, 22, 22) }], at(12, 31))).toEqual([
+        "10/20 20:00 ready",
+        "10/21 20:00 nudge",
+        "10/23 20:00 nudge",
+        "10/27 20:00 nudge",
+        "11/3 20:00 nudge",
+        "11/10 20:00 nudge",
+        "11/17 20:00 nudge",
+      ]);
+      // A later time chosen on Tuesday at 9pm, after that day's came:
+      // nothing more that day, and Wednesday's is a nudge at the new time.
+      expect(comes([monday, { now: at(10, 20, 21), time: { hour: 22, minute: 0 } }], at(12, 31))).toEqual([
+        "10/20 20:00 ready",
+        "10/21 22:00 nudge",
+        "10/23 22:00 nudge",
+        "10/27 22:00 nudge",
+        "11/3 22:00 nudge",
+        "11/10 22:00 nudge",
+        "11/17 22:00 nudge",
+      ]);
+    });
   });
 
   test("when the last one came: the latest put on the phone that has come", () => {
@@ -439,37 +520,12 @@ function inZone<T>(zone: string, run: () => T): T {
 }
 
 test.describe("another time zone", () => {
-  /** What's kept on the device between plans: what was put on the phone, and when the last one came. */
-  type Kept = { waiting: string[]; lastShown: string | null };
-
-  const empty: Kept = { waiting: [], lastShown: null };
-  /** 8pm, set at the start of the month. */
-  const SET = { time: EIGHT_PM, armedAt: new Date("2026-10-01T11:00:00Z") };
-
-  /**
-   * The app plans as it opens, as RemindersProvider does: what has come,
-   * then what to put on the phone, kept as this phone keeps it (`onClock`:
-   * iOS, otherwise Android).
-   */
-  function opens(kept: Kept, now: Date, onClock: boolean, { time, armedAt } = SET) {
-    const lastShown = lastShownAt(kept.lastShown, kept.waiting, now);
-    const plan = planReminders({
-      target: WAIT,
-      time,
-      now,
-      // Day 2 done on Monday 19 October at 2pm in London (9am in New York).
-      due: watched(new Date("2026-10-19T13:00:00Z")),
-      armedAt,
-      lastShown: lastShown ? new Date(comesAt(lastShown)) : null,
-    });
-    return { plan, kept: { waiting: plan.map((r) => keptTime(r.at, onClock)), lastShown } };
-  }
   /** "Tue 20:00", on the clock where the test now is. */
   const local = (d: Date) => `${WEEKDAYS[d.getDay()].slice(0, 3)} ${d.toTimeString().slice(0, 5)}`;
 
   test("flying west: Tuesday's reminder still comes at 8pm there", () => {
     // Planned in London on Monday evening: Tuesday at 8pm there.
-    const london = inZone("Europe/London", () => opens(empty, new Date("2026-10-19T20:00:00Z"), true));
+    const london = inZone("Europe/London", () => opens(NOTHING_KEPT, new Date("2026-10-19T20:00:00Z"), true));
     expect(london.kept.waiting[0]).toBe("2026-10-20T20:00");
     // In New York, opened at 4pm on Tuesday, before 8pm there: the iPhone
     // still has it waiting, at 8pm on its clock, and the app leaves it so.
@@ -481,7 +537,7 @@ test.describe("another time zone", () => {
       expect(ny.kept.waiting[0]).toBe("2026-10-20T20:00");
     });
     // Android kept the moment, and it came at 3pm in New York: tomorrow's is next.
-    const android = inZone("Europe/London", () => opens(empty, new Date("2026-10-19T20:00:00Z"), false));
+    const android = inZone("Europe/London", () => opens(NOTHING_KEPT, new Date("2026-10-19T20:00:00Z"), false));
     expect(android.kept.waiting[0]).toBe("2026-10-20T19:00:00.000Z");
     inZone("America/New_York", () => {
       const ny = opens(android.kept, new Date("2026-10-20T20:00:00Z"), false);
@@ -492,21 +548,22 @@ test.describe("another time zone", () => {
 
   test("flying east: a new time after Tuesday's has come waits until Wednesday", () => {
     // Planned in New York on Monday: Tuesday at 8pm there.
-    const ny = inZone("America/New_York", () => opens(empty, new Date("2026-10-19T14:00:00Z"), true));
+    const ny = inZone("America/New_York", () => opens(NOTHING_KEPT, new Date("2026-10-19T14:00:00Z"), true));
     expect(ny.kept.waiting[0]).toBe("2026-10-20T20:00");
     // In London the iPhone brought it at 8pm there. At 9pm the viewer
     // chooses 10pm: tonight would be a second one today.
     inZone("Europe/London", () => {
       const now = new Date("2026-10-20T20:00:00Z");
-      const retimed = opens(ny.kept, now, true, { time: { hour: 22, minute: 0 }, armedAt: now });
+      const retimed = opens(ny.kept, now, true, { time: { hour: 22, minute: 0 }, armedAt: now.toISOString() });
       expect(retimed.kept.lastShown).toBe("2026-10-20T20:00");
       expect(local(retimed.plan[0].at)).toBe("Wed 22:00");
+      expect(retimed.plan[0].title).toBe("Day 3 of Learning to wait on God is here when you’re ready");
     });
     // On Android it was still to come (at 1am in London): 10pm tonight takes its place, Tuesday's one.
-    const android = inZone("America/New_York", () => opens(empty, new Date("2026-10-19T14:00:00Z"), false));
+    const android = inZone("America/New_York", () => opens(NOTHING_KEPT, new Date("2026-10-19T14:00:00Z"), false));
     inZone("Europe/London", () => {
       const now = new Date("2026-10-20T20:00:00Z");
-      const retimed = opens(android.kept, now, false, { time: { hour: 22, minute: 0 }, armedAt: now });
+      const retimed = opens(android.kept, now, false, { time: { hour: 22, minute: 0 }, armedAt: now.toISOString() });
       expect(retimed.kept.lastShown).toBeNull();
       expect(local(retimed.plan[0].at)).toBe("Tue 22:00");
     });

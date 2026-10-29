@@ -1,4 +1,6 @@
 import type { Page } from "@playwright/test";
+import { fixtureCards } from "../src/learning/fixtures";
+import { cardShown } from "../src/learning/format";
 import type { ReminderStandIn } from "../src/reminders/device.web";
 import { NUDGE_DAYS } from "../src/reminders/plan";
 import {
@@ -388,43 +390,44 @@ test.describe("on a phone", () => {
       .toMatchObject({ owner: "guest", enabled: false });
   });
 
-  test("tapping a reminder opens its day", async ({ page }) => {
+  test("tapping a reminder opens its day, its sermon's card and all", async ({ page }) => {
     await standInPhone(page, { permission: "granted" });
     await remindersOn(page);
-    await seedPathProgress(page, { [WAIT]: [1, 2] });
+    await seedPathProgress(page, { [WAIT]: [1, 2, 3] });
     await page.goto("/");
     await expect.poll(async () => (await phone(page)).tappable).toBe(true);
-    await page.evaluate(
-      ({ pathId, youtubeId }) =>
-        (window as unknown as { __aaoReminders: ReminderStandIn }).__aaoReminders.open?.({
-          kind: "path-reminder",
-          pathId,
-          day: 3,
-          youtubeId,
-        }),
-      { pathId: WAIT, youtubeId: SERMON.dayOne },
-    );
-    await expect(page).toHaveURL(new RegExp(`/sermon/${SERMON.dayOne}\\?path=${WAIT}&day=3$`));
+    // Day 4's reminder, as the phone hands over a tap on it.
+    const tap = () =>
+      page.evaluate(
+        ({ pathId, youtubeId }) =>
+          (window as unknown as { __aaoReminders: ReminderStandIn }).__aaoReminders.open?.({
+            kind: "path-reminder",
+            pathId,
+            day: 4,
+            youtubeId,
+          }),
+        { pathId: WAIT, youtubeId: SERMON.dayTwo },
+      );
+    await tap();
+    await expect(page).toHaveURL(new RegExp(`/sermon/${SERMON.dayTwo}\\?path=${WAIT}&day=4$`));
     await expect(page.getByTestId("part-of-path")).toHaveAccessibleName(
-      "Part of your path. Day 3 of 5. Learning to wait on God. 2 of 5 done.",
+      "Part of your path. Day 4 of 5. Learning to wait on God. 3 of 5 done.",
     );
 
     // Tapped again while that day is on top (the app was left on it): it
     // stays, with no second copy behind it.
     const pages = await page.evaluate(() => history.length);
-    await page.evaluate(
-      ({ pathId, youtubeId }) =>
-        (window as unknown as { __aaoReminders: ReminderStandIn }).__aaoReminders.open?.({
-          kind: "path-reminder",
-          pathId,
-          day: 3,
-          youtubeId,
-        }),
-      { pathId: WAIT, youtubeId: SERMON.dayOne },
-    );
+    await tap();
     await page.waitForTimeout(500);
     expect(await page.evaluate(() => history.length)).toBe(pages);
-    await expect(page).toHaveURL(new RegExp(`/sermon/${SERMON.dayOne}\\?path=${WAIT}&day=3$`));
+    await expect(page).toHaveURL(new RegExp(`/sermon/${SERMON.dayTwo}\\?path=${WAIT}&day=4$`));
+
+    // Its About tab has the sermon's card.
+    const card = fixtureCards.find((c) => c.youtubeId === SERMON.dayTwo);
+    await page.getByRole("tab", { name: "About", exact: true }).click();
+    await expect(shown(page.getByTestId("sermon-summary"))).toHaveText(cardShown(card)!.summary, {
+      useInnerText: true,
+    });
   });
 
   test("the next one is counted from now when the app comes back a day later", async ({ page }) => {
@@ -441,6 +444,43 @@ test.describe("on a phone", () => {
     await page.clock.setFixedTime(new Date(2026, 9, 27, 10, 0));
     await bringBack(page);
     await expect(page.getByText("Next: Day 3 of Learning to wait on God, today at 8pm.")).toBeVisible();
+  });
+
+  test("what's put on the phone is kept on its clock, and the nudges keep to their days", async ({ page }) => {
+    // Planned on Monday evening: Day 3's first is Tuesday at 8pm.
+    await page.clock.setFixedTime(new Date(2026, 9, 26, 21, 0));
+    await standInPhone(page, { permission: "granted" });
+    await remindersOn(page, 20);
+    await seedPathProgress(page, { [WAIT]: [1, 2] });
+    await page.goto("/account/reminders");
+    await expect(page.getByText("Next: Day 3 of Learning to wait on God, tomorrow at 8pm.")).toBeVisible();
+    // Kept as an iPhone keeps them, as the stand-in does: each one's date
+    // and time on the phone's clock, with no time zone.
+    const kept = () => page.evaluate((key) => JSON.parse(localStorage.getItem(key)!), REMINDERS_KEY);
+    await expect
+      .poll(async () => (await kept()).waiting)
+      .toEqual([
+        "2026-10-27T20:00",
+        "2026-10-28T20:00",
+        "2026-10-30T20:00",
+        "2026-11-03T20:00",
+        "2026-11-10T20:00",
+        "2026-11-17T20:00",
+        "2026-11-24T20:00",
+      ]);
+
+    // Back on Tuesday at 10pm, after it came: Wednesday's is a nudge, not
+    // Day 3 "ready" again.
+    await sendToBackground(page);
+    await page.clock.setFixedTime(new Date(2026, 9, 27, 22, 0));
+    await bringBack(page);
+    await expect.poll(async () => (await kept()).lastShown).toBe("2026-10-27T20:00");
+    expect((await kept()).waiting[0]).toBe("2026-10-28T20:00");
+    expect(await nextReminder(page)).toMatchObject({
+      title: "Day 3 of Learning to wait on God is here when you’re ready",
+      days: 1,
+      hour: 20,
+    });
   });
 });
 

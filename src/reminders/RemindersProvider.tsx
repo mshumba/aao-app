@@ -17,10 +17,7 @@ import { sermonHref } from "../paths/model";
 import { device } from "./device";
 import {
   cleanTime,
-  comesAt,
-  keptTime,
-  lastShownAt,
-  planReminders,
+  planForPhone,
   reminderTarget,
   suggestedTime,
   trackDue,
@@ -184,18 +181,13 @@ export function RemindersProvider({ children }: { children: ReactNode }) {
     if (!stored || loading || permission == null) return;
     const now = new Date();
     const due = trackDue(stored.due, target, now);
-    const lastShown = lastShownAt(stored.lastShown, stored.waiting, now);
-    const list =
-      stored.enabled && stored.time && target && due && permission === "granted"
-        ? planReminders({
-            target,
-            time: stored.time,
-            now,
-            due: { since: new Date(due.since), watched: due.watched },
-            armedAt: stored.armedAt ? new Date(stored.armedAt) : now,
-            lastShown: lastShown ? new Date(comesAt(lastShown)) : null,
-          })
-        : [];
+    const { list, waiting, lastShown } = planForPhone(stored, {
+      target,
+      due,
+      now,
+      enabled: stored.enabled && permission === "granted",
+      onClock: device.onClock,
+    });
     const another = stored !== saved;
     const moved = due !== stored.due;
     const key = JSON.stringify(list.map((r) => [r.id, r.at.getTime(), r.title, r.body]));
@@ -210,7 +202,6 @@ export function RemindersProvider({ children }: { children: ReactNode }) {
       if (another || (moved && stored.due !== undefined)) await device.clearDelivered();
       try {
         await device.replace(list);
-        const waiting = list.map((r) => keptTime(r.at, device.onClock));
         theirs((latest) =>
           latest.lastShown === lastShown && JSON.stringify(latest.waiting) === JSON.stringify(waiting)
             ? latest
