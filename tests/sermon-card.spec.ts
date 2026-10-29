@@ -180,10 +180,53 @@ test.describe("what the page shows of a card", () => {
     // Not every “captured” is about it, though.
     const ark = "Religion without regeneration fails, as shown by the sons of Eli and the captured ark.";
     expect(cardShown(card({ summary: ark }))!.summary).toBe(ark);
-    // The captured passages are.
+    // Only whole words count: these are the sermon's own, or the video's.
+    const recaptured = "He likens intercessors to soldiers who must hold the recaptured portions of enemy territory.";
+    expect(cardShown(card({ summary: recaptured }))!.summary).toBe(recaptured);
+    expect(
+      cardShown(
+        card({
+          summary:
+            "This captioned session of the February Contact morning meeting is almost entirely a guided prayer and worship time, with only short exhortations from the Apostle. He urges believers to pray with intensity, exercise their priesthood and submit to the Lord's rule over spirit, soul and body. The title promises a message on the Gospel of the Kingdom, but the transcript contains no sermon.",
+        }),
+      )!.summary,
+    ).toBe(
+      "This captioned session of the February Contact morning meeting is almost entirely a guided prayer and worship time, with only short exhortations from the Apostle. He urges believers to pray with intensity, exercise their priesthood and submit to the Lord’s rule over spirit, soul and body.",
+    );
+    // Nor are “this portion” and “within the” on their own.
+    const portion = "The segment closes with worship, and no sermon is preached in this portion.";
+    expect(cardShown(card({ summary: `${ark} ${portion}` }))!.summary).toBe(`${ark} ${portion}`);
+    expect(
+      cardShown(
+        card({
+          summary:
+            "Within the 'Science of Altars' series, the Apostle teaches that a priest at the altar must learn to read God's feedback, which can be physical or spiritual.",
+        }),
+      )!.summary,
+    ).toBe(
+      "Within the ‘Science of Altars’ series, the Apostle teaches that a priest at the altar must learn to read God’s feedback, which can be physical or spiritual.",
+    );
+    // The captured passages and portions are.
     expect(
       cardShown(card({ summary: `${ark} There is no teaching or preaching in the captured passages.` }))!.summary,
     ).toBe(ark);
+    expect(
+      cardShown(
+        card({
+          summary: `${ark} There is no extended preaching in the captured portions, only sung lines and spoken prompts.`,
+        }),
+      )!.summary,
+    ).toBe(ark);
+    // So are these, which no card says yet but a new one could; each needs a
+    // word of the filter that nothing else here does.
+    for (const caught of [
+      "No teaching is captured.",
+      "Hardly any preaching is captured.",
+      "Only fragments of the service are captured.",
+      "Several names are uncertain because of caption errors.",
+    ]) {
+      expect(cardShown(card({ summary: `${ark} ${caught}` }))!.summary).toBe(ark);
+    }
     // So is an aside in brackets.
     expect(cardShown(ELTON)!.summary).toBe(
       "The Apostle teaches that God has a reward system in which those who serve Him faithfully, and those who receive and refresh His true messengers, are rewarded now and in the age to come. He uses the life of the missionary-prophet Elton, who lived in a small Nigerian town because God told him to, as an example of a man whose heart was set on the reward.",

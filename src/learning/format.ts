@@ -103,9 +103,11 @@ export function cardShown(card: SermonCardData | null | undefined): ShownCard | 
  * Words about what was read rather than what he preached: the transcript,
  * its captions and the parts of the service they caught ("The captured
  * portion contains…", "Within the excerpts…", "no sermon is captured").
- * Not every "captured", though: "the captured ark" is the sermon's own. Nor
- * "this portion" or "the recording", which mostly mean the video itself, a
- * part of a longer service ("no sermon is preached in this portion").
+ * Not every "captured", though: "the captured ark" is the sermon's own, and
+ * so are "the recaptured portions", which is why only whole words count. Nor
+ * "this portion", "the recording" or "This captioned session", which mostly
+ * mean the video itself, a part of a longer service ("no sermon is preached
+ * in this portion").
  */
 const ABOUT_TRANSCRIPT =
   /\b(transcript|captions?|(available|captured) (portions?|excerpts|passages)|(sampled|within the) excerpts|(no|any) (sermon|teaching|preaching) is captured|fragments of the (message|service) are captured)\b/i;
