@@ -3,7 +3,7 @@ import { StyleSheet, Text, View, type LayoutChangeEvent } from "react-native";
 import { relatedSermons, sermonTopicIds, type Sermon } from "../data/sermons";
 import { SectionHeader } from "../kit";
 import { cardShown, useTopics, type SermonCardData, type ShownCard } from "../learning";
-import { exitTo } from "../navigation";
+import { useExitTo } from "../navigation";
 import { NATIVE_VIDEO } from "../player/videoPlatform";
 import { c, font, space, textCap, type } from "../theme";
 import { TopicNotice, TopicTags, namedTopics } from "../topics";
@@ -33,6 +33,7 @@ export const MoreSermons = memo(function MoreSermons({
   seriesName: string | null;
   onSeries: () => void;
 }) {
+  const exitTo = useExitTo();
   // A pass over the whole library, so only when the sermon or library changes.
   const more = useMemo(() => relatedSermons(sermon, sermons), [sermon, sermons]);
   return (

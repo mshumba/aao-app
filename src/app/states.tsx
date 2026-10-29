@@ -1,4 +1,4 @@
-import { exitTo } from "../navigation";
+import { useExitTo } from "../navigation";
 import { useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { sampleSermons } from "../data/sermons";
@@ -31,6 +31,7 @@ type Sample = (typeof options)[number]["id"];
  * treats the address as unknown.
  */
 export default function States() {
+  const exitTo = useExitTo();
   if (!__DEV__)
     return (
       <Page header={<Header back />}>
@@ -48,6 +49,7 @@ export default function States() {
 }
 
 function Samples() {
+  const exitTo = useExitTo();
   const [state, setState] = useState<Sample>("empty");
   const radio = useRadioKeys(
     options.map((option) => option.id),

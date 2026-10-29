@@ -10,7 +10,7 @@ import { Kicker, RoundButton, StickyCTA, useStickyCTASpace } from "../../kit";
 import { BAND, CoverBand, CoverNav, CoverRoom, useCoverScroll } from "../../kit/CoverPage";
 import { useStatusBar } from "../../kit/statusBar";
 import { nextDay, trustLine, useEnrollment, usePath, type PathDayWithSermon } from "../../learning";
-import { firstParam, useGo, usePageTitle } from "../../navigation";
+import { firstParam, useExitTo, useGo, usePageTitle } from "../../navigation";
 import { DayCompleteSheet } from "../../paths/DayCompleteSheet";
 import { DayCarousel, type DayItem } from "../../paths/DayCarousel";
 import { LockedDaySheet } from "../../paths/LockedDaySheet";
@@ -26,7 +26,7 @@ import {
   sermonHref,
   stateOf,
 } from "../../paths/model";
-import { toPathsTab, usePlayDay } from "../../paths/navigation";
+import { usePlayDay } from "../../paths/navigation";
 import { COVER_OVERLAP, PathCover, coverFanHeight, coverTop } from "../../paths/PathCover";
 import { markSeen, seenDone } from "../../paths/seen";
 import { sharePath } from "../../paths/share";
@@ -65,6 +65,7 @@ export default function PathScreen() {
   const account = useAccount();
   const { hydrated, settled } = useCatalogue();
   const go = useGo();
+  const exitTo = useExitTo();
   const play = usePlayDay();
   const toast = useToast();
   const insets = useSafeAreaInsets();
@@ -281,7 +282,7 @@ export default function PathScreen() {
               icon="trail-sign-outline"
               title="This path isn’t available"
               body="It may have been moved or taken down while it’s reviewed."
-              action={toPathsTab}
+              action={() => exitTo("/paths")}
               label="See all paths"
             />
           </View>
@@ -313,7 +314,7 @@ export default function PathScreen() {
   const completedWatch = completedDay ? watchOf(completedDay.youtubeId) : null;
   const completedLeft = completedDay ? dayTiming(completedDay, completedWatch) : null;
   const cta = finished
-    ? { label: "Choose your next path", detail: undefined, icon: "albums-outline" as const, onPress: toPathsTab }
+    ? { label: "Choose your next path", detail: undefined, icon: "albums-outline" as const, onPress: () => exitTo("/paths") }
     : todayDay && timing
       ? {
           label: `${enrolled && (timing.started || done.length > 0) ? "Continue" : "Start"} ${words.unit} ${todayDay.day}`,
@@ -415,7 +416,7 @@ export default function PathScreen() {
         }}
         onNextPath={() => {
           setCompleted(null);
-          toPathsTab();
+          exitTo("/paths");
         }}
       />
     </View>

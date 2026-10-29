@@ -19,7 +19,7 @@ import { seriesDays } from "../../home/copy";
 import { useSermonActions } from "../../home/actions";
 import { CoverPage, StickyCTA, spokenKicker } from "../../kit";
 import { messagesLabel } from "../../learning/format";
-import { exitTo, firstParam } from "../../navigation";
+import { firstParam, useExitTo } from "../../navigation";
 import { fraction, resumePoint, timeLeft } from "../../player/progress";
 import { font, fontSize, radius, space, tabular, textCap, type } from "../../theme";
 import { Header, Heading, Icon, Page, SermonRow, StatePanel, T, Tap, c, pressedTint, spokenDuration } from "../../ui";
@@ -44,6 +44,7 @@ export default function SeriesScreen() {
   const params = useLocalSearchParams<{ key: string | string[] }>();
   const key = firstParam(params.key) ?? "";
   const catalogue = useCatalogue();
+  const exitTo = useExitTo();
   const name = catalogue.seriesName(key);
   const list = useMemo(() => seriesSermons(catalogue.sermons, key), [catalogue.sermons, key]);
   const title = name ?? list[0]?.collection ?? "";

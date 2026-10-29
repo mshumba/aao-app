@@ -4,7 +4,7 @@ import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { useAccount } from "../../auth/AccountProvider";
 import type { AuthUser } from "../../auth/types";
 import { FormAlert, useAuthTask } from "../../auth/ui";
-import { exitTo, useGo } from "../../navigation";
+import { useExitTo, useGo } from "../../navigation";
 import { Card } from "../../kit";
 import { space, type } from "../../theme";
 import { useToast } from "../../toast";
@@ -37,6 +37,7 @@ const deleted: { icon: IconName; text: string }[] = [
 export default function DeleteAccount() {
   const account = useAccount();
   const go = useGo();
+  const exitTo = useExitTo();
   const toast = useToast();
   const task = useAuthTask();
   // Deleting signs the viewer out before this screen closes; holding on to

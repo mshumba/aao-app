@@ -1,6 +1,5 @@
-import { router, type Href } from "expo-router";
+import { router } from "expo-router";
 import { useCallback } from "react";
-import { Platform } from "react-native";
 import { requestWatch, useNavigate } from "../navigation";
 import { sermonHref } from "./model";
 
@@ -35,16 +34,4 @@ export function useOpenTeaching() {
     (youtubeId: string) => once(() => router.push(sermonHref(youtubeId))),
     [once],
   );
-}
-
-/**
- * Back to the Paths tab from a path page ("Choose your next path"). On the
- * web it's two steps, as exitTo (src/navigation.ts) does for its tabs, so
- * the browser keeps an entry per place.
- */
-export function toPathsTab() {
-  const href = "/paths" as Href;
-  if (Platform.OS !== "web") return router.dismissTo(href);
-  router.dismissAll();
-  setTimeout(() => router.navigate(href), 0);
 }

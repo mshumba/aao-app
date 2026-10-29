@@ -43,8 +43,8 @@ import { focusStageToggle } from "../../player/stage/VideoOverlay";
 import { useDockInset } from "../../player/useDockInset";
 import {
   clearWatchRequest,
-  exitTo,
   firstParam,
+  useExitTo,
   useFocusEffect,
   useGo,
   usePageTitle,
@@ -64,6 +64,7 @@ export default function SermonScreen() {
   const params = useLocalSearchParams<Record<string, string | string[]>>();
   const id = firstParam(params.id);
   const catalogue = useCatalogue();
+  const exitTo = useExitTo();
   const sermon = catalogue.find(id);
   // The link's asks, kept stable while the values are the same.
   const key = JSON.stringify([params.t, params.from, params.q, params.path, params.day, params.play]);

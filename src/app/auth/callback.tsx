@@ -13,7 +13,7 @@ import {
 import { authMessage, errorCode } from "../../auth/messages";
 import { UNAVAILABLE_TITLE } from "../../auth/screens/shared";
 import { reportSignInFailure } from "../../auth/ui";
-import { exitTo, firstParam, useGo, usePageTitle } from "../../navigation";
+import { firstParam, useExitTo, useGo, usePageTitle } from "../../navigation";
 import { space, type } from "../../theme";
 import { useToast } from "../../toast";
 import { Heading, StatePanel, c, s } from "../../ui";
@@ -41,6 +41,7 @@ export default function AuthCallback() {
   const closeAuth = useCloseAuthRoutes();
   const toast = useToast();
   const go = useGo();
+  const exitTo = useExitTo();
   const code = firstParam(params.code);
   const [failure, setFailure] = useState(() =>
     providerFailure({

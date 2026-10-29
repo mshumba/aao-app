@@ -1,7 +1,8 @@
-import { exitTo } from "../navigation";
+import { useExitTo } from "../navigation";
 import { Header, Page, StatePanel } from "../ui";
 
 export default function NotFound() {
+  const exitTo = useExitTo();
   return (
     <Page header={<Header back />}>
       <StatePanel

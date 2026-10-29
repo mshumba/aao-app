@@ -6,7 +6,7 @@ import { sermonsInTopic } from "../../data/sermons";
 import { CoverPage } from "../../kit";
 import { useStatusBar } from "../../kit/statusBar";
 import { useTopics } from "../../learning";
-import { exitTo, firstParam } from "../../navigation";
+import { firstParam, useExitTo } from "../../navigation";
 import { MoreButton } from "../../search/parts";
 import { space } from "../../theme";
 import { TopicNotice, findTopic, sermonCount } from "../../topics";
@@ -14,12 +14,6 @@ import { Header, Page, SermonRow, StatePanel } from "../../ui";
 
 /** Sermons listed at first, and how many more each "Show more" adds. */
 const PAGE = 20;
-
-// Topics are browsed in Search (old /topics links land there); this returns
-// there rather than stacking another.
-function backToTopics() {
-  exitTo("/topics");
-}
 
 /**
  * A topic's sermons, the best match first, a page at a time, under a cover
@@ -41,6 +35,10 @@ export default function TopicScreen() {
     [topic, inTopic, all],
   );
   const [shown, setShown] = useState(PAGE);
+  const exitTo = useExitTo();
+  // Topics are browsed in Search: this returns there rather than stacking
+  // another.
+  const backToTopics = () => exitTo("/search");
   // The ivory page's own while there's no topic; then its cover's (CoverNav).
   useStatusBar(topic ? null : "dark");
   if (!topic)

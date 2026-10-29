@@ -121,16 +121,61 @@ export function useGo() {
   );
 }
 
+/** As much of the main stack as useExitTo reads and resets. */
+type StackRoute = {
+  key?: string;
+  name: string;
+  path?: string;
+  state?: { index?: number; routes: StackRoute[] };
+};
+type MainStack = {
+  getState(): { routes: StackRoute[] } | undefined;
+  reset(state: { index: number; routes: StackRoute[] }): void;
+};
+
 /**
  * Leaves the screens opened over the tabs for a tab root ("Browse all
- * sermons", "Continue as guest"). On web it's two steps, close then switch
- * tab, so the browser keeps an entry per place instead of rewriting the tab's
- * entry (which made the first browser Back do nothing).
+ * sermons", "See all paths"). For screens of the app's main stack.
+ *
+ * On the web, closing screens steps back through the browser's history, and
+ * expo-router waits only 100ms for the browser to get there: a step that
+ * lands later, as on a busy phone, is taken for the viewer's own Back and
+ * puts the app back on the page it landed on, after the tab has changed. So
+ * it steps back only to the tab's own page, when the screens were opened
+ * from that tab, as Back would. Otherwise the tab takes this page's place
+ * in the history (a reset, which expo-router records as a replace), so the
+ * browser's Back returns to where the screens were opened from.
  */
-export function exitTo(href: "/" | "/topics") {
-  if (Platform.OS !== "web") return router.dismissTo(href);
-  router.dismissAll();
-  setTimeout(() => router.navigate(href), 0);
+export function useExitTo() {
+  const navigation = useNavigation<MainStack>();
+  return useCallback(
+    (href: "/" | "/search" | "/paths") => {
+      if (Platform.OS !== "web") return router.dismissTo(href);
+      const name = href.slice(1) || "index";
+      const routes = navigation.getState()?.routes ?? [];
+      const at = routes.findIndex((route) => route.name === "(tabs)");
+      const tabs = at < 0 ? undefined : routes[at];
+      const shown = tabs?.state;
+      // A screen opened from an address (a link, a reload) sits over tabs
+      // that have no page of their own in the history.
+      const fromTab = !!tabs && !routes[at + 1]?.path;
+      if (fromTab && shown?.routes[shown.index ?? 0].name === name) return router.dismissAll();
+      navigation.reset({
+        index: 0,
+        routes: [
+          {
+            ...(tabs ?? { name: "(tabs)" }),
+            // The same tabs (by key, so none is drawn afresh), with this one
+            // in front.
+            state: shown
+              ? { routes: shown.routes, index: shown.routes.findIndex((route) => route.name === name) }
+              : { routes: [{ name }] },
+          },
+        ],
+      });
+    },
+    [navigation],
+  );
 }
 
 const APP_NAME = "AAO";
