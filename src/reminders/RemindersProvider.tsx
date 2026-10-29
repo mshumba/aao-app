@@ -18,10 +18,11 @@ import { device } from "./device";
 import {
   cleanTime,
   planForPhone,
+  readKept,
   reminderTarget,
   suggestedTime,
-  trackDue,
   type DueRecord,
+  type KeptReminder,
   type ReminderTarget,
 } from "./plan";
 import type { Permission, PlannedReminder, ReminderTime } from "./types";
@@ -55,12 +56,15 @@ type Stored = {
   /** The day due on their guided path as this device saw it; missing until it has looked. */
   due?: DueRecord | null;
   /**
-   * When each reminder put on the phone comes, as last put there and as the
-   * phone keeps it (plan.ts keptTime: on iOS the date and time on its clock).
+   * Each reminder put on the phone, as last put there: when it comes, as
+   * the phone keeps it (plan.ts keptTime: on iOS the date and time on its
+   * clock), and the day it's about. An earlier version kept the times alone:
+   * plan.ts readKept reads them as they load, and the next change writes
+   * them back with their day.
    */
-  waiting?: string[];
-  /** When the last of them came, kept the same way, so a new time never brings a second that day. */
-  lastShown?: string | null;
+  waiting?: KeptReminder[];
+  /** The last of them that came, so a new time never brings a second that day, nor a day's "is ready" again. */
+  lastShown?: KeptReminder | null;
 };
 
 const fresh = (owner: string): Stored => ({ owner, enabled: false, time: null, asked: false, armedAt: null });
@@ -152,9 +156,11 @@ export function RemindersProvider({ children }: { children: ReactNode }) {
         .catch((): Permission => "undetermined")
         .then((now) => alive && setPermission(now));
     readJSON<Stored | null>(keys.reminders, null).then((kept) => {
+      if (!alive) return;
       // Nothing kept yet reads as someone else's, so it starts fresh.
-      if (alive)
-        setSaved(kept && typeof kept.owner === "string" ? { ...kept, time: cleanTime(kept.time) } : fresh(""));
+      if (!kept || typeof kept.owner !== "string") return setSaved(fresh(""));
+      const time = cleanTime(kept.time);
+      setSaved({ ...kept, time, ...readKept({ ...kept, time }) });
     });
     check();
     // Back from Settings (notifications allowed or not), or a day later.
@@ -175,16 +181,14 @@ export function RemindersProvider({ children }: { children: ReactNode }) {
   // back. The day due is kept as it changes (a day done, the path started,
   // finished or left, here or elsewhere); what was shown about the day
   // before, or about another viewer's, is out of date. What was put there
-  // is kept too, so the day the last one came is known.
+  // is kept too, each with the day it's about, so the last one that came,
+  // and which day's, is known.
   const applied = useRef<string | null>(null);
   useEffect(() => {
     if (!stored || loading || permission == null) return;
-    const now = new Date();
-    const due = trackDue(stored.due, target, now);
-    const { list, waiting, lastShown } = planForPhone(stored, {
+    const { list, due, waiting, lastShown } = planForPhone(stored, {
       target,
-      due,
-      now,
+      now: new Date(),
       enabled: stored.enabled && permission === "granted",
       onClock: device.onClock,
     });
@@ -203,7 +207,7 @@ export function RemindersProvider({ children }: { children: ReactNode }) {
       try {
         await device.replace(list);
         theirs((latest) =>
-          latest.lastShown === lastShown && JSON.stringify(latest.waiting) === JSON.stringify(waiting)
+          JSON.stringify([latest.waiting, latest.lastShown]) === JSON.stringify([waiting, lastShown])
             ? latest
             : { ...latest, waiting, lastShown },
         );

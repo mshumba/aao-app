@@ -13,6 +13,8 @@ export type ReminderData = {
 export type PlannedReminder = {
   id: string;
   at: Date;
+  /** How many days after its day's first it comes (plan.ts NUDGE_DAYS): 0 for the first, "is ready". */
+  afterFirst: number;
   title: string;
   body: string;
   data: ReminderData;

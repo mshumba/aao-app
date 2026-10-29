@@ -97,6 +97,24 @@ async function remindersOn(page: Page, hour = 20) {
   );
 }
 
+/** What the app keeps on the device for reminders. */
+const kept = (page: Page) => page.evaluate((key) => JSON.parse(localStorage.getItem(key)!), REMINDERS_KEY);
+
+/** A reminder about Day 3 of Learning to wait on God as kept: when it comes, and how many days after that day's first. */
+const dayThree = (at: string, afterFirst: number) => ({ at, pathId: WAIT, day: 3, afterFirst });
+
+const NUDGE = "Day 3 of Learning to wait on God is here when you’re ready";
+
+/** A new time on the hour, from Account › Daily reminder. */
+async function chooseTime(page: Page, hour: string) {
+  await page.getByTestId("reminder-time").click();
+  const sheet = page.getByRole("dialog", { name: "Reminder time" });
+  await sheet.getByRole("radio", { name: hour, exact: true }).click();
+  await sheet.getByRole("radio", { name: ":00", exact: true }).click();
+  await sheet.getByRole("button", { name: `Remind me at ${hour}` }).click();
+  await expect(sheet).toHaveCount(0);
+}
+
 /** Back from another app, or from Settings. */
 async function bringBack(page: Page) {
   await page.evaluate(() => {
@@ -446,7 +464,9 @@ test.describe("on a phone", () => {
     await expect(page.getByText("Next: Day 3 of Learning to wait on God, today at 8pm.")).toBeVisible();
   });
 
-  test("what's put on the phone is kept on its clock, and the nudges keep to their days", async ({ page }) => {
+  test("what's put on the phone is kept on its clock with its day, and the nudges keep to their days", async ({
+    page,
+  }) => {
     // Planned on Monday evening: Day 3's first is Tuesday at 8pm.
     await page.clock.setFixedTime(new Date(2026, 9, 26, 21, 0));
     await standInPhone(page, { permission: "granted" });
@@ -455,18 +475,17 @@ test.describe("on a phone", () => {
     await page.goto("/account/reminders");
     await expect(page.getByText("Next: Day 3 of Learning to wait on God, tomorrow at 8pm.")).toBeVisible();
     // Kept as an iPhone keeps them, as the stand-in does: each one's date
-    // and time on the phone's clock, with no time zone.
-    const kept = () => page.evaluate((key) => JSON.parse(localStorage.getItem(key)!), REMINDERS_KEY);
+    // and time on the phone's clock, with no time zone, and the day it's about.
     await expect
-      .poll(async () => (await kept()).waiting)
+      .poll(async () => (await kept(page)).waiting)
       .toEqual([
-        "2026-10-27T20:00",
-        "2026-10-28T20:00",
-        "2026-10-30T20:00",
-        "2026-11-03T20:00",
-        "2026-11-10T20:00",
-        "2026-11-17T20:00",
-        "2026-11-24T20:00",
+        dayThree("2026-10-27T20:00", 0),
+        dayThree("2026-10-28T20:00", 1),
+        dayThree("2026-10-30T20:00", 3),
+        dayThree("2026-11-03T20:00", 7),
+        dayThree("2026-11-10T20:00", 14),
+        dayThree("2026-11-17T20:00", 21),
+        dayThree("2026-11-24T20:00", 28),
       ]);
 
     // Back on Tuesday at 10pm, after it came: Wednesday's is a nudge, not
@@ -474,13 +493,61 @@ test.describe("on a phone", () => {
     await sendToBackground(page);
     await page.clock.setFixedTime(new Date(2026, 9, 27, 22, 0));
     await bringBack(page);
-    await expect.poll(async () => (await kept()).lastShown).toBe("2026-10-27T20:00");
-    expect((await kept()).waiting[0]).toBe("2026-10-28T20:00");
-    expect(await nextReminder(page)).toMatchObject({
-      title: "Day 3 of Learning to wait on God is here when you’re ready",
-      days: 1,
-      hour: 20,
-    });
+    await expect.poll(async () => (await kept(page)).lastShown).toEqual(dayThree("2026-10-27T20:00", 0));
+    expect((await kept(page)).waiting[0]).toEqual(dayThree("2026-10-28T20:00", 1));
+    expect(await nextReminder(page)).toMatchObject({ title: NUDGE, days: 1, hour: 20 });
+
+    // An earlier time chosen then moves them, on the same days: Wednesday's
+    // nudge at 7am, still not "ready" again.
+    await chooseTime(page, "7am");
+    await expect.poll(async () => (await nextReminder(page))?.hour).toBe(7);
+    expect(await nextReminder(page)).toMatchObject({ title: NUDGE, days: 1, minute: 0 });
+    await expect(page.getByText("Next: Day 3 of Learning to wait on God, tomorrow at 7am.")).toBeVisible();
+  });
+
+  test("an update reads what an earlier version kept, the times alone", async ({ page }) => {
+    // That version planned on Monday evening, after Day 2 was done, and was
+    // last opened on Tuesday at 10pm, after Day 3's "is ready" came. The
+    // update first opens on Wednesday morning.
+    await page.clock.setFixedTime(new Date(2026, 9, 28, 10, 0));
+    await standInPhone(page, { permission: "granted" });
+    await seedStorage(
+      page,
+      {
+        [REMINDERS_KEY]: {
+          owner: MEMBER.id,
+          enabled: true,
+          time: { hour: 20, minute: 0 },
+          asked: true,
+          armedAt: "2026-10-01T09:00:00.000Z",
+          due: { pathId: WAIT, day: 3, since: new Date(2026, 9, 26, 21, 0).toISOString(), watched: true },
+          waiting: [
+            "2026-10-28T20:00",
+            "2026-10-30T20:00",
+            "2026-11-03T20:00",
+            "2026-11-10T20:00",
+            "2026-11-17T20:00",
+            "2026-11-24T20:00",
+          ],
+          lastShown: "2026-10-27T20:00",
+        },
+      },
+      "reminders",
+    );
+    await seedPathProgress(page, { [WAIT]: [1, 2] });
+    await page.goto("/account/reminders");
+    // Read as that version read them: tonight's is Wednesday's nudge.
+    await expect(page.getByText("Next: Day 3 of Learning to wait on God, today at 8pm.")).toBeVisible();
+    expect((await nextReminder(page))?.title).toBe(NUDGE);
+
+    // A new time keeps to Day 3's days: 7am today has gone, so Friday's,
+    // and no "is ready" tomorrow.
+    await chooseTime(page, "7am");
+    await expect.poll(async () => (await nextReminder(page))?.hour).toBe(7);
+    expect(await nextReminder(page)).toMatchObject({ title: NUDGE, days: 2 });
+    // Kept now with the day each is about.
+    await expect.poll(async () => (await kept(page)).waiting?.[0]).toEqual(dayThree("2026-10-30T07:00", 3));
+    expect((await kept(page)).lastShown).toEqual(dayThree("2026-10-27T20:00", 0));
   });
 });
 
