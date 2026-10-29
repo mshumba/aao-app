@@ -13,24 +13,42 @@ const SLOW = {
 };
 
 /**
- * How long, after the app's script has arrived, the first page may take to
- * show. The script is the same size whatever start-up does (2.5 MB gzipped
- * from the development server, 1.1 MB from a production export), so the
- * bound starts when it finishes downloading. Fonts may hold the first frame
- * for at most 600 ms; running the script, reading the saved session and
- * library and drawing the first screen took 200 to 550 ms more on a laptop
- * (0.8 s after the script in a production export, 1.1 s from the development
- * server), and the rest is room for a slower machine. While the first frame
- * waited for every font file it was 3.1 s (production) and 6.2 s
- * (development), so this fails if fonts block again.
+ * How long the first page may wait, all told, once the app's script has
+ * arrived: the time between the two less what the page's main thread spent
+ * at work. Fonts may hold the first frame for at most 600 ms (src/fonts);
+ * the rest is room for the frames start-up waits on (the cover lifts a frame
+ * after the screen is drawn) and for work done in pieces too short to count
+ * as long frames. 470 to 710 ms on a laptop, whether its processor ran at
+ * full speed or six times slower. Holding the first frame for 1.5 s instead
+ * fails this, and waiting for every font file (5 s on this link) fails it
+ * and the font checks.
  */
-const AFTER_SCRIPT_MS = 1_800;
+const WAITED_MS = 1_000;
+
+/**
+ * A backstop on the whole time from the script to the first page. The
+ * script is the same size whatever start-up does (2.5 MB gzipped from the
+ * development server), so this starts when it finishes downloading. Most of
+ * the time is work, which takes as long as the machine makes it: running
+ * the 13 MB development script, React's first renders and the test's trace
+ * recorder reading that script back over DevTools. About 0.55 s of work on a
+ * laptop came to 1.15 s in all; GitHub's two-core runners took 1.3 to 1.95 s,
+ * either side of the 1.8 s this bound used to be. So this only catches
+ * start-up doing far more work than it does; WAITED_MS is the bound that
+ * holds on any machine.
+ */
+const AFTER_SCRIPT_MS = 4_000;
 
 type Timing = {
   /** When the first page's h1 was on screen and uncovered. */
   content: number;
   /** When the app's script finished downloading. */
   script: number;
+  /**
+   * How much of the time from `script` to `content` the page's main thread
+   * was at work: its long animation frames, 50 ms or more at a time.
+   */
+  busy: number;
   /** When the last font file finished downloading (0 if none had yet). */
   fonts: number;
   /** The heading's text box at first content. */
@@ -52,12 +70,25 @@ function appFaces() {
   return faces;
 }
 
+/** The page's long animation frames so far, kept from its first moment. */
+function watchLongFrames() {
+  if (!PerformanceObserver.supportedEntryTypes.includes("long-animation-frame")) return;
+  const frames: PerformanceEntry[] = [];
+  const observer = new PerformanceObserver((list) => frames.push(...list.getEntries()));
+  observer.observe({ type: "long-animation-frame", buffered: true });
+  (window as unknown as { longFrames: () => PerformanceEntry[] }).longFrames = () => {
+    frames.push(...observer.takeRecords());
+    return frames;
+  };
+}
+
 async function coldLoad(page: Page): Promise<Timing> {
   const cdp = await page.context().newCDPSession(page);
   await cdp.send("Network.enable");
   await cdp.send("Network.setCacheDisabled", { cacheDisabled: true });
   await cdp.send("Network.emulateNetworkConditions", SLOW);
   await page.addInitScript(`window.appFaces = ${appFaces}`);
+  await page.addInitScript(watchLongFrames);
   await page.goto("/", { waitUntil: "commit" });
   const handle = await page.waitForFunction(
     () => {
@@ -88,14 +119,38 @@ async function coldLoad(page: Page): Promise<Timing> {
     undefined,
     { polling: "raf", timeout: 120_000 },
   );
-  return (await handle.jsonValue()) as Timing;
+  const t = (await handle.jsonValue()) as Omit<Timing, "busy">;
+  // Two frames on, the frame that drew the first page has ended and been
+  // counted.
+  const busy = await page.evaluate(
+    ({ from, to }) =>
+      new Promise<number | null>((resolve) =>
+        requestAnimationFrame(() =>
+          requestAnimationFrame(() => {
+            const longFrames = (window as unknown as { longFrames?: () => PerformanceEntry[] }).longFrames;
+            if (!longFrames) return resolve(null);
+            resolve(
+              longFrames().reduce(
+                (sum, f) => sum + Math.max(0, Math.min(f.startTime + f.duration, to) - Math.max(f.startTime, from)),
+                0,
+              ),
+            );
+          }),
+        ),
+      ),
+    { from: t.script, to: t.content },
+  );
+  expect(busy, "the browser reports long animation frames").not.toBeNull();
+  return { ...t, busy: busy! };
 }
 
 function report(name: string, t: Timing) {
+  const after = t.content - t.script;
   const line =
     `${name}: first content ${Math.round(t.content)} ms, ` +
     `script done ${Math.round(t.script)} ms, ` +
-    `after script ${Math.round(t.content - t.script)} ms, ` +
+    `after script ${Math.round(after)} ms ` +
+    `(${Math.round(t.busy)} running, ${Math.round(after - t.busy)} waiting), ` +
     `last font ${t.fonts ? `${Math.round(t.fonts)} ms` : "still loading"}`;
   console.log(line);
   test.info().annotations.push({ type: "timing", description: line });
@@ -112,7 +167,14 @@ for (const viewer of ["new", "member"] as Viewer[]) {
       const t = await coldLoad(page);
       report(viewer, t);
       expect(t.script, "the app's script was found").toBeGreaterThan(0);
-      expect(t.content - t.script).toBeLessThan(AFTER_SCRIPT_MS);
+      // Drawn in the stand-ins before any font file had arrived (on this
+      // link the first takes seconds)...
+      expect(t.fonts, "no font file had arrived").toBe(0);
+      expect(t.standIns, "all nine faces were stand-ins").toBe(9);
+      // ...having waited on nothing longer than fonts may hold it...
+      expect(t.content - t.script - t.busy, "waiting after the script").toBeLessThan(WAITED_MS);
+      // ...and with start-up's work in proportion.
+      expect(t.content - t.script, "all of it after the script").toBeLessThan(AFTER_SCRIPT_MS);
     });
   });
 }
