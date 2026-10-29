@@ -30,6 +30,9 @@ import {
  * - Signing in with Apple is apple.viewer@example.com. Like Supabase linking
  *   identities by email, that address keeps the Apple ID linked however it
  *   signs in later, until the account is deleted.
+ * - While `globalThis.__aaoHoldDelete` is a promise, deleting an account
+ *   waits for it too, so a test can check the screen mid-deletion however
+ *   fast the device (tests/account.spec.ts).
  *
  * Like the real service, the profile and saved list come back a moment
  * after they're asked for (as they were when asked), and fail while the
@@ -183,6 +186,7 @@ export function createLocalBackend(): AuthBackend {
     },
     async deleteAccount() {
       await wait();
+      await (globalThis as { __aaoHoldDelete?: Promise<void> }).__aaoHoldDelete;
       if (current) await removeKey(keys.localData(current.id));
       await removeKey(keys.localSession);
       emit(null);

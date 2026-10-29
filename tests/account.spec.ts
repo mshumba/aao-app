@@ -1,6 +1,19 @@
+import type { Page } from "@playwright/test";
 import type { Session } from "@supabase/supabase-js";
 import { signInMethod } from "../src/auth/signInMethod";
 import { CODE, MEMBER, expect, goOffline, goOnline, pastDoubleTap, shown, tab, test } from "./fixtures";
+
+/**
+ * Holds the on-device account service's deletion (src/auth/localBackend.ts)
+ * until the returned function is called.
+ */
+async function holdDeletion(page: Page) {
+  await page.evaluate(() => {
+    const hold = window as unknown as { __aaoHoldDelete?: Promise<void>; __releaseDelete?: () => void };
+    hold.__aaoHoldDelete = new Promise((resolve) => (hold.__releaseDelete = resolve));
+  });
+  return () => page.evaluate(() => (window as unknown as { __releaseDelete: () => void }).__releaseDelete());
+}
 
 // Account made with Google on the web, then signed into with Apple (same
 // email) on an iPhone, then with Google on the web again.
@@ -139,9 +152,11 @@ test.describe("signed in", () => {
 
     await pastDoubleTap(page);
     await page.getByTestId("delete-account-row").click();
+    const release = await holdDeletion(page);
     await page.getByTestId("confirm-delete").click();
     // There's no leaving while it deletes.
     await expect(shown(page.getByRole("button", { name: "Back", exact: true }))).toBeDisabled();
+    await release();
     await expect(page.getByTestId("toast")).toContainText("deleted");
     await tab(page, "Account").click();
     await expect(
