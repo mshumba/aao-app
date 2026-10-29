@@ -11,16 +11,20 @@ import type { PlannedReminder, ReminderTime } from "./types";
  *   (never a teaching series), naming the day: "Day 3 of Learning to wait on
  *   God is ready".
  * - Never on a day they've moved on in it (a day done, the path started, here
- *   or on another device): the first comes the day after. One about the day
- *   before, left on the phone until the app next opened (that day done
- *   elsewhere), counts towards one a day but is never the new day's first.
+ *   or on another device): the first comes the day after. One about another
+ *   day (the day before's, left on the phone until the app next opened after
+ *   that day was done elsewhere) counts towards one a day but is never the
+ *   new day's first.
  * - A day left undone gets gentle nudges, further apart each time: the next
  *   day, two days later, then weekly, and none after four weeks, counted
  *   from that day's first.
- * - A day's "is ready" comes once. Once a reminder about the day has come,
- *   the days it comes on are set: a new time, earlier or later, moves the
- *   ones still to come to that time on those days, and none comes a second
- *   time on a day. Until one has come, its first comes at the new time.
+ * - A day's "is ready" comes once while reminders stay on. Once the last
+ *   reminder that came is about the day, its days are set: a new time,
+ *   earlier or later, moves the ones still to come to that time on those
+ *   days (one whose new time has already gone that day is skipped), and
+ *   none comes a second time on a day. Until then, its first comes at the
+ *   new time. Turning reminders on starts the day's afresh, "is ready"
+ *   first, even after its nudges have ended.
  * - Every one still to come for the day due waits on the phone (seven at
  *   most, where iOS keeps 64 for the whole app), so the nudges come even if
  *   the app isn't opened. They're planned again each time it opens or
@@ -112,11 +116,11 @@ const sameDay = (a: Date, b: Date) => on(a, 0, MIDNIGHT).getTime() === on(b, 0, 
 const daysApart = (a: Date, b: Date) => Math.round((on(b, 0, MIDNIGHT).getTime() - on(a, 0, MIDNIGHT).getTime()) / DAY_MS);
 
 /**
- * When a day's first reminder comes, while none about that day has: the
- * viewer's time next to come after the day was due (`since`), but never on
- * the day it became due as the device watched, never before reminders were
- * turned on or set to this time (`armedAt`), and never on the day the last
- * one came (`lastShown`, about another day): then it's the day after.
+ * When a day's first reminder comes, unless the last that came was that
+ * day's (planReminders): the viewer's time next to come after the day was
+ * due (`since`), but never on the day it became due as the device watched,
+ * never before reminders were turned on or set to this time (`armedAt`), and
+ * never on the day the last one came (`lastShown`): then it's the day after.
  */
 export function firstReminder(
   time: ReminderTime,
@@ -137,12 +141,15 @@ export function firstReminder(
 /** What a reminder is about: its path and day, and how many days after that day's first it comes (0: the first, "is ready"). */
 type About = { pathId: string; day: number; afterFirst: number };
 
+/** What a reminder is about, or none of it for one an earlier version kept about another day (readKept). */
+type AboutIfKnown = About | { [K in keyof About]?: undefined };
+
 /**
  * A reminder put on the phone, as the device keeps it: when it comes
  * (keptTime's) and what it's about, so the app can tell later which have
  * come, and which day's.
  */
-export type KeptReminder = About & { at: string };
+export type KeptReminder = AboutIfKnown & { at: string };
 
 const pad = (n: number) => String(n).padStart(2, "0");
 
@@ -187,13 +194,16 @@ export function lastShownAt(
 
 /**
  * The reminders the device kept, as RemindersProvider loads them. An
- * earlier version kept their times alone; each is read as that version read
- * it, about the day due it last saw (`due`, which it planned them for) and
- * counted from that day's first as firstReminder gives it with the time and
- * `armedAt` kept beside them, so plans after the update keep to the days it
- * would have (where it had started a day's again at a new time, from that
- * start). With no day due or no time there's nothing to count from, and
- * they're dropped.
+ * earlier version kept their times alone and planned them for the day due
+ * it last saw (`due`), counted from that day's first as firstReminder gives
+ * it with the time and `armedAt` kept beside them. One that comes after the
+ * day became due and no earlier than that first's day is read as about that
+ * day, in its place in the run, so plans after the update keep to the days
+ * that version would have (where it had started a day's again at a new
+ * time, from that start). One from before is read as about another day (the
+ * day before's, or the day's own from before such a start): it keeps to one
+ * a day but is never the day's first, as that version had it. With no day
+ * due or no time there's nothing to count from, and they're dropped.
  */
 export function readKept(kept: {
   time: ReminderTime | null;
@@ -208,7 +218,10 @@ export function readKept(kept: {
   const read = (r: KeptReminder | string | null | undefined): KeptReminder[] => {
     if (typeof r !== "string") return r ? [r] : [];
     if (!due || !first) return [];
-    return [{ at: r, pathId: due.pathId, day: due.day, afterFirst: daysApart(first, new Date(comesAt(r))) }];
+    const at = new Date(comesAt(r));
+    const afterFirst = daysApart(first, at);
+    const ours = at.getTime() > Date.parse(due.since) && afterFirst >= 0;
+    return [ours ? { at: r, pathId: due.pathId, day: due.day, afterFirst } : { at: r }];
   };
   return { waiting: (kept.waiting ?? []).flatMap(read), lastShown: read(kept.lastShown)[0] ?? null };
 }
@@ -224,10 +237,11 @@ function reminderCopy(target: ReminderTarget, nudge: boolean) {
 /**
  * The reminders to have waiting now, soonest first: the day's first, then
  * one on each of NUDGE_DAYS after it, at the viewer's time, from now on,
- * with none on the day the last one came. Once one about this day has come
- * (`lastShown`), they're counted from that day's first as that one places
- * it, whatever the time now, so a new time only moves those still to come;
- * until then, from firstReminder.
+ * with none on the day the last one came. When the last one that came
+ * (`lastShown`) is about this day and came since reminders were last turned
+ * on (`turnedOnAt`), they're counted from that day's first as that one
+ * places it, whatever the time now, so a new time only moves those still to
+ * come; otherwise from firstReminder.
  */
 export function planReminders({
   target,
@@ -235,6 +249,7 @@ export function planReminders({
   now,
   due,
   armedAt,
+  turnedOnAt,
   lastShown,
 }: {
   target: ReminderTarget;
@@ -242,10 +257,15 @@ export function planReminders({
   now: Date;
   due: { since: Date; watched: boolean };
   armedAt: Date;
+  /** When reminders were last turned on, if known. */
+  turnedOnAt?: Date | null;
   /** The last reminder that came, if one has: when, and what it was about. */
-  lastShown?: (About & { at: Date }) | null;
+  lastShown?: (AboutIfKnown & { at: Date }) | null;
 }): PlannedReminder[] {
-  const ours = lastShown?.pathId === target.pathId && lastShown.day === target.day;
+  const ours =
+    lastShown?.pathId === target.pathId &&
+    lastShown.day === target.day &&
+    !(turnedOnAt && lastShown.at < turnedOnAt);
   const first = ours
     ? on(lastShown.at, -lastShown.afterFirst, time)
     : firstReminder(time, due, armedAt, lastShown?.at);
@@ -273,6 +293,8 @@ export function planForPhone(
     time: ReminderTime | null;
     /** When reminders were last turned on or given a new time. */
     armedAt: string | null;
+    /** When reminders were last turned on; missing where an earlier version kept them. */
+    turnedOnAt?: string | null;
     /** The day due as the device last saw it; undefined until it has looked. */
     due?: DueRecord | null;
     /** What was last put on the phone (readKept's). */
@@ -303,6 +325,7 @@ export function planForPhone(
           now,
           due: { since: new Date(due.since), watched: due.watched },
           armedAt: kept.armedAt ? new Date(kept.armedAt) : now,
+          turnedOnAt: kept.turnedOnAt ? new Date(kept.turnedOnAt) : null,
           lastShown: lastShown && { ...lastShown, at: new Date(comesAt(lastShown.at)) },
         })
       : [];

@@ -536,7 +536,9 @@ test.describe("on a phone", () => {
     );
     await seedPathProgress(page, { [WAIT]: [1, 2] });
     await page.goto("/account/reminders");
-    // Read as that version read them: tonight's is Wednesday's nudge.
+    // Tonight's is Wednesday's nudge, as that version planned (and as it
+    // would be with nothing kept: the new time below is what shows they're
+    // read as Day 3's).
     await expect(page.getByText("Next: Day 3 of Learning to wait on God, today at 8pm.")).toBeVisible();
     expect((await nextReminder(page))?.title).toBe(NUDGE);
 
@@ -548,6 +550,36 @@ test.describe("on a phone", () => {
     // Kept now with the day each is about.
     await expect.poll(async () => (await kept(page)).waiting?.[0]).toEqual(dayThree("2026-10-30T07:00", 3));
     expect((await kept(page)).lastShown).toEqual(dayThree("2026-10-27T20:00", 0));
+  });
+
+  test("turning reminders on again starts the day's afresh, after its nudges have ended", async ({ page }) => {
+    // Day 3's "is ready" came on Tuesday 27 October and its nudge on
+    // Wednesday; reminders were then turned off. On Monday 30 November,
+    // after its last nudge would have come, they're turned on again.
+    await page.clock.setFixedTime(new Date(2026, 10, 30, 10, 0));
+    await standInPhone(page, { permission: "granted" });
+    await seedStorage(
+      page,
+      {
+        [REMINDERS_KEY]: {
+          owner: MEMBER.id,
+          enabled: false,
+          time: { hour: 20, minute: 0 },
+          asked: true,
+          armedAt: "2026-10-01T09:00:00.000Z",
+          turnedOnAt: "2026-10-01T09:00:00.000Z",
+          due: { pathId: WAIT, day: 3, since: new Date(2026, 9, 26, 21, 0).toISOString(), watched: true },
+          waiting: [],
+          lastShown: dayThree("2026-10-28T20:00", 1),
+        },
+      },
+      "reminders",
+    );
+    await seedPathProgress(page, { [WAIT]: [1, 2] });
+    await page.goto("/account/reminders");
+    await page.getByRole("switch", { name: "Remind me each day" }).click();
+    await expect(page.getByText("Next: Day 3 of Learning to wait on God, today at 8pm.")).toBeVisible();
+    expect((await nextReminder(page))?.title).toBe("Day 3 of Learning to wait on God is ready");
   });
 });
 

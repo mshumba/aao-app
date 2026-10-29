@@ -53,6 +53,13 @@ type Stored = {
   asked: boolean;
   /** When reminders were last turned on or given a new time. */
   armedAt: string | null;
+  /**
+   * When reminders were last turned on: a reminder that came before is no
+   * day's first, so turning them on starts the day's afresh. Missing where
+   * an earlier version kept them: plan.ts readKept reads that version's
+   * times from before the day's first as another day's.
+   */
+  turnedOnAt?: string | null;
   /** The day due on their guided path as this device saw it; missing until it has looked. */
   due?: DueRecord | null;
   /**
@@ -230,7 +237,8 @@ export function RemindersProvider({ children }: { children: ReactNode }) {
       }
       setPermission(now);
       // Kept on even when the phone says no: they start once it's allowed.
-      change((was) => ({ ...was, enabled: true, asked: true, time, armedAt: new Date().toISOString() }));
+      const at = new Date().toISOString();
+      change((was) => ({ ...was, enabled: true, asked: true, time, armedAt: at, turnedOnAt: at }));
       return now;
     },
     [change],
