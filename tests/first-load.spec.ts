@@ -1,5 +1,5 @@
 import type { Page } from "@playwright/test";
-import { expect, shown, test, type Viewer } from "./fixtures";
+import { expect, shown, startUp, test, watchLongFrames, type StartUp, type Viewer } from "./fixtures";
 
 // A first visit on a slow phone connection. Lighthouse's mobile throttling:
 // 1.6 Mbps down, 750 Kbps up, 150 ms round trip. Every test runs in a fresh
@@ -19,9 +19,9 @@ const SLOW = {
  * the rest is room for the frames start-up waits on (the cover lifts a frame
  * after the screen is drawn) and for work done in pieces too short to count
  * as long frames. 470 to 710 ms on a laptop, whether its processor ran at
- * full speed or six times slower. Holding the first frame for 1.5 s instead
- * fails this, and waiting for every font file (5 s on this link) fails it
- * and the font checks.
+ * full speed or six times slower, and 608 to 736 ms on GitHub's two-core
+ * runners. Holding the first frame for 1.5 s instead fails this, and waiting
+ * for every font file (5 s on this link) fails it and the font checks.
  */
 const WAITED_MS = 1_000;
 
@@ -34,21 +34,30 @@ const WAITED_MS = 1_000;
  * recorder reading that script back over DevTools. About 0.55 s of work on a
  * laptop came to 1.15 s in all; GitHub's two-core runners took 1.3 to 1.95 s,
  * either side of the 1.8 s this bound used to be. So this only catches
- * start-up doing far more work than it does; WAITED_MS is the bound that
- * holds on any machine.
+ * start-up doing far more work than it does; WAITED_MS and
+ * WORK_PER_EVALUATION are the bounds that hold on any machine.
  */
 const AFTER_SCRIPT_MS = 4_000;
 
-type Timing = {
+/**
+ * How much script start-up may run on the way to the first page, as a
+ * multiple of the time the same page took to evaluate the app's script.
+ * Both take as long as the machine makes them, so the ratio holds where a
+ * bound in milliseconds can't. That script is React's first renders and the
+ * app's own start-up (reading storage and the library, setting up the
+ * fonts): 1 to 2 times the evaluation (about 110 ms) on a laptop, and the
+ * same with its processor four times slower. 400 ms more work before the
+ * first page (a busy loop that long at full speed) makes it 4.6 to 5.6 at
+ * either speed; it runs while fonts hold the first frame, so on a laptop the
+ * whole time barely moved and the 1.8 s bound let it through. Work done as
+ * the script is evaluated, at the top of a module, counts as evaluating it,
+ * so only AFTER_SCRIPT_MS catches that.
+ */
+const WORK_PER_EVALUATION = 3.5;
+
+type Timing = StartUp & {
   /** When the first page's h1 was on screen and uncovered. */
   content: number;
-  /** When the app's script finished downloading. */
-  script: number;
-  /**
-   * How much of the time from `script` to `content` the page's main thread
-   * was at work: its long animation frames, 50 ms or more at a time.
-   */
-  busy: number;
   /** When the last font file finished downloading (0 if none had yet). */
   fonts: number;
   /** The heading's text box at first content. */
@@ -70,25 +79,13 @@ function appFaces() {
   return faces;
 }
 
-/** The page's long animation frames so far, kept from its first moment. */
-function watchLongFrames() {
-  if (!PerformanceObserver.supportedEntryTypes.includes("long-animation-frame")) return;
-  const frames: PerformanceEntry[] = [];
-  const observer = new PerformanceObserver((list) => frames.push(...list.getEntries()));
-  observer.observe({ type: "long-animation-frame", buffered: true });
-  (window as unknown as { longFrames: () => PerformanceEntry[] }).longFrames = () => {
-    frames.push(...observer.takeRecords());
-    return frames;
-  };
-}
-
 async function coldLoad(page: Page): Promise<Timing> {
   const cdp = await page.context().newCDPSession(page);
   await cdp.send("Network.enable");
   await cdp.send("Network.setCacheDisabled", { cacheDisabled: true });
   await cdp.send("Network.emulateNetworkConditions", SLOW);
   await page.addInitScript(`window.appFaces = ${appFaces}`);
-  await page.addInitScript(watchLongFrames);
+  await watchLongFrames(page);
   await page.goto("/", { waitUntil: "commit" });
   const handle = await page.waitForFunction(
     () => {
@@ -106,11 +103,9 @@ async function coldLoad(page: Page): Promise<Timing> {
       range.selectNodeContents(heading);
       const text = range.getBoundingClientRect();
       const entries = performance.getEntriesByType("resource") as PerformanceResourceTiming[];
-      const script = entries.find((e) => /\/entry[.-]/.test(e.name));
       const fonts = entries.filter((e) => /\.(ttf|otf|woff2?)(\?|$)/.test(e.name));
       return {
         content: performance.now(),
-        script: script?.responseEnd ?? 0,
         fonts: fonts.length ? Math.max(...fonts.map((e) => e.responseEnd)) : 0,
         box: { width: text.width, height: text.height },
         standIns: (window as unknown as { appFaces: typeof appFaces }).appFaces().standIns,
@@ -119,38 +114,17 @@ async function coldLoad(page: Page): Promise<Timing> {
     undefined,
     { polling: "raf", timeout: 120_000 },
   );
-  const t = (await handle.jsonValue()) as Omit<Timing, "busy">;
-  // Two frames on, the frame that drew the first page has ended and been
-  // counted.
-  const busy = await page.evaluate(
-    ({ from, to }) =>
-      new Promise<number | null>((resolve) =>
-        requestAnimationFrame(() =>
-          requestAnimationFrame(() => {
-            const longFrames = (window as unknown as { longFrames?: () => PerformanceEntry[] }).longFrames;
-            if (!longFrames) return resolve(null);
-            resolve(
-              longFrames().reduce(
-                (sum, f) => sum + Math.max(0, Math.min(f.startTime + f.duration, to) - Math.max(f.startTime, from)),
-                0,
-              ),
-            );
-          }),
-        ),
-      ),
-    { from: t.script, to: t.content },
-  );
-  expect(busy, "the browser reports long animation frames").not.toBeNull();
-  return { ...t, busy: busy! };
+  const t = (await handle.jsonValue()) as Omit<Timing, keyof StartUp>;
+  return { ...t, ...(await startUp(page, t.content)) };
 }
 
 function report(name: string, t: Timing) {
-  const after = t.content - t.script;
   const line =
     `${name}: first content ${Math.round(t.content)} ms, ` +
     `script done ${Math.round(t.script)} ms, ` +
-    `after script ${Math.round(after)} ms ` +
-    `(${Math.round(t.busy)} running, ${Math.round(after - t.busy)} waiting), ` +
+    `after script ${Math.round(t.after)} ms ` +
+    `(${Math.round(t.running)} running, ${Math.round(t.waiting)} waiting; ` +
+    `${Math.round(t.work)} of work to ${Math.round(t.evaluation)} evaluating the script), ` +
     `last font ${t.fonts ? `${Math.round(t.fonts)} ms` : "still loading"}`;
   console.log(line);
   test.info().annotations.push({ type: "timing", description: line });
@@ -172,9 +146,11 @@ for (const viewer of ["new", "member"] as Viewer[]) {
       expect(t.fonts, "no font file had arrived").toBe(0);
       expect(t.standIns, "all nine faces were stand-ins").toBe(9);
       // ...having waited on nothing longer than fonts may hold it...
-      expect(t.content - t.script - t.busy, "waiting after the script").toBeLessThan(WAITED_MS);
+      expect(t.waiting, "waiting after the script").toBeLessThan(WAITED_MS);
       // ...and with start-up's work in proportion.
-      expect(t.content - t.script, "all of it after the script").toBeLessThan(AFTER_SCRIPT_MS);
+      expect(t.evaluation, "evaluating the script").toBeGreaterThan(0);
+      expect(t.work / t.evaluation, "start-up's work per evaluation of the script").toBeLessThan(WORK_PER_EVALUATION);
+      expect(t.after, "all of it after the script").toBeLessThan(AFTER_SCRIPT_MS);
     });
   });
 }

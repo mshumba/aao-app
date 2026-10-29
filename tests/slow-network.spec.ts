@@ -5,7 +5,7 @@ import { NEWEST, createRemote } from "../src/catalogue/remote";
 import { FULL_SYNC_EVERY, loadCatalogue, type CatalogueSource, type Remote, type Store } from "../src/catalogue/sync";
 import { sampleRecords, sampleSnapshot } from "../src/data/sermons";
 import { IONICON_PATHS } from "../src/kit/icons/ionicons";
-import { expect, test } from "./fixtures";
+import { expect, startUp, test, watchLongFrames, type StartUp } from "./fixtures";
 
 // A first visit on a slow phone connection (15 October 2026): Home's hero
 // shows from the newest sermons while the rest of the library arrives, its
@@ -16,15 +16,27 @@ import { expect, test } from "./fixtures";
 const KBPS = 1024 / 8;
 const SLOW = { offline: false, latency: 150, downloadThroughput: 1600 * KBPS, uploadThroughput: 750 * KBPS };
 /**
- * How long after the app's script Home may take to be usable: first-load's
- * 1.8 s for the first page's heading, plus room for the hero to finish
- * drawing under the start-up cover (its words no longer rise in; they rose
- * 300 ms after the page, over 360 ms, until 16 October 2026). 1.4 to 1.5 s
- * from the development server on a laptop then. Before, Watch's icon waited
- * for the icon font (5 to 9 s more in a production export on this link) and
- * the words for the artwork.
+ * How long Home may wait, all told, once the app's script has arrived: the
+ * time until its hero's title and Watch show, less what the page's main
+ * thread spent at work (as first-load bounds the first page). Fonts may hold
+ * the first frame for at most 600 ms, and the hero finishes drawing under
+ * the start-up cover (its words no longer rise in; they rose 300 ms after
+ * the page, over 360 ms, until 16 October 2026): 635 to 680 ms on a laptop,
+ * at full speed or four times slower. Anything Home fetched on this link
+ * would add its 150 ms round trip and half a second per 100 KB (a font file
+ * is 97 to 130 KB), so this sits below that hold plus any one fetch. Before,
+ * Watch's icon waited for the icon font (5 to 9 s more in a production
+ * export on this link) and the words for the artwork.
  */
-const HOME_AFTER_SCRIPT_MS = 2_500;
+const HOME_WAITED_MS = 1_000;
+
+/**
+ * A backstop on the whole time from the script to a usable Home, for
+ * start-up doing far more work than it does; it can't be tighter for the
+ * reasons first-load's AFTER_SCRIPT_MS gives. 1.2 s on a laptop, 1.8 to 2 s
+ * on GitHub's runners.
+ */
+const HOME_AFTER_SCRIPT_MS = 4_000;
 
 // ---- The library: the newest sermons first ---------------------------------------
 
@@ -254,8 +266,7 @@ test("every icon the app names is drawn on the web from its outline", () => {
   expect(missing.map(([name, where]) => `${name} (${where})`)).toEqual([]);
 });
 
-type FirstHome = {
-  script: number;
+type FirstHome = StartUp & {
   usable: number;
   iconWithoutFont: number;
   fontGlyphs: number;
@@ -293,30 +304,31 @@ async function coldHome(page: Page): Promise<FirstHome> {
     };
     requestAnimationFrame(tick);
   });
+  await watchLongFrames(page);
   const cdp = await page.context().newCDPSession(page);
   await cdp.send("Network.enable");
   await cdp.send("Network.setCacheDisabled", { cacheDisabled: true });
   await cdp.send("Network.emulateNetworkConditions", SLOW);
   await page.goto("/", { waitUntil: "commit" });
-  await page.waitForFunction(() => (window as unknown as { __first: FirstHome }).__first.usable, undefined, {
+  const usable = await page.waitForFunction(() => (window as unknown as { __first: FirstHome }).__first.usable, undefined, {
     timeout: 120_000,
     polling: 100,
   });
+  const timing = await startUp(page, await usable.jsonValue());
   // A moment more, for anything that would load an icon font late.
   await page.waitForTimeout(1500);
-  return page.evaluate(() => {
+  const seen = await page.evaluate(() => {
     const entries = performance.getEntriesByType("resource") as PerformanceResourceTiming[];
-    const script = entries.find((e) => /\/entry[.-]/.test(e.name));
     const first = (window as unknown as { __first: FirstHome }).__first;
     return {
       ...first,
-      script: script?.responseEnd ?? 0,
       fontGlyphs: [...document.querySelectorAll("div, span")].filter((e) =>
         /ionicons/i.test(getComputedStyle(e).fontFamily),
       ).length,
       iconFont: entries.filter((e) => /Ionicons/i.test(e.name)).length,
     };
   });
+  return { ...seen, ...timing };
 }
 
 for (const viewer of ["guest", "member"] as const) {
@@ -328,12 +340,16 @@ for (const viewer of ["guest", "member"] as const) {
       page,
     }) => {
       const t = await coldHome(page);
-      const line = `${viewer}: usable Home ${Math.round(t.usable)} ms, script done ${Math.round(t.script)} ms, after script ${Math.round(t.usable - t.script)} ms`;
+      const line =
+        `${viewer}: usable Home ${Math.round(t.usable)} ms, script done ${Math.round(t.script)} ms, ` +
+        `after script ${Math.round(t.after)} ms (${Math.round(t.running)} running, ${Math.round(t.waiting)} waiting; ` +
+        `${Math.round(t.work)} of work to ${Math.round(t.evaluation)} evaluating the script)`;
       console.log(line);
       test.info().annotations.push({ type: "timing", description: line });
       expect(t.script).toBeGreaterThan(0);
       // Nothing on Home's first screen waits for a font or the artwork.
-      expect(t.usable - t.script).toBeLessThan(HOME_AFTER_SCRIPT_MS);
+      expect(t.waiting, "waiting after the script").toBeLessThan(HOME_WAITED_MS);
+      expect(t.after, "all of it after the script").toBeLessThan(HOME_AFTER_SCRIPT_MS);
       expect(t.iconWithoutFont).toBe(0);
       expect(t.fontGlyphs).toBe(0);
       expect(t.iconFont).toBe(0);

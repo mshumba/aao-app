@@ -286,6 +286,85 @@ export async function goOnline(page: Page) {
   });
 }
 
+// ---- Start-up timing ---------------------------------------------------------
+
+/**
+ * Keeps the page's long animation frames (50 ms or more each) from its
+ * first moment, for startUp. Call before the page loads.
+ */
+export async function watchLongFrames(page: Page) {
+  await page.addInitScript(() => {
+    if (!PerformanceObserver.supportedEntryTypes.includes("long-animation-frame")) return;
+    const frames: PerformanceEntry[] = [];
+    const observer = new PerformanceObserver((list) => frames.push(...list.getEntries()));
+    observer.observe({ type: "long-animation-frame", buffered: true });
+    (window as unknown as { __longFrames: () => PerformanceEntry[] }).__longFrames = () => {
+      frames.push(...observer.takeRecords());
+      return frames;
+    };
+  });
+}
+
+/** How a cold start spent the time from the app's script arriving to a moment after. */
+export type StartUp = {
+  /** When the app's script finished downloading. */
+  script: number;
+  /** From `script` to the moment. */
+  after: number;
+  /** How much of `after` the page's main thread was at work: its long animation frames. */
+  running: number;
+  /** The rest of `after`: what start-up waited on. */
+  waiting: number;
+  /**
+   * The part of `running` spent evaluating the app's script, which is the
+   * same script whatever start-up does: how fast this page runs it.
+   */
+  evaluation: number;
+  /**
+   * The rest of the script `running` ran: React's first renders and what the
+   * app does on the way to its first page.
+   */
+  work: number;
+};
+
+/**
+ * How the page spent the time from the app's script arriving to `at` (its
+ * performance.now() then), from the frames watchLongFrames kept.
+ */
+export async function startUp(page: Page, at: number): Promise<StartUp> {
+  type Timed = { startTime: number; duration: number };
+  type Frame = Timed & { scripts: (Timed & { invokerType: string; sourceURL: string })[] };
+  // Two frames on, the frame that drew the moment has ended and been counted.
+  const timing = await page.evaluate(
+    (at) =>
+      new Promise<StartUp | null>((resolve) =>
+        requestAnimationFrame(() =>
+          requestAnimationFrame(() => {
+            const longFrames = (window as unknown as { __longFrames?: () => Frame[] }).__longFrames;
+            if (!longFrames) return resolve(null);
+            const entries = performance.getEntriesByType("resource") as PerformanceResourceTiming[];
+            const script = entries.find((e) => /\/entry[.-]/.test(e.name))?.responseEnd ?? 0;
+            const within = (t: Timed) =>
+              Math.max(0, Math.min(t.startTime + t.duration, at) - Math.max(t.startTime, script));
+            const timing = { script, after: at - script, running: 0, waiting: 0, evaluation: 0, work: 0 };
+            for (const frame of longFrames()) {
+              timing.running += within(frame);
+              for (const run of frame.scripts)
+                if (run.invokerType === "classic-script" && /\/entry[.-]/.test(run.sourceURL))
+                  timing.evaluation += within(run);
+                else timing.work += within(run);
+            }
+            timing.waiting = timing.after - timing.running;
+            resolve(timing);
+          }),
+        ),
+      ),
+    at,
+  );
+  expect(timing, "the browser reports long animation frames").not.toBeNull();
+  return timing!;
+}
+
 // ---- Sample library and learning test data -----------------------------------
 // The local mode's fixtures (src/learning/fixtures.ts) hang off the four
 // sermons bundled with the app, newest first.
