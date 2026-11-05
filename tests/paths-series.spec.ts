@@ -51,8 +51,9 @@ test("a teaching series' page counts teachings, and plays each one whole", async
   await page.getByTestId("path-cta").click();
   await expect(page).toHaveURL(new RegExp(`/sermon/${SERMON.pray}\\?path=${SPIRIT}&day=1$`));
   await expect(page.getByTestId("playback-status")).toHaveText("Playing");
-  // Its teaching start isn't known, so from the beginning.
-  expect((await ytLog(page)).starts).toEqual([0]);
+  // The day has no teaching start of its own, so it starts where the
+  // sermon's card says the preaching starts (21:00).
+  expect((await ytLog(page)).starts).toEqual([1260]);
   expect(Object.keys((await storedPathProgress(page))!.enrollments)).toEqual([SPIRIT]);
   await expect(page.getByTestId("part-of-path")).toHaveAccessibleName(
     "Part of your series. Teaching 1 of 4. Knowing the Holy Spirit. 0 of 4 done.",

@@ -34,7 +34,7 @@ import {
 } from "../../player/layout";
 import { PlayerCenter, type BandMarks } from "../../player/NowPlaying";
 import { prefetchVideo, usePlayback, usePlayerSession } from "../../player/PlayerProvider";
-import { fraction, resumePoint } from "../../player/progress";
+import { fraction, messageStart, resumePoint } from "../../player/progress";
 import { DaysDrawer } from "../../player/stage/DaysDrawer";
 import { LightHeader } from "../../player/stage/LightHeader";
 import { SermonMeta } from "../../player/stage/SermonMeta";
@@ -253,10 +253,22 @@ function NowPlayingScreen({ sermon, link }: { sermon: Sermon; link: SermonParams
   const saved = account.user ? progressFor(sermon.id) : null;
   const resumeAt = resumePoint(saved);
   // A place the link asks for (a moment, a shared time). Otherwise the
-  // player decides: where a member left off, else (as a day of a path)
-  // where the Apostle starts preaching, else the beginning.
+  // player decides: where a member left off, else where the Apostle starts
+  // preaching (the path day's teaching start, else the sermon's card's),
+  // else the beginning.
   const startAt = link.t;
-  const opening = pathDay?.day.teachingStart ?? undefined;
+  const estimate = parseDuration(sermon.duration) ?? 0;
+  const opening =
+    messageStart(pathDay?.day.teachingStart, estimate) ??
+    messageStart(card?.preachingStart, estimate) ??
+    undefined;
+  // The card can arrive after the sermon started loading (Watch pressed at
+  // once, or opened to play): the player moves to the preaching then,
+  // unless the viewer has a place in it or chose one.
+  const { offerOpening } = session;
+  useEffect(() => {
+    if (current && opening != null) offerOpening(sermon.id, opening);
+  }, [current, opening, sermon.id, offerOpening]);
 
   // Playing as a day of a path: the app-wide player keeps that, so the day
   // is marked done when the sermon has been watched, even after this page
@@ -325,7 +337,6 @@ function NowPlayingScreen({ sermon, link }: { sermon: Sermon; link: SermonParams
     return () => clearTimeout(timer);
   }, [searchPill]);
 
-  const estimate = parseDuration(sermon.duration) ?? 0;
   const marks = useMemo<BandMarks>(() => {
     const list = moments.map((m) => ({ key: m.id, at: m.at }));
     const t = link.t;
@@ -558,6 +569,7 @@ function NowPlayingScreen({ sermon, link }: { sermon: Sermon; link: SermonParams
                 radius={frame.radius}
                 startAt={startAt}
                 resumeAt={resumeAt}
+                messageAt={opening ?? null}
                 watched={saved && resumeAt ? fraction(saved) : 0}
                 left={saved ? saved.durationSeconds - resumeAt : 0}
                 guest={!gate.canWatch(sermon.id)}

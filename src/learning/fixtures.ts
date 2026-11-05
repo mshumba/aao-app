@@ -185,9 +185,11 @@ const FINALE = "H9sRbSUt0YE";
 const DAY_TWO = "yUDzMcZsVk8";
 const PRAY = "nUW8NT2Pe88";
 // Where the Apostle starts preaching in each (test data, not from their
-// cards). The guided paths' days start there, except Day 2 of waiting on
-// God, whose key moment comes first, so it starts at its focus. The series'
-// days have no teaching start, so they play from the beginning.
+// real cards). Three of the four have a card that says so; Day One has no
+// card, so opened on its own it plays from the beginning. The guided paths'
+// days start there too, except Day 2 of waiting on God, whose key moment
+// comes first, so it starts at its focus. The series' days have no teaching
+// start of their own, so they start where their sermon's card says.
 const PREACHING = { dayOne: 912, finale: 1340, dayTwo: 1785, pray: 1260 };
 
 const day = (
@@ -297,6 +299,7 @@ export const fixtureCards: SermonCardData[] = [
     scriptures: ["Acts 4:23-33", "Acts 2:42", "Acts 6:2-4", "Isaiah 66:7-9", "Judges 5:1-4", "1 Corinthians 3:10"],
     forWhom:
       "Women and intercessors who want to pray persistently for their families and nation and walk in boldness and grace.",
+    preachingStart: PREACHING.pray,
   },
   {
     youtubeId: FINALE,
@@ -322,6 +325,7 @@ export const fixtureCards: SermonCardData[] = [
     ],
     forWhom:
       "Pastors and believers in a city who want to understand the body of Christ beyond denominations, and the sick who need healing.",
+    preachingStart: PREACHING.finale,
   },
   {
     youtubeId: DAY_TWO,
@@ -349,6 +353,7 @@ export const fixtureCards: SermonCardData[] = [
     ],
     forWhom:
       "Ministers and workers in the church who want to understand the character, intimacy with Christ and kingdom focus that sustain a calling.",
+    preachingStart: PREACHING.dayTwo,
   },
 ];
 
@@ -359,16 +364,18 @@ export async function fakeMoments(youtubeId: string): Promise<Moment[]> {
 
 /**
  * Development builds only: set `globalThis.__aaoCardFault` to "offline" and
- * a card fails to load, as it does without a connection.
+ * a card fails to load, as it does without a connection, or to "slow" and
+ * it arrives after 2.5 seconds, as on a slow one.
  */
-function cardFault(): "offline" | null {
+function cardFault(): "offline" | "slow" | null {
   if (typeof __DEV__ === "undefined" || !__DEV__) return null;
-  return (globalThis as { __aaoCardFault?: "offline" | null }).__aaoCardFault ?? null;
+  return (globalThis as { __aaoCardFault?: "offline" | "slow" | null }).__aaoCardFault ?? null;
 }
 
 /** A sermon's card, as the sermon_cards table answers: null when it has none. */
 export async function fakeCard(youtubeId: string): Promise<SermonCardData | null> {
   if (cardFault() === "offline") throw new LearningError("offline", "No connection");
+  if (cardFault() === "slow") await new Promise((resolve) => setTimeout(resolve, 2500));
   return fixtureCards.find((card) => card.youtubeId === youtubeId) ?? null;
 }
 

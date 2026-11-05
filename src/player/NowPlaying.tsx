@@ -24,9 +24,9 @@ export type BandMarks = {
 /**
  * The centre of the times line while a sermon is loaded: a status that asks
  * something of the viewer ("Tap Play to start") first, then
- * "Resuming at 4:10 · Start over", then whatever the page puts there
- * (`fallback`). Every status is announced; playing and paused aren't shown,
- * since they're plain to see.
+ * "Resuming at 4:10 · Start over" or "Started at the message · Play from the
+ * start", then whatever the page puts there (`fallback`). Every status is
+ * announced; playing and paused aren't shown, since they're plain to see.
  */
 export function PlayerCenter({ fallback }: { fallback?: ReactNode }) {
   const session = usePlayerSession();
@@ -34,6 +34,7 @@ export function PlayerCenter({ fallback }: { fallback?: ReactNode }) {
   if (session.phase === "error") return fallback ?? null;
   const asks = asksViewer(p.status);
   const resumed = session.resumedFrom > 0 && !asks;
+  const message = !resumed && session.messageFrom > 0 && !asks;
   return (
     <>
       <T
@@ -54,9 +55,7 @@ export function PlayerCenter({ fallback }: { fallback?: ReactNode }) {
           >
             {`Resuming at ${clock(session.resumedFrom)}`}
           </T>
-          <T style={styles.resumeText} {...web({ "aria-hidden": true })}>
-            ·
-          </T>
+          <Dot />
           <Tap
             accessibilityRole="button"
             accessibilityLabel="Start over"
@@ -76,10 +75,57 @@ export function PlayerCenter({ fallback }: { fallback?: ReactNode }) {
             </T>
           </Tap>
         </View>
-      ) : !asks ? (
-        fallback ?? null
       ) : null}
+      {/* Kept in place (empty) so screen readers on the web and Android
+          announce the note as it appears; iOS hears it from the player. */}
+      <View accessibilityLiveRegion="polite">
+        {message ? (
+          <View style={styles.resume} testID="message-note">
+            <T
+              style={styles.resumeText}
+              accessibilityLabel={`Started where the preaching starts, at ${spokenClock(session.messageFrom)}`}
+              maxFontSizeMultiplier={textCap.chip}
+            >
+              Started at the message
+            </T>
+            <Dot />
+            <Tap
+              accessibilityRole="button"
+              accessibilityLabel="Play from the start"
+              accessibilityHint="Plays the sermon from the beginning, before the preaching"
+              onPress={() => {
+                session.startOver();
+                // The note and its button go; carry on from Play/Pause.
+                focusStageToggle();
+                AccessibilityInfo.announceForAccessibility("Playing from the start.");
+              }}
+              feedback="dim"
+              hitSlop={{ top: 10, bottom: 10, left: 6, right: 6 }}
+              style={styles.startOver}
+            >
+              <T style={styles.startOverText} maxFontSizeMultiplier={textCap.chip}>
+                Play from the start
+              </T>
+            </Tap>
+          </View>
+        ) : null}
+      </View>
+      {!resumed && !message && !asks ? fallback ?? null : null}
     </>
+  );
+}
+
+/** The dot between a note and its button: seen, never read out. */
+function Dot() {
+  return (
+    <T
+      style={styles.resumeText}
+      accessibilityElementsHidden
+      importantForAccessibility="no"
+      {...web({ "aria-hidden": true })}
+    >
+      ·
+    </T>
   );
 }
 

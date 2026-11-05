@@ -15,7 +15,7 @@ import { Sermon } from "../data/sermons";
 import { useCompleteDay } from "../learning/completeDay";
 import { chooseEngine, hasHls, knownHls, prefetchHls, type Engine } from "./media";
 import { NATIVE_VIDEO } from "./videoPlatform";
-import { MIN_RESUME, SAVE_EVERY, isFinished, resumePoint } from "./progress";
+import { MIN_RESUME, SAVE_EVERY, isFinished, messageStart, resumePoint } from "./progress";
 import { EmbedHandle, PlayerCommand, PlayerEvent, playerError } from "./types";
 import { youtubeAt } from "./youtube";
 
@@ -53,7 +53,13 @@ type Session = {
    * start over or are well past it; 0 when it started from the beginning.
    */
   resumedFrom: number;
-  /** Back to the beginning of a resumed sermon. */
+  /**
+   * Where this sermon started because the Apostle starts preaching there
+   * (the load's opening), until the viewer plays it from the start or is
+   * well past it; 0 when it didn't.
+   */
+  messageFrom: number;
+  /** Back to the beginning of a resumed sermon, or one started at the message. */
   startOver: () => void;
   cover: "on" | "fading" | "off";
   /** The sermon screen currently showing (and ready for) the full player. */
@@ -70,9 +76,15 @@ type Session = {
    * Loads and starts a sermon. A signed-in viewer picks up where they left
    * off, unless `from` (seconds) asks for a place: a moment, a shared time.
    * Without a place of their own (guests never have one), it starts at
-   * `opening` (seconds), a path day's teaching start, or the beginning.
+   * `opening` (seconds), where the Apostle starts preaching, or the beginning.
    */
   load: (sermon: Sermon, from?: number, opening?: number) => void;
+  /**
+   * Where the loaded sermon's preaching starts, known only after it started
+   * loading (its card arrived late): it moves there, unless the viewer has a
+   * place in it, asked for one, chose one or has watched on meanwhile.
+   */
+  offerOpening: (sermonId: string, opening: number) => void;
   /** Plays the loaded sermon, waiting for readiness when it is still loading. */
   playWhenReady: () => void;
   retry: () => void;
@@ -211,8 +223,15 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   // the place first drops it: the viewer seeking, skipping or starting over,
   // closing, another load, or another viewer signing in.
   const lateResume = useRef<{ from: number; opening: number } | null>(null);
+  // The load that started from the beginning only because where the
+  // preaching starts wasn't known yet (offerOpening), by its sermon's id.
+  // Dropped like lateResume.
+  const lateOpening = useRef<string | null>(null);
   useEffect(() => {
-    if (accountRef.current.user?.id !== user?.id) lateResume.current = null;
+    if (accountRef.current.user?.id !== user?.id) {
+      lateResume.current = null;
+      lateOpening.current = null;
+    }
     accountRef.current = { user, ...progress };
   }, [user, progress]);
   const [sermon, setSermon] = useState<Sermon | null>(null);
@@ -247,6 +266,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const [attempt, setAttempt] = useState(0);
   const [start, setStart] = useState(0);
   const [resumedFrom, setResumedFrom] = useState(0);
+  const [messageFrom, setMessageFrom] = useState(0);
   const [cover, setCover] = useState<"on" | "fading" | "off">("off");
   const [stage, setStageState] = useState<string | null>(null);
   const [dockAboveTabs, setDockAboveTabs] = useState(false);
@@ -277,11 +297,13 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const current = useRef<Sermon | null>(null);
   const length = useRef(0);
   const savedAt = useRef(0);
-  // Where a path day opened, at its teaching start, when the viewer had no
-  // place in it: "only just started" counts from there, not from 0. Moments
-  // and shared links keep counting from 0, so a short look still keeps its spot.
+  // Where a sermon opened, where the preaching starts, when the viewer had
+  // no place in it: "only just started" counts from there, not from 0.
+  // Moments and shared links keep counting from 0, so a short look still
+  // keeps its spot.
   const openedAt = useRef(0);
   const resumeNote = useRef(0);
+  const messageNote = useRef(0);
   // A saved place that arrived while the player was still loading: moved to
   // as soon as it's ready.
   const seekOnReady = useRef<number | null>(null);
@@ -301,6 +323,19 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   const command = useCallback((c: PlayerCommand) => {
     embed.current?.command(c);
+  }, []);
+
+  /**
+   * Why the loaded sermon starts where it does, for the notes under its
+   * title: a saved place ("Resuming at · Start over"), where the preaching
+   * starts ("Started at the message · Play from the start"), or neither.
+   */
+  const startedFrom = useCallback((saved: number, message: number) => {
+    resumeNote.current = saved;
+    setResumedFrom(saved);
+    messageNote.current = saved ? 0 : message;
+    setMessageFrom(saved ? 0 : message);
+    openedAt.current = saved ? 0 : message;
   }, []);
 
   /**
@@ -531,8 +566,9 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       const saved = resumePoint(items.find((item) => item.sermonId === id) ?? null);
       const from = saved || ticket.opening;
       if (from === ticket.from || position.current - ticket.from >= MIN_RESUME) return;
-      resumeNote.current = saved;
-      setResumedFrom(saved);
+      startedFrom(saved, from);
+      // Back to the beginning: where the preaching starts may still follow.
+      lateOpening.current = from ? null : id;
       position.current = from;
       setSeconds(from);
       // Still loading: it moves there once ready (starting the load again
@@ -544,7 +580,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         command({ type: "seek", seconds: from });
       }
     },
-    [armSeek, command],
+    [armSeek, command, startedFrom],
   );
 
   const load = useCallback(
@@ -552,13 +588,12 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       if (pending.current && sermon?.id === next.id) return;
       // An earlier load's saved place, still on its way, isn't for this one.
       lateResume.current = null;
+      lateOpening.current = null;
       const place = (s?: number) => (s != null && Number.isFinite(s) && s >= 0 ? Math.floor(s) : null);
       // Asked for a place: start there, with no "Resuming at" note.
       const asked = place(at);
       if (asked != null) {
-        resumeNote.current = 0;
-        setResumedFrom(0);
-        openedAt.current = 0;
+        startedFrom(0, 0);
         begin(next, asked);
         return;
       }
@@ -580,12 +615,38 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
             .then((items) => items && catchUp(ticket, next.id, items));
         }
       }
-      resumeNote.current = saved;
-      setResumedFrom(saved);
-      openedAt.current = saved ? 0 : openAt;
+      startedFrom(saved, openAt);
+      // From the beginning only because the preaching start isn't known yet.
+      if (!saved && !openAt) lateOpening.current = next.id;
       begin(next, saved || openAt);
     },
-    [begin, catchUp, sermon],
+    [begin, catchUp, sermon, startedFrom],
+  );
+
+  const offerOpening = useCallback(
+    (id: string, opening: number) => {
+      const loaded = current.current;
+      if (!loaded || loaded.id !== id || !(opening > 0)) return;
+      const at = Math.floor(opening);
+      // A saved place still on its way falls back to here, not the beginning.
+      const ticket = lateResume.current;
+      if (ticket && !ticket.opening) ticket.opening = at;
+      if (lateOpening.current !== id) return;
+      lateOpening.current = null;
+      // Watched on from the beginning meanwhile: that's their place now.
+      if (position.current >= MIN_RESUME) return;
+      if (ticket) ticket.from = at;
+      startedFrom(0, at);
+      position.current = at;
+      setSeconds(at);
+      // As in catchUp: once ready if still loading; Try again starts here.
+      if (phaseRef.current === "loading") seekOnReady.current = at;
+      else if (phaseRef.current === "ready") {
+        armSeek(at);
+        command({ type: "seek", seconds: at });
+      }
+    },
+    [armSeek, command, startedFrom],
   );
 
   const retry = useCallback(() => {
@@ -602,11 +663,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     current.current = null;
     loadedId = null;
     lateResume.current = null;
+    lateOpening.current = null;
     engineAsk.current = null;
     reloadOnReturn.current = false;
     pendingSeek.current = null;
-    resumeNote.current = 0;
-    setResumedFrom(0);
+    startedFrom(0, 0);
     clearBlockedCheck();
     pending.current = false;
     autoplay.current = false;
@@ -618,7 +679,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     setCaptionsOn(false);
     setStatus("");
     setState(-1);
-  }, [clearBlockedCheck, persist, setEngine, setPhase]);
+  }, [clearBlockedCheck, persist, setEngine, setPhase, startedFrom]);
 
   // The YouTube app (or site) at the viewer's place in the sermon.
   const watchOnYouTube = useCallback(() => {
@@ -641,6 +702,19 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         length.current = e.duration;
         setDuration(e.duration);
       }
+      // Where the preaching starts was judged on the sermon's listed length.
+      // If the video the player has is too short for it, it plays from the
+      // beginning instead: never from past (or near) its end.
+      const message = messageNote.current;
+      if (message && !played.current && e.duration && messageStart(message, e.duration) == null) {
+        startedFrom(0, 0);
+        lateOpening.current = null;
+        seekOnReady.current = null;
+        position.current = 0;
+        setSeconds(0);
+        armSeek(0);
+        command({ type: "seek", seconds: 0 });
+      }
       if (e.type === "ready") {
         if (seekOnReady.current != null) {
           armSeek(seekOnReady.current);
@@ -662,6 +736,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         clearBlockedCheck();
         starting.current = false;
         blocked.current = false;
+        // iOS has no live regions: say once that it skipped to the message.
+        if (!played.current && messageNote.current && Platform.OS === "ios")
+          AccessibilityInfo.announceForAccessibility(
+            `Started where the preaching starts, at ${spokenClock(messageNote.current)}.`,
+          );
         played.current = true;
         setStarted(true);
       } else if (e.state === 0) {
@@ -687,6 +766,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           resumeNote.current = 0;
           setResumedFrom(0);
         }
+        // Likewise "Started at the message".
+        if (messageNote.current && position.current > messageNote.current + RESUME_NOTE_FOR) {
+          messageNote.current = 0;
+          setMessageFrom(0);
+        }
       }
       if (e.state === 1) persist("tick");
       else if (e.state === 2) persist("moment");
@@ -700,7 +784,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       if (starting.current) return;
       setStatus(blocked.current ? BLOCKED : statusFor(e.state));
     },
-    [armSeek, command, failOrFallBack, clearBlockedCheck, persist, checkDay, setPhase, startWithCheck],
+    [armSeek, command, failOrFallBack, clearBlockedCheck, persist, checkDay, setPhase, startWithCheck, startedFrom],
   );
 
   // Loading can't hang forever.
@@ -749,9 +833,10 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   const startOver = useCallback(() => {
     lateResume.current = null;
+    lateOpening.current = null;
     pendingSeek.current = null;
-    resumeNote.current = 0;
-    setResumedFrom(0);
+    // From 0 now, so "only just started" counts from 0 too.
+    startedFrom(0, 0);
     const loaded = current.current;
     if (!loaded) return;
     // The provider drops commands while it loads, so start it again from 0.
@@ -760,7 +845,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     setSeconds(0);
     armSeek(0);
     command({ type: "seek", seconds: 0 });
-  }, [armSeek, begin, command, phase]);
+  }, [armSeek, begin, command, phase, startedFrom]);
 
   const attach = useCallback((handle: EmbedHandle | null) => {
     embed.current = handle;
@@ -781,6 +866,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       attempt,
       start,
       resumedFrom,
+      messageFrom,
       startOver,
       cover,
       stage,
@@ -788,6 +874,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       dockAboveTabs,
       setDockAboveTabs,
       load,
+      offerOpening,
       playWhenReady,
       retry,
       close,
@@ -806,12 +893,14 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       attempt,
       start,
       resumedFrom,
+      messageFrom,
       startOver,
       cover,
       stage,
       setStage,
       dockAboveTabs,
       load,
+      offerOpening,
       playWhenReady,
       retry,
       close,
@@ -832,6 +921,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     // waiting for the player to be ready) mustn't move them afterwards.
     const moveTo = (to: number) => {
       lateResume.current = null;
+      lateOpening.current = null;
       // The player ignores commands until it's ready, so a choice made
       // while it loads is kept for then.
       seekOnReady.current = phaseRef.current === "loading" ? to : null;

@@ -18,10 +18,12 @@ import {
 
 // A saved place that arrives after Watch, in the app: the on-device account
 // service sends slow@example.com's progress 6 s after it's asked for (when
-// the app starts), so the sermon starts from the beginning before it does.
-// The fake player's clock runs at 5 seconds per real second.
+// the app starts), so the sermon starts from the beginning before it does
+// (Day One has no card, so nothing says where its preaching starts; with
+// one, see tests/message-start-player.spec.ts). The fake player's clock
+// runs at 5 seconds per real second.
 const SLOW = { id: "local:slow@example.com", email: "slow@example.com", provider: "email" };
-const SERMON_ID = "H9sRbSUt0YE";
+const SERMON_ID = SERMON.dayOne;
 
 test.describe("a saved place that arrives after Watch", () => {
   test.use({ viewer: "guest" });
