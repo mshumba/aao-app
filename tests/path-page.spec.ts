@@ -3,11 +3,9 @@ import { HABIT, expect, seedPathProgress, shown, storedPathProgress, test } from
 
 // The path page's look, checked against the Appllama review (16 October
 // 2026): a smaller cover, one surface per day's state, today's own "Mark
-// done" ring, "Order set by the ministry" under the prose, and a light
-// header pinned once the cover's title has gone. The fixture path,
-// "Breaking free from habitual sin", has 7 days and 18 hours of sermons.
-
-const ORDER_SET = "Order set by the ministry";
+// done" ring, "Why this path" with nothing under it, and a light header
+// pinned once the cover's title has gone. The fixture path, "Breaking free
+// from habitual sin", has 7 days and 18 hours of sermons.
 /** The pinned header's band under the status bar (CoverPage's BAND, no inset on the web). */
 const BAND = 12 + 52;
 
@@ -162,16 +160,14 @@ test.describe("part way through", () => {
     await expect(page.getByRole("dialog", { name: "Day 3 done" })).toBeVisible();
   });
 
-  test("“Why this path” stands alone, the ministry's order quietly under it", async ({ page }) => {
+  test("“Why this path” stands alone, with no claim for the ministry under it", async ({ page }) => {
     await page.goto(`/path/${HABIT}`);
     const kicker = shown(page.getByText("Why this path", { exact: true }));
     const prose = shown(page.getByText(/^For the sin that keeps coming back/));
-    const trust = shown(page.getByText(ORDER_SET, { exact: true }));
-    const [k, p, t] = [(await kicker.boundingBox())!, (await prose.boundingBox())!, (await trust.boundingBox())!];
+    const [k, p] = [(await kicker.boundingBox())!, (await prose.boundingBox())!];
     expect(p.y).toBeGreaterThanOrEqual(k.y + k.height);
-    expect(t.y).toBeGreaterThanOrEqual(p.y + p.height);
-    await expect(trust).toHaveCSS("font-size", "13px");
-    await expect(trust).toHaveCSS("color", "rgb(91, 97, 106)");
+    // A published path, and still nothing says the ministry set its order.
+    await expect(page.getByText("Order set by the ministry")).toHaveCount(0);
   });
 
   test("a quick second press of “Later days” moves on another day", async ({ page }) => {

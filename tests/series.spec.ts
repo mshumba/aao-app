@@ -40,6 +40,28 @@ test("a headline that only repeats the event gives way to the session", () => {
   expect(seriesRowText(dated, "School of the Prophets 2021").title).toBe("Day 2 · Morning");
 });
 
+test("preachers every part shares aren't named on each row, only where they differ", () => {
+  const capital = (part: number, speaker: string) =>
+    sermon({
+      youtube_id: `capital-${part}`,
+      headline: "Spiritual Capital Conference",
+      event: "Spiritual Capital Conference",
+      session: `Day ${part}`,
+      part,
+      speaker,
+    });
+  const NAME = "Spiritual Capital Conference 2026";
+  const shared = [1, 2, 3].map((n) => capital(n, "Dr. Arome Osayi & Rev. Philip Gbir"));
+  expect(seriesRows(shared, NAME).map((row) => row.label)).toEqual([null, null, null]);
+  expect(sessionDays(shared, NAME).days.flatMap((d) => d.rows.map((row) => row.label))).toEqual([null, null, null]);
+  // One preached by someone else: each row names its own.
+  const mixed = [capital(1, "Apostle Gideon Odoma"), capital(2, "Dr. Arome Osayi & Rev. Philip Gbir")];
+  expect(seriesRows(mixed, NAME).map((row) => row.label)).toEqual([
+    "Apostle Gideon Odoma",
+    "Dr. Arome Osayi & Rev. Philip Gbir",
+  ]);
+});
+
 test("a real message title stays, with the session as its label", () => {
   const guidance = sermon({ headline: "Angelic Guidance", event: "School of the Prophets", session: "Day 3 Evening" });
   expect(seriesRowText(guidance, "School of the Prophets 2021")).toEqual({
@@ -193,7 +215,7 @@ test("a theme on half or more of a series' rows reads as the series' own", () =>
   // Two rows of five aren't a theme: they keep their title.
   const rain = sermon({ headline: "Prayer Rain", event: "IEC 2024", session: "Day 3" });
   const fewer = seriesRows([...theme.slice(0, 2), dedication, finale, rain], "IEC 2024");
-  expect(fewer[0]).toEqual({ sermon: theme[0], title: "The Life of Prayer", label: "Day 1" });
+  expect(fewer[0]).toEqual({ sermon: theme[0], speaker: null, title: "The Life of Prayer", label: "Day 1" });
   // Operation Nigeria 2022's night watch follows most days' sessions; read as
   // the series' own, two rows would read "Day 4".
   const nigeria = [

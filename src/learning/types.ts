@@ -101,9 +101,9 @@ export type Path = {
    */
   minutesPerDay: number;
   /**
-   * 'draft' must never claim "Order set by the ministry". Use TrustLine
-   * (src/kit) or `trustLine()` (format.ts): only a published path gets the
-   * line, and a draft shows nothing (no "Draft" label, at the owner's request).
+   * Whether the ministry's editors have published it. The app labels
+   * neither: no "Draft" label (at the owner's request), and no claim that
+   * the ministry set a published path's order.
    */
   status: PathStatus;
   sort: number;

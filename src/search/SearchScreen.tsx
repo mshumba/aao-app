@@ -31,9 +31,8 @@ import { useAccount, useSaved } from "../auth/AccountProvider";
 import { useGate } from "../auth/gate";
 import { useCatalogue } from "../catalogue/CatalogueProvider";
 import { NATIVE_VIDEO } from "../player/videoPlatform";
-import { words } from "../data/display";
 import { searchSermons, type Sermon } from "../data/sermons";
-import { ChipRow, ItalicTitle, Kicker, NeedChip, PathCardNavy, SearchField, Strong, type ArtSource } from "../kit";
+import { ChipRow, ItalicTitle, NeedChip, PathCardNavy, SearchField, Strong, type ArtSource } from "../kit";
 import {
   nextDay,
   teachingsLabel,
@@ -116,7 +115,7 @@ type Mode = "empty" | "typing" | "results";
 
 type Row =
   | { key: string; kind: "cloud"; needs: Need[] }
-  | { key: string; kind: "heading"; title: string; count?: string; spoken?: string; countTestID?: string; clear?: boolean }
+  | { key: string; kind: "heading"; title: string; count?: string; countTestID?: string; clear?: boolean }
   | { key: string; kind: "recent"; q: string; first: boolean }
   | { key: string; kind: "topics" }
   | { key: string; kind: "suggest"; q: string }
@@ -137,10 +136,10 @@ type Row =
 type Item = Row & { reveal?: number };
 
 /**
- * `guided`: one of the empty screen's guided paths, its kicker the length
- * (null when its line already says it); otherwise "A path for this".
+ * `guided`: one of the empty screen's guided paths, its kicker the length;
+ * otherwise "A path for this". `meta`: none for a guided path not started.
  */
-type PathCard = { id: string; name: string; meta: string; fan: ArtSource[]; guided?: { kicker: string | null } };
+type PathCard = { id: string; name: string; meta: string | null; fan: ArtSource[]; guided?: { kicker: string } };
 
 const same = (a: string, b: string) => a.trim().toLocaleLowerCase() === b.trim().toLocaleLowerCase();
 
@@ -509,8 +508,7 @@ function SearchView({ initialQuery, unknownTopic }: { initialQuery: string; unkn
 
   // The empty screen's guided paths: the dark compact cards, in the
   // editor's order. The heading already says they're guided paths, so each
-  // leads with its length, then where you are on it, or its promise; a
-  // promise that gives the length ("Five days on…") says it alone.
+  // leads with its length, then, once started, where you are on it.
   const emptyPaths = useMemo<PathCard[]>(
     () =>
       paths
@@ -519,11 +517,9 @@ function SearchView({ initialQuery, unknownTopic }: { initialQuery: string; unkn
         .map((path) => {
           const days = daysOf(path.id);
           const total = path.dayCount || days.length;
-          const meta = whereOn(total, progressFor(path.id)) ?? path.promise;
+          const meta = whereOn(total, progressFor(path.id));
           const fan = days.slice(0, 2).map((d) => ({ id: d.youtubeId }) as ArtSource);
-          const count = pathCount(total, false);
-          const said = words(meta).includes(words(count));
-          return { id: path.id, name: path.name, meta, fan, guided: { kicker: said ? null : count } };
+          return { id: path.id, name: path.name, meta, fan, guided: { kicker: pathCount(total, false) } };
         }),
     [paths, daysOf, progressFor],
   );
@@ -633,9 +629,8 @@ function SearchView({ initialQuery, unknownTopic }: { initialQuery: string; unkn
         key: "moments-h",
         kind: "heading",
         title: "Moments that speak to this",
-        // What's listed: "14 found", or "Top 14" when more matched.
-        count: all > shown ? `Top ${shown}` : `${shown} found`,
-        spoken: all > shown ? `Top ${shown} of ${all} moments` : `${shown} moment${shown === 1 ? "" : "s"} found`,
+        // What's listed, read to screen readers: "Top 14 of 40 moments" when more matched.
+        count: all > shown ? `Top ${shown} of ${all} moments` : `${shown} moment${shown === 1 ? "" : "s"} found`,
       });
       // His words first; a moment whose quote didn't pass (none, and none
       // on its way) is listed after them, never as an empty card.
@@ -992,7 +987,6 @@ const SearchTitle = memo(function SearchTitle({ collapsed, reduced }: { collapse
     <>
       <Animated.View testID="search-question" style={[styles.fold, fold]} {...hide}>
         <View style={styles.head} onLayout={measured.read}>
-          <Kicker>Search by what you need</Kicker>
           <ItalicTitle
             text={QUESTION}
             italic="going through?"
@@ -1078,7 +1072,6 @@ function rowFor(item: Item, actions: RowActions) {
         <ListHeading
           title={item.title}
           count={item.count}
-          spokenCount={item.spoken}
           countTestID={item.countTestID}
           action={
             item.clear
@@ -1300,7 +1293,7 @@ const styles = StyleSheet.create({
   fold: { overflow: "hidden" },
   folded: { height: 0, opacity: 0 },
   head: { paddingHorizontal: 24 },
-  title: { marginTop: 6, color: c.text },
+  title: { color: c.text },
   hidden: { position: "absolute", width: 1, height: 1, overflow: "hidden", left: -1, top: 0 },
   // Fills what's under the field, so the loader sits in the middle of it.
   loading: { flex: 1, justifyContent: "center", paddingBottom: 48 },

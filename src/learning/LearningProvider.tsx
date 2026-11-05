@@ -635,10 +635,7 @@ export function usePathSuggestions() {
   }, [read, mine, paths, state, daysByPath, find]);
 }
 
-/**
- * Every path (drafts included, in editorial order). Use TrustLine for who set
- * the order: it shows only on a published path, never a "Draft" label.
- */
+/** Every path (drafts included, in editorial order). */
 export function usePaths() {
   const value = need(useContext(PathsContext), "usePaths");
   return {

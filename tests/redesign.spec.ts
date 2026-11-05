@@ -14,7 +14,13 @@ test.describe("All sermons", () => {
     await expect(page.getByRole("heading", { level: 1, name: "All sermons" })).toBeVisible();
     await expect(rows(page)).toHaveCount(4);
     await expect(rows(page).first()).toHaveAccessibleName(/^Pray Without Ceasing\./);
-    await expect(page.getByTestId("sermons-count")).toHaveText("4 sermons, newest first");
+    // Just the title over the search: no kicker or lead, and the count is
+    // read to screen readers, not drawn.
+    await expect(page.getByText(/^(The library|Search by title)/i)).toHaveCount(0);
+    const count = page.getByTestId("sermons-count");
+    await expect(count).toHaveText("4 sermons, newest first");
+    await expect(count).toHaveAttribute("role", "status");
+    expect((await count.boundingBox())!.width).toBeLessThanOrEqual(1);
   });
 
   test("filters by series, topic and year, and finds a title", async ({ page }) => {

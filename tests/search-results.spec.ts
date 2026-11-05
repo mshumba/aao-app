@@ -76,15 +76,12 @@ test("the guided paths list carries no draft label", async ({ page }) => {
   const guided = shown(page.getByTestId("guided-path"));
   await expect(guided).toHaveCount(2);
   const wait = guided.filter({ hasText: "Learning to wait on God" });
-  // Under "Guided paths", never "Guided path" again; before it's started,
-  // the path's promise (once started, where you are).
+  // Under "Guided paths", never "Guided path" again: its length and name
+  // (once started, where you are), with no one-line description.
   await expect(wait).not.toContainText(/guided path/i);
-  await expect(wait).toContainText("Five days on staying faithful when God's promise seems slow.");
-  // The promise gives the length, so no "5 days" over it says it twice.
-  await expect(wait).not.toContainText(/5 days/i);
-  await expect(wait).toHaveAccessibleName(
-    /^Learning to wait on God\. Five days on staying faithful when God.s promise seems slow\.?$/,
-  );
+  await expect(wait).toContainText("5 days");
+  await expect(wait).not.toContainText("Five days on staying faithful");
+  await expect(wait).toHaveAccessibleName("5 days. Learning to wait on God");
   await expect(wait).not.toContainText(/Draft|awaiting/);
   await expect(wait).not.toContainText(ORDER_SET);
   await expect(guided.filter({ hasText: "Breaking free from habitual sin" })).not.toContainText("Draft");
@@ -107,31 +104,21 @@ test("the first moment plays from the navy pill, the rest from a quieter time ch
   await expect(second.getByRole("button", { name: "Save Apostolic Shift: Grand Finale", exact: true })).toBeVisible();
 });
 
-test("more moments matched than are listed: the count says Top 6", async ({ page }) => {
-  await setFake(page, { matched: 40 });
-  await search(page, NEED);
-  await expect(results(page)).toHaveCount(6);
-  // (Seen only: on the web screen readers read the words below instead.)
-  await expect(page.getByText("Top 6", { exact: true })).toBeVisible();
-  // Screen readers hear how many matched in all.
-  await expect(shown(page.getByText("Top 6 of 40 moments", { exact: true }))).toHaveCount(1);
-});
-
-test("on a narrow phone the count stays on the heading's line, the title wrapping beside it", async ({ page }) => {
+test("more moments matched than are listed: screen readers hear Top 6 of 40, and nothing is drawn", async ({
+  page,
+}) => {
   await page.setViewportSize({ width: 320, height: 568 });
   await setFake(page, { matched: 40 });
   await search(page, NEED);
   await expect(results(page)).toHaveCount(6);
+  // No count beside the heading: the moments are right under it.
+  await expect(page.getByText("Top 6", { exact: true })).toHaveCount(0);
+  // Screen readers hear how many matched in all, after the heading.
+  const spoken = shown(page.getByText("Top 6 of 40 moments", { exact: true }));
+  await expect(spoken).toHaveCount(1);
+  expect((await spoken.boundingBox())!.width).toBeLessThanOrEqual(1);
+  // The title's last word never stands alone on a line of its own.
   const title = shown(page.getByRole("heading", { level: 2, name: "Moments that speak to this" }));
-  // (Seen only, as above: hidden from screen readers on the web.)
-  const count = page.getByText("Top 6", { exact: true }).filter({ visible: true });
-  const [t, n] = [(await title.boundingBox())!, (await count.boundingBox())!];
-  // Beside the title's first line (27pt), not under it, and inside the page.
-  expect(n.y).toBeLessThan(t.y + 27);
-  expect(n.x).toBeGreaterThanOrEqual(t.x + t.width);
-  expect(n.x + n.width).toBeLessThanOrEqual(320 - 24 + 1);
-  // The title's last word never stands alone on its second line.
-  expect(t.height).toBeGreaterThan(40);
   expect(await title.evaluate((el) => el.textContent)).toBe("Moments that speak to\u00a0this");
 });
 

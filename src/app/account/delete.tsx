@@ -98,7 +98,6 @@ export default function DeleteAccount() {
       {/* No leaving while it deletes: it may wait on Apple for a while. */}
       <Stack.Screen options={{ gestureEnabled: !busy }} />
       <PageTitle
-        kicker="Account"
         title="Delete your account?"
         lead={
           user.email

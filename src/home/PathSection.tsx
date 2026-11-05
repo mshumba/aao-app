@@ -9,13 +9,11 @@ import {
   Kicker,
   PathCardNavy,
   SectionHeader,
-  TrustLine,
   Wash,
   spokenText,
   type ArtSource,
 } from "../kit";
 import {
-  trustLine,
   useEnrollment,
   type ActivePath,
   type Path,
@@ -26,7 +24,7 @@ import { keepLastWord } from "../kit/paths";
 import { dayTiming, pathWords } from "../paths/model";
 import { usePlayDay } from "../paths/navigation";
 import { c, radius, textCap, type } from "../theme";
-import { T, Tap } from "../ui";
+import { Tap } from "../ui";
 
 /** A sermon for a fan: the catalogue's, or YouTube's artwork while it syncs. */
 function art(find: (id: string) => Sermon | undefined, youtubeId: string): ArtSource {
@@ -119,8 +117,8 @@ const FAN_SCALE = 0.66;
 
 /**
  * For someone not on a path: the first path as the concept's navy card
- * ("Start here", its Day 1 to play, who set its order, honestly), then the
- * others as a rail of dark covers with their length, name and promise.
+ * ("Start here" and its Day 1 to play), then the others as a rail of dark
+ * covers with their length and name.
  * Guided paths only: the teaching series have their own section on the
  * Paths tab.
  */
@@ -230,7 +228,7 @@ const StartHere = memo(function StartHere({
       fan={fan}
       kicker={`Start here · ${pathWords(path).count(total)}`}
       shortKicker="Start here"
-      trust={path.status}
+      unstarted
       todayLead="Day 1"
       playLabel="Start the path with day 1"
       // The day's theme, not the sermon's headline: it's known at once, so the
@@ -259,7 +257,6 @@ const PathTile = memo(function PathTile({
   onOpen: (id: string) => void;
 }) {
   const length = pathWords(path).count(path.dayCount);
-  const trust = trustLine(path.status)?.text;
   // Never one word alone on the name's last line.
   const name = keepLastWord(path.name, path.italic);
   const scale = (FAN_SCALE * width) / TILE_W;
@@ -267,11 +264,7 @@ const PathTile = memo(function PathTile({
     <Tap
       testID="path-tile"
       accessibilityRole="button"
-      accessibilityLabel={[path.name, spokenText(length), path.promise, trust]
-        .filter((part): part is string => !!part)
-        .map((part) => part.trim().replace(/[.!?]$/, ""))
-        .join(". ")
-        .concat(".")}
+      accessibilityLabel={`${path.name.trim().replace(/[.!?]$/, "")}. ${spokenText(length)}.`}
       accessibilityHint="Opens the path"
       onPress={() => onOpen(path.id)}
       feedback="scaleLarge"
@@ -293,12 +286,6 @@ const PathTile = memo(function PathTile({
         style={[type.pathName, styles.tileName]}
         maxFontSizeMultiplier={textCap.section}
       />
-      {path.promise ? (
-        <T style={styles.promise} numberOfLines={2}>
-          {path.promise}
-        </T>
-      ) : null}
-      <TrustLine status={path.status} style={styles.trust} />
     </Tap>
   );
 });
@@ -317,6 +304,4 @@ const styles = StyleSheet.create({
   },
   tileKicker: { marginTop: 12 },
   tileName: { marginTop: 4 },
-  promise: { ...type.meta, color: c.muted, marginTop: 4 },
-  trust: { marginTop: 8 },
 });

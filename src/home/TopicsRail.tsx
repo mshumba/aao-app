@@ -14,10 +14,10 @@ const CARD = 200;
 
 /**
  * "From your topics": the sermons that best match the topics the viewer
- * picked (in onboarding or Account), keeping the promise "We'll put them
- * first". Each topic's closest matches lead, the topics taking turns, with
- * nothing over three hours and nothing they've finished. Hidden until
- * they've picked one. "See all" opens the topic's page when there's one.
+ * picked (in onboarding or Account). Each topic's closest matches lead, the
+ * topics taking turns, with nothing over three hours and nothing they've
+ * finished. Hidden until they've picked one. "See all" opens the topic's
+ * page when there's one.
  */
 export const TopicsRail = memo(function TopicsRail({
   sermons,

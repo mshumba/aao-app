@@ -19,7 +19,8 @@ test("the moments are listed in order with his words", async ({ page }) => {
   await page.goto(DAY_ONE);
   const section = page.getByTestId("sermon-moments");
   await expect(section.getByRole("heading", { name: "Moments in this sermon" })).toBeVisible();
-  await expect(section.getByText("4 moments", { exact: true })).toBeVisible();
+  // No count beside the heading: the moments are listed right under it.
+  await expect(section.getByText("4 moments", { exact: true })).toHaveCount(0);
   await expect(section.getByTestId("moment-row")).toHaveCount(4);
   await expect(section.getByTestId("moment-row").first()).toHaveAccessibleName(
     "24 minutes 58 seconds. Temptation is personal. “Temptation is idiosyncratic; temptation is particular to you.”",

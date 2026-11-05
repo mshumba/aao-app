@@ -2,7 +2,7 @@ import { StyleSheet, View } from "react-native";
 import type { Topic } from "./learning/types";
 import { useGo } from "./navigation";
 import { radius, type } from "./theme";
-import { Icon, IconName, Notice, T, Tap, c } from "./ui";
+import { Icon, IconName, T, Tap, c } from "./ui";
 
 /**
  * Each topic's icon, by its id: the one thing about a topic the app itself
@@ -77,11 +77,6 @@ export function sermonCount(count: number, empty = "No sermons yet") {
   return count === 1
     ? "1 sermon"
     : `${String(count).replace(/\B(?=(\d{3})+(?!\d))/g, ",")} sermons`;
-}
-
-/** How a sermon comes to be in a topic, said once where its topics show. */
-export function TopicNotice() {
-  return <Notice>Topics are matched automatically from each sermon’s transcript.</Notice>;
 }
 
 /** Links to a sermon's topics (its one topic, today), on its page. */

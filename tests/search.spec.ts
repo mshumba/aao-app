@@ -99,9 +99,9 @@ test("a need on Home finds moments in his words, and the path for it", async ({
     shown(page.getByText("Moments about breaking a habit of sin", { exact: true })),
   ).toBeVisible();
   await expect(results(page)).toHaveCount(6);
-  // "6 found" is seen; screen readers hear "6 moments found".
-  await expect(page.getByText("6 found", { exact: true })).toBeVisible();
-  // (Once beside the heading, once in the status announced as results land.)
+  // No count drawn beside the heading; screen readers hear "6 moments found"
+  // (once after the heading, once in the status announced as results land).
+  await expect(page.getByText("6 found", { exact: true })).toHaveCount(0);
   await expect(shown(page.getByText("6 moments found", { exact: true }))).toHaveCount(2);
   // Needs the same path answers, to try next.
   await expect(
@@ -188,7 +188,9 @@ test("typing suggests needs and sermon titles; finding moments waits for Return"
   await expect(
     page.getByRole("button", { name: "Search: My prayer life feels dry", exact: true }),
   ).toBeVisible();
+  // How many titles match is read to screen readers, not drawn.
   await expect(shown(page.getByTestId("result-count"))).toHaveText("1 sermon");
+  expect((await shown(page.getByTestId("result-count")).boundingBox())!.width).toBeLessThanOrEqual(1);
   await expect(rows(page)).toHaveCount(1);
   // Nothing is sent while typing.
   await expect(results(page)).toHaveCount(0);

@@ -9,7 +9,7 @@ import { ChipRow, FilterChip, SearchField } from "../kit";
 import { useTopics } from "../learning";
 import { firstParam } from "../navigation";
 import { useDockInset } from "../player/useDockInset";
-import { space, tabular, type } from "../theme";
+import { space } from "../theme";
 import { findTopic, sermonCount } from "../topics";
 import {
   Header,
@@ -109,7 +109,7 @@ export default function AllSermons() {
   // only what a keystroke changes (the field, the rows) draws again.
   const clearQuery = useCallback(() => setQuery(""), []);
   const header = (
-    <View>
+    <View style={styles.header}>
       <Intro />
       <SearchField
         testID="sermons-search"
@@ -128,9 +128,10 @@ export default function AllSermons() {
         onOpen={setOpen}
         onChoose={choose}
       />
+      {/* How many match, for screen readers: the rows show it. */}
       <T
         testID="sermons-count"
-        style={styles.count}
+        style={styles.unseen}
         accessibilityLiveRegion="polite"
         {...(Platform.OS === "web" ? { role: "status" } : null)}
       >
@@ -199,16 +200,7 @@ const Gap = () => <View style={{ height: space.lg }} />;
 
 /** The page's title, the same at every keystroke. */
 const Intro = memo(function Intro() {
-  return (
-    <>
-      <PageTitle
-        kicker="The library"
-        title="All sermons"
-        // One line: the count under the filters already says how many, newest first.
-        lead="Search by title or filter by topic, series or year."
-      />
-    </>
-  );
+  return <PageTitle title="All sermons" />;
 });
 
 const LABELS: Record<Dimension, { name: string; any: string }> = {
@@ -323,5 +315,7 @@ const styles = StyleSheet.create({
   // The chip rows run to the screen's edges, as they do on Home.
   filters: { marginTop: space.md, marginHorizontal: -space.gutter, gap: space.sm },
   choices: { marginTop: 2 },
-  count: { ...type.meta, ...tabular, color: c.muted, marginTop: space.md, marginBottom: space.lg },
+  header: { paddingBottom: space.xl },
+  // Read by screen readers, not drawn.
+  unseen: { position: "absolute", left: 0, top: 0, width: 1, height: 1, overflow: "hidden" },
 });

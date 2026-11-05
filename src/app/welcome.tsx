@@ -65,8 +65,8 @@ export default function Welcome() {
   const footnote = unavailable
     ? "Browsing and watching are open to everyone."
     : account.guestWatch === "all"
-      ? "Browsing and watching are open to everyone. A free account lets you save sermons."
-      : "Browsing is open to everyone. A free account lets you watch and save sermons.";
+      ? "Saving needs a free account."
+      : "Watching and saving need a free account.";
 
   return (
     <View style={s.safe}>

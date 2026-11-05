@@ -379,7 +379,8 @@ test.describe("guest", () => {
     await page.goto("/account");
     const title = shown(page.getByRole("heading", { level: 1, name: "Account", exact: true }));
     await expect(title).toBeVisible();
-    await expect(shown(page.getByText("Not signed in", { exact: true }))).toBeVisible();
+    // The invitation says it: no "Not signed in" over it.
+    await expect(page.getByText("Not signed in")).toHaveCount(0);
     // The page has one title; the sand card's is a section under it.
     await expect(shown(page.getByRole("heading", { level: 1 }))).toHaveCount(1);
     const invite = shown(page.getByRole("heading", { level: 2, name: "Create your free account" }));

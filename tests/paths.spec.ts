@@ -77,27 +77,30 @@ function placeInDayTwo(positionSeconds: number) {
 test("the Paths tab lists every path, and a draft carries no label", async ({ page }) => {
   await page.goto("/");
   await tab(page, "Paths").click();
-  await expect(page.getByRole("heading", { level: 1, name: "Paths" })).toBeVisible();
+  // Named for screen readers only: the tab bar already shows it.
+  const name = page.getByRole("heading", { level: 1, name: "Paths" });
+  await expect(name).toHaveCount(1);
+  expect((await name.boundingBox())!.width).toBeLessThanOrEqual(1);
   await expect(page).toHaveURL(/\/paths$/);
   // The first path to start (in the editors' order, which opens with hope
   // rather than sin) leads, as the tab's masthead; the rest follow. Its
   // length is the sermons' own, whole: never the focus minutes a day. A
-  // draft makes no claim about who set its order.
+  // draft carries no label.
   const wait = page.getByTestId("paths-featured");
   await expect(wait).toHaveAccessibleName("Start here. 5 days. Learning to wait on God. About 14 hours.");
   // The length by a clock: "14h".
   await expect(wait).toContainText("14h");
   await expect(wait).not.toContainText(DRAFT);
-  await expect(wait).not.toContainText(ORDER_SET);
   await expect(page.getByTestId("paths-play")).toHaveAccessibleName(
     "Start Day 1, 3 hours 35 minutes. Learning to wait on God",
   );
-  await expect(shown(page.getByText("1 path", { exact: true }))).toBeVisible();
+  // No count beside the heading, and no one-line description on a row.
+  await expect(shown(page.getByRole("heading", { name: "More paths" }))).toBeVisible();
+  await expect(shown(page.getByText("1 path", { exact: true }))).toHaveCount(0);
   const habit = page.getByTestId(`path-card-${HABIT}`);
-  await expect(habit).toHaveAccessibleName(
-    "Breaking free from habitual sin. 7 days. Seven days from the grip of a repeated sin to the freedom grace gives.",
-  );
+  await expect(habit).toHaveAccessibleName("Breaking free from habitual sin. 7 days.");
   await expect(habit).toContainText("7 days");
+  await expect(habit).not.toContainText("Seven days from the grip");
   await expect(habit).not.toContainText(DRAFT);
   await expect(page.getByText(/min a day|in all/)).toHaveCount(0);
   await habit.click();
@@ -139,15 +142,16 @@ test("a day's theme and title wrap between words, never mid-word", async ({ page
   expect(await name.textContent()).toBe("Day\u00a01 · Start here");
 });
 
-test("only a published path claims the ministry set its order", async ({ page }) => {
+test("no path claims the ministry set its order, and a draft carries no label", async ({ page }) => {
+  // Published, and still no claim.
   await page.goto(`/path/${HABIT}`);
   await expect(
     page.getByRole("heading", { level: 1, name: "Breaking free from habitual sin" }),
   ).toBeVisible();
-  await expect(shown(page.getByText(ORDER_SET, { exact: true }))).toBeVisible();
+  await expect(page.getByText(ORDER_SET)).toHaveCount(0);
   await expect(shown(page.getByText(DRAFT))).toHaveCount(0);
 
-  // A draft says nothing about who set its order: no claim, and no label.
+  // A draft: no claim, and no label.
   await page.goto(`/path/${WAIT}`);
   await expect(
     page.getByRole("heading", { level: 1, name: "Learning to wait on God" }),
@@ -156,8 +160,8 @@ test("only a published path claims the ministry set its order", async ({ page })
   await expect(shown(page.getByText(DRAFT))).toHaveCount(0);
   await expect(shown(page.getByText(ORDER_SET))).toHaveCount(0);
 
-  // Home is just as honest: the first path (the draft) as a card, the
-  // others as tiles.
+  // Home's the same: the first path (the draft) as a card, the others as
+  // tiles.
   await page.goto("/");
   await expect(page.getByTestId("start-here")).toContainText("Learning to wait on God");
   await expect(page.getByTestId("start-here")).not.toContainText(DRAFT);
@@ -165,10 +169,8 @@ test("only a published path claims the ministry set its order", async ({ page })
   const tiles = shown(page.getByTestId("path-tile"));
   await expect(tiles).toHaveCount(1);
   await expect(tiles.nth(0)).not.toContainText(DRAFT);
-  await expect(tiles.nth(0)).toContainText(ORDER_SET);
-  await expect(tiles.nth(0)).toHaveAccessibleName(
-    "Breaking free from habitual sin. 7 days. Seven days from the grip of a repeated sin to the freedom grace gives. Order set by the ministry.",
-  );
+  await expect(tiles.nth(0)).not.toContainText(ORDER_SET);
+  await expect(tiles.nth(0)).toHaveAccessibleName("Breaking free from habitual sin. 7 days.");
 });
 
 test("a path not yet started opens on Day 1, and shows the days ahead", async ({ page }) => {

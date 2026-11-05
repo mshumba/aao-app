@@ -130,15 +130,19 @@ function byline(sermon: Sermon) {
 
 /**
  * Editorial description block at the top of the About tab: who preached the
- * message, the occasion/venue, and the date preached.
+ * message and the occasion, then the date it was preached when the kicker
+ * over the title doesn't already give it. Its length is under the title.
  */
 export const SermonDescription = memo(function SermonDescription({
   sermon,
   pathTheme,
+  showDate,
 }: {
   sermon: Sermon;
   /** Optional day theme when opened as part of a guided path. */
   pathTheme?: string | null;
+  /** The kicker over the title says something else ("Day 3", a shared time). */
+  showDate: boolean;
 }) {
   const occasion = byline(sermon);
 
@@ -146,9 +150,9 @@ export const SermonDescription = memo(function SermonDescription({
     <View style={styles.descriptionBox} testID="sermon-description">
       {pathTheme ? <T style={styles.themeLine}>{pathTheme}</T> : null}
       <T style={styles.descriptionLead}>{occasion}</T>
-      <T style={styles.descriptionMeta}>
-        {`${sermon.preached ? "Preached" : "Published"} ${sermon.date} · ${sermon.duration}`}
-      </T>
+      {showDate ? (
+        <T style={styles.descriptionMeta}>{`${sermon.preached ? "Preached" : "Published"} ${sermon.date}`}</T>
+      ) : null}
     </View>
   );
 });

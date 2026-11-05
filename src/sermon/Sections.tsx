@@ -6,7 +6,7 @@ import { cardShown, useTopics, type SermonCardData, type ShownCard } from "../le
 import { useExitTo } from "../navigation";
 import { NATIVE_VIDEO } from "../player/videoPlatform";
 import { c, font, space, textCap, type } from "../theme";
-import { TopicNotice, TopicTags, namedTopics } from "../topics";
+import { TopicTags, namedTopics } from "../topics";
 import { Bullets, Icon, Notice, SermonRow, T, Tap, TextButton, nowrap } from "../ui";
 
 /*
@@ -71,8 +71,7 @@ export const TopicsSection = memo(function TopicsSection({ sermon }: { sermon: S
   return (
     <>
       <SectionHeader title="Topics" size="md" style={styles.sectionGap} />
-      <View style={{ gap: space.md, marginTop: space.md }}>
-        <TopicNotice />
+      <View style={{ marginTop: space.md }}>
         <TopicTags topics={topics} />
       </View>
     </>
@@ -81,10 +80,10 @@ export const TopicsSection = memo(function TopicsSection({ sermon }: { sermon: S
 
 /**
  * What the sermon is about, from its card when it has one (nothing while it
- * loads, or when it has none or it couldn't be loaded), then where it's
- * from, quietly: the exact title as published (kept in the details, the 14
- * October decision), a way to it on YouTube, and how it plays. The menu's
- * "About this sermon" brings it into view.
+ * loads, or when it has none or it couldn't be loaded), then, quietly, a way
+ * to it on YouTube and, when it plays through YouTube, that loading the
+ * player connects to Google. The menu's "About this sermon" brings it into
+ * view.
  */
 export const AboutSermon = memo(function AboutSermon({
   sermon,
@@ -112,31 +111,21 @@ export const AboutSermon = memo(function AboutSermon({
     >
       {shown ? <CardSection card={shown} /> : null}
       <View style={styles.from}>
-        {/* The link follows the title, or takes the next line when it doesn't fit. */}
-        <View style={styles.source}>
-          <T style={styles.sourceText}>
-            {"On YouTube as “"}
-            {/* Its own span, in the line's style: the title exactly as published. */}
-            <Text>{sermon.title}</Text>
-            {"”"}
+        <Tap
+          accessibilityRole="button"
+          accessibilityLabel="Open in YouTube"
+          onPress={onYouTube}
+          feedback="dim"
+          hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
+          style={styles.link}
+        >
+          <T style={styles.linkText} maxFontSizeMultiplier={textCap.chip}>
+            Open in YouTube
           </T>
-          <Tap
-            accessibilityRole="button"
-            accessibilityLabel="Open in YouTube"
-            onPress={onYouTube}
-            feedback="dim"
-            hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
-            style={styles.link}
-          >
-            <T style={styles.linkText} maxFontSizeMultiplier={textCap.chip}>
-              Open in YouTube
-            </T>
-            <Icon name="open-outline" size={14} color={c.accent} />
-          </Tap>
-        </View>
-        {NATIVE_VIDEO && sermon.videoReady ? (
-          <Notice icon="play-circle-outline">Plays in AAO’s own player, and carries on when you leave the app.</Notice>
-        ) : (
+          <Icon name="open-outline" size={14} color={c.accent} />
+        </Tap>
+        {/* The app's own player (a phone, its video on R2) doesn't touch Google. */}
+        {NATIVE_VIDEO && sermon.videoReady ? null : (
           <Notice icon="logo-youtube">
             Plays through YouTube. Loading the player connects to Google, which may set cookies.
           </Notice>
@@ -186,8 +175,6 @@ const styles = StyleSheet.create({
   scripturesLabel: { fontFamily: font.semibold, color: c.text },
   written: { marginTop: space.md },
   from: { gap: space.sm },
-  source: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: space.sm },
-  sourceText: { ...type.meta, color: c.muted, maxWidth: "100%" },
-  link: { flexDirection: "row", alignItems: "center", gap: 4, minHeight: 32 },
+  link: { flexDirection: "row", alignItems: "center", alignSelf: "flex-start", gap: 4, minHeight: 32 },
   linkText: { ...type.meta, fontFamily: type.label.fontFamily, color: c.accent },
 });

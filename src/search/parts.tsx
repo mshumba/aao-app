@@ -1,13 +1,13 @@
 import { memo, useMemo, type ReactNode } from "react";
 import { Platform, StyleSheet, View, useWindowDimensions } from "react-native";
 import { catalogueMode, useCatalogue } from "../catalogue/CatalogueProvider";
-import { eventLine, headline } from "../data/display";
+import { headline, sermonKicker } from "../data/display";
 import { sermonsInTopic, type Sermon } from "../data/sermons";
 import { Artwork, NeedChip, spokenText } from "../kit";
 import { Spark } from "../kit/Spark";
 import { searchSermonMeta, useTopics, type Need, type SearchSermon } from "../learning";
 import { useGo } from "../navigation";
-import { sermonCount, topicHref } from "../topics";
+import { topicHref } from "../topics";
 import { c, font, radius, shadows, tabular, textCap, type } from "../theme";
 import { Heading, Icon, SermonTitle, T, Tap, TextButton, nowrap, type IconName } from "../ui";
 
@@ -26,20 +26,21 @@ import { Heading, Icon, SermonTitle, T, Tap, TextButton, nowrap, type IconName }
 export const ListHeading = memo(function ListHeading({
   title,
   count,
-  spokenCount,
   countTestID,
   action,
 }: {
   title: string;
+  /**
+   * How many it lists, read to screen readers after the heading and not
+   * drawn: the rows are right under it ("1 sermon", "Top 14 of 40 moments").
+   */
   count?: string;
-  /** How the count is read ("14 moments found" for "14 found"). */
-  spokenCount?: string;
   countTestID?: string;
   action?: { label: string; onPress: () => void; hint?: string };
 }) {
   return (
     <View style={styles.heading}>
-      {/* Wrapping beside the count, its last word never stands alone. */}
+      {/* Its last word never stands alone. */}
       <Heading level={2} style={styles.headingTitle} maxFontSizeMultiplier={textCap.section}>
         {title.replace(/ (?=\S+$)/, "\u00a0")}
       </Heading>
@@ -48,25 +49,9 @@ export const ListHeading = memo(function ListHeading({
           <TextButton label={action.label} onPress={action.onPress} hint={action.hint} align="end" />
         </View>
       ) : count ? (
-        Platform.OS === "web" && spokenCount && spokenCount !== count ? (
-          // The web drops a label on plain text: the words are read from an
-          // unseen copy, and the visible count is hidden from screen readers.
-          <View style={styles.countWrap}>
-            <T testID={countTestID} style={styles.count} aria-hidden maxFontSizeMultiplier={textCap.section}>
-              {count}
-            </T>
-            <T style={styles.hidden}>{spokenCount}</T>
-          </View>
-        ) : (
-          <T
-            testID={countTestID}
-            style={[styles.count, styles.countWrap]}
-            accessibilityLabel={spokenCount ?? count}
-            maxFontSizeMultiplier={textCap.section}
-          >
-            {count}
-          </T>
-        )
+        <T testID={countTestID} style={styles.hidden}>
+          {count}
+        </T>
       ) : null}
     </View>
   );
@@ -74,7 +59,7 @@ export const ListHeading = memo(function ListHeading({
 
 // ---- Sermon rows ------------------------------------------------------------------------
 
-/** A sermon from the catalogue: art, headline, event and date. */
+/** A sermon from the catalogue: art, headline, its kicker (sermonKicker), date and length. */
 export const SermonResult = memo(function SermonResult({
   sermon,
   onOpen,
@@ -85,8 +70,7 @@ export const SermonResult = memo(function SermonResult({
   first?: boolean;
 }) {
   const title = headline(sermon);
-  const event = eventLine(sermon);
-  const meta = [event, sermon.date && nowrap(sermon.date), sermon.duration && nowrap(sermon.duration)]
+  const meta = [sermonKicker(sermon), sermon.date && nowrap(sermon.date), sermon.duration && nowrap(sermon.duration)]
     .filter(Boolean)
     .join(" · ");
   return (
@@ -314,19 +298,19 @@ export const TopicCards = memo(function TopicCards() {
       .map(({ topic, list }) => {
         const peek = list.find((s) => !used.has(s.id)) ?? list[0];
         if (peek) used.add(peek.id);
-        return { topic, count: list.length, peek };
+        return { topic, peek };
       });
   }, [sermons, topics]);
   if (!cards.length) return null;
   return (
     <View>
       <ListHeading title="Browse by topic" />
-      <View style={styles.grid}>
-        {cards.map(({ topic, count, peek }) => (
+      <View style={styles.grid} testID="topic-cards">
+        {cards.map(({ topic, peek }) => (
           <Tap
             key={topic.id}
             accessibilityRole="button"
-            accessibilityLabel={`${topic.label}, ${sermonCount(count)}`}
+            accessibilityLabel={topic.label}
             accessibilityHint={topic.description}
             onPress={() => go.push(topicHref(topic.id))}
             unstable_pressDelay={60}
@@ -342,7 +326,6 @@ export const TopicCards = memo(function TopicCards() {
               <T style={styles.topicName} maxFontSizeMultiplier={textCap.section}>
                 {topic.label}
               </T>
-              <T style={styles.topicCount}>{sermonCount(count)}</T>
             </View>
           </Tap>
         ))}
@@ -446,10 +429,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   headingTitle: { ...type.sectionSmall, color: c.text, flexShrink: 1, minWidth: 0 },
-  countWrap: { marginLeft: "auto" },
   headingAction: { marginVertical: -14 },
-  // The count keeps to one line; the title wraps instead.
-  count: { ...type.meta, color: c.muted, flexShrink: 0, ...tabular },
 
   sermon: {
     flexDirection: "row",
@@ -510,7 +490,6 @@ const styles = StyleSheet.create({
   },
   topicText: { padding: 16, paddingBottom: 44 },
   topicName: { ...type.sectionSmall, color: c.text },
-  topicCount: { ...type.metaSmall, color: c.mutedOnFeature, marginTop: 6 },
   // The doc's Peek: one tile at -8°, clipped by the card's corner.
   peek: {
     position: "absolute",

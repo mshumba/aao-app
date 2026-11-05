@@ -38,7 +38,7 @@ import {
   SafeAreaView,
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
-import { eventLine, eventParts, headline } from "./data/display";
+import { headline, kickerParts, sermonKicker } from "./data/display";
 import { Sermon } from "./data/sermons";
 import { useReducedMotion } from "./motion";
 import { useGo, usePageTitle } from "./navigation";
@@ -1056,12 +1056,12 @@ function useStackedRows(art: number) {
 
 /**
  * What a sermon reads aloud as one element. `shown` is the title and kicker a
- * row draws instead of the headline and event line (a series page's "Day 4 ·
- * Morning"), so the label says what's on screen.
+ * row draws instead of the headline and its kicker (a series page's "Day 4
+ * · Morning"), so the label says what's on screen.
  */
 export function sermonLabel(sermon: Sermon, shown?: { title: string; kicker: string | null }) {
   const title = shown ? spokenKicker(shown.title) : headline(sermon);
-  const kicker = shown ? shown.kicker && spokenKicker(shown.kicker) : eventLine(sermon);
+  const kicker = shown ? shown.kicker && spokenKicker(shown.kicker) : sermonKicker(sermon);
   return `${title}. ${[kicker, sermon.date, spokenDuration(sermon.duration)].filter(Boolean).join(", ")}.`;
 }
 
@@ -1078,7 +1078,7 @@ export function sermonMeta(sermon: Pick<Sermon, "day" | "date" | "duration">, no
 /**
  * The list unit for sermons, everywhere a list of them appears (Home's
  * latest, All sermons, Saved, a series, a topic, More sermons): 16:9 artwork
- * on the leading side, then the event as a gold kicker, the headline (two
+ * on the leading side, then a gold kicker (sermonKicker), the headline (two
  * lines, see SermonTitle) and the date and length. At large text the
  * artwork moves above the words. One accessible element.
  *
@@ -1098,7 +1098,7 @@ export const SermonRow = memo(function SermonRow({
   sermon: Sermon;
   /** Replaces the headline ("Day 4 · Morning" on a series page). */
   title?: string;
-  /** Replaces the event line as the kicker ("Part 2", "Session 3"). */
+  /** Replaces the sermon's own kicker ("Part 2", "Session 3"). */
   kicker?: string | null;
   /** A line under the date ("1 hr 12 min left"), in navy. */
   detail?: string | null;
@@ -1113,10 +1113,10 @@ export const SermonRow = memo(function SermonRow({
   const { width } = useWindowDimensions();
   const art = rowArtWidth(width);
   const stacked = useStackedRows(art);
-  const top = kicker === undefined ? eventLine(sermon) : kicker;
-  // Kept to one line beside the artwork: the event gives way, and the
+  const top = kicker === undefined ? sermonKicker(sermon) : kicker;
+  // Kept to one line beside the artwork: the preacher gives way, and the
   // session ("Day 2 Morning") that tells a gathering's rows apart stays.
-  const split = kicker === undefined && !stacked ? eventParts(sermon) : null;
+  const split = kicker === undefined && !stacked ? kickerParts(sermon) : null;
   const label = sermonLabel(sermon, title === undefined ? undefined : { title, kicker: top });
   return (
     <Tap
@@ -1169,7 +1169,7 @@ export const SermonRow = memo(function SermonRow({
 
 /**
  * A sermon as a card in a horizontal rail: artwork above, then the headline
- * and a line under it (the event line by default).
+ * and a line under it (its kicker by default, then the date).
  */
 export const SermonCard = memo(function SermonCard({
   sermon,
@@ -1179,12 +1179,12 @@ export const SermonCard = memo(function SermonCard({
 }: {
   sermon: Sermon;
   width: number;
-  /** The line under the headline; the event line by default. */
+  /** The line under the headline; its kicker (sermonKicker) by default. */
   detail?: string;
   testID?: string;
 }) {
   const go = useGo();
-  const meta = detail ?? eventLine(sermon);
+  const meta = detail ?? sermonKicker(sermon);
   return (
     <Tap
       testID={testID}

@@ -27,7 +27,7 @@ import {
   afterAuthParam,
   useAuthTask,
 } from "../auth/ui";
-import { eventLine, headline } from "../data/display";
+import { headline, sermonKicker } from "../data/display";
 import { useCatalogue } from "../catalogue/CatalogueProvider";
 import type { Sermon } from "../data/sermons";
 import { Artwork, CardFan, ItalicTitle, fanSize, spokenText } from "../kit";
@@ -381,18 +381,18 @@ function PathContext({ id }: { id: string }) {
 /** What was tapped, so the sheet reads as a step on the way to it. */
 function Context({ sermon }: { sermon: Sermon }) {
   const title = headline(sermon);
-  const event = eventLine(sermon);
+  const kicker = sermonKicker(sermon);
   return (
     <View
       style={styles.context}
       // One stop for VoiceOver and TalkBack; on the web the text reads in order.
       accessible={Platform.OS !== "web"}
-      accessibilityLabel={event ? `${title}. ${event}` : title}
+      accessibilityLabel={kicker ? `${title}. ${kicker}` : title}
     >
       <Artwork art={sermon} width={96} radius={10} fallback={sermon.collection} />
       <View style={styles.contextText}>
         <SermonTitle list title={title} />
-        {event ? <T style={s.meta}>{event}</T> : null}
+        {kicker ? <T style={s.meta}>{kicker}</T> : null}
       </View>
     </View>
   );

@@ -107,11 +107,7 @@ function NameForm({ initial }: { initial: string }) {
 
   return (
     <Page keyboard header={<Header back />}>
-      <PageTitle
-        kicker="Account"
-        title="Your name"
-        lead="Used to greet you in the app. Only you can see it."
-      />
+      <PageTitle title="Your name" lead="Used to greet you in the app. Only you can see it." />
       <View style={styles.form}>
         <AuthField
           id="name-input"

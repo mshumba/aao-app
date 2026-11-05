@@ -25,7 +25,6 @@ export {
   messagesLabel,
   teachingsLabel,
   searchSermonMeta,
-  trustLine,
   type ShownCard,
 } from "./format";
 export { nextDay } from "./progress";

@@ -119,7 +119,7 @@ export default function OnboardingName() {
             <FlowTitle
               title="What should we call you?"
               italic="call you"
-              lead="We’ll use your first name to greet you. You can change it in Account."
+              lead="We’ll use it to greet you."
             />
             <AuthField
               id="name-input"

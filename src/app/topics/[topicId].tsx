@@ -9,7 +9,7 @@ import { useTopics } from "../../learning";
 import { firstParam, useExitTo } from "../../navigation";
 import { MoreButton } from "../../search/parts";
 import { space } from "../../theme";
-import { TopicNotice, findTopic, sermonCount } from "../../topics";
+import { findTopic, sermonCount } from "../../topics";
 import { Header, Page, SermonRow, StatePanel } from "../../ui";
 
 /** Sermons listed at first, and how many more each "Show more" adds. */
@@ -17,10 +17,9 @@ const PAGE = 20;
 
 /**
  * A topic's sermons, the best match first, a page at a time, under a cover
- * made from them (as a series or a path is): "Topic · 412 sermons", the
- * topic's name and its line. How sermons come to be here is said once,
- * quietly, at the end. An old topic's id (a sample topic's, say) opens the
- * topic that replaced it.
+ * made from them (as a series or a path is): "Topic", the topic's name and
+ * its line. An old topic's id (a sample topic's, say) opens the topic that
+ * replaced it.
  */
 export default function TopicScreen() {
   const params = useLocalSearchParams<{ topicId: string | string[] }>();
@@ -58,13 +57,11 @@ export default function TopicScreen() {
       </Page>
     );
   const more = inTopic.length - shown;
-  // Counted once sermons' topics are known, and not while they're on the way.
-  const counted = tagsReady && !coming;
   return (
     <CoverPage
       testID="topic-page"
       title={topic.label}
-      kicker={counted ? `Topic · ${sermonCount(inTopic.length)}` : "Topic"}
+      kicker="Topic"
       lead={topic.description}
       fan={inTopic}
     >
@@ -81,9 +78,6 @@ export default function TopicScreen() {
               onPress={() => setShown((n) => n + PAGE)}
             />
           ) : null}
-          <View style={styles.notice}>
-            <TopicNotice />
-          </View>
         </>
       ) : coming ? (
         <StatePanel
@@ -120,5 +114,4 @@ export default function TopicScreen() {
 
 const styles = StyleSheet.create({
   rows: { gap: space.lg },
-  notice: { marginTop: space.xl },
 });

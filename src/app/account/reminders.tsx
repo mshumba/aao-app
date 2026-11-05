@@ -39,11 +39,7 @@ export default function RemindersScreen() {
 
   return (
     <Page header={<Header back />}>
-      <PageTitle
-        kicker="Account"
-        title="Daily reminder"
-        lead="One gentle note a day when your next day on a guided path is ready, at a time you choose. Nothing else: no new-sermon alerts and no offers."
-      />
+      <PageTitle title="Daily reminder" lead="One note a day when your next path day is ready. Nothing else." />
       {!reminders.supported ? (
         <Card tone="sand" style={styles.block} testID="reminders-web">
           <Heading level={2} style={styles.cardTitle}>
