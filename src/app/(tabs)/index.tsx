@@ -28,7 +28,7 @@ import { useAccount, useProgressOf, useSaved } from "../../auth/AccountProvider"
 import { useBlessingOnOpen } from "../../blessing";
 import { coverState, subscribeCover } from "../../blessing/schedule";
 import { catalogueMode, useCatalogue } from "../../catalogue/CatalogueProvider";
-import { seriesRails } from "../../data/sermons";
+import { latestSermons, seriesRails } from "../../data/sermons";
 import {
   CommonNeeds,
   ContinueRail,
@@ -59,12 +59,10 @@ import { useToast } from "../../toast";
 import { topicHref } from "../../topics";
 import { Notice, TextButton, dockScrollPadding, gradient, nowrap } from "../../ui";
 
-// The hero shows the four newest; "Latest" the next six.
+// The hero shows the four newest; "Latest" six, from the newest too
+// (latestSermons says why).
 const HERO = 4;
 const LATEST = 6;
-// A library this small (the bundled sample, offline) lists every sermon
-// after the newest under the hero too, so Home still has rows to browse.
-const SMALL = HERO + 4;
 /** Need chips on Home (Search lists the rest). */
 const HOME_NEEDS = 8;
 /** How far the ivory under the status bar fades out below it. */
@@ -113,22 +111,7 @@ export default function Home() {
   const member = !!account.user;
   const name = member ? account.displayName?.trim() || null : null;
   const newest = useMemo(() => sermons.slice(0, HERO), [sermons]);
-  // After the hero's: one sermon per series, so a conference's sessions
-  // don't fill the list (the series rail below holds them all).
-  const latest = useMemo(() => {
-    if (sermons.length <= SMALL) return sermons.slice(1);
-    const seen = new Set(sermons.slice(0, HERO).map((s) => s.seriesKey).filter(Boolean));
-    const out: (typeof sermons)[number][] = [];
-    for (const sermon of sermons.slice(HERO)) {
-      if (sermon.seriesKey) {
-        if (seen.has(sermon.seriesKey)) continue;
-        seen.add(sermon.seriesKey);
-      }
-      out.push(sermon);
-      if (out.length === LATEST) break;
-    }
-    return out;
-  }, [sermons]);
+  const latest = useMemo(() => latestSermons(sermons, LATEST), [sermons]);
   // The concept shows a few needs here; Search has them all.
   const homeNeeds = useMemo(() => needs.slice(0, HOME_NEEDS), [needs]);
   const rails = useMemo(
