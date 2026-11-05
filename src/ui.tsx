@@ -44,6 +44,7 @@ import { useReducedMotion } from "./motion";
 import { useGo, usePageTitle } from "./navigation";
 import { shortDay } from "./home/copy";
 import { useDockInset } from "./player/useDockInset";
+import { pressTint } from "./lib/pressTint";
 import { c, font, press, radius, shadows, space, tabular, textCap, type } from "./theme";
 export { c, T, web };
 
@@ -363,15 +364,8 @@ export function Tap({
     return {
       opacity: dims ? toward(resting, resting * 0.6) : resting,
       transform: [{ scale: shrink ? toward(1, 1 - shrink) : 1 }],
-      // The tint switches halfway rather than fading through a darker mix.
       ...(highlight && {
-        backgroundColor: live
-          ? pressed.interpolate({
-              inputRange: [0.5, 0.51],
-              outputRange: [ground, highlightColor],
-              extrapolate: "clamp",
-            })
-          : ground,
+        backgroundColor: live ? pressed.interpolate(pressTint(ground, highlightColor)) : ground,
       }),
       ...pressTransition,
     };
