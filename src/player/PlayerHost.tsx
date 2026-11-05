@@ -5,6 +5,7 @@ import {
   ActivityIndicator,
   BackHandler,
   Platform,
+  Pressable,
   StyleSheet,
   View,
   useWindowDimensions,
@@ -43,7 +44,13 @@ import {
   useStageOverlay,
 } from "./layout";
 import { clock, tapsReachPlayer, usePlayback, usePlayerSession } from "./PlayerProvider";
-import { VideoOverlay } from "./stage/VideoOverlay";
+import {
+  VideoOverlay,
+  YOUTUBE_LOGO_HEIGHT,
+  YOUTUBE_LOGO_WIDTH,
+  YOUTUBE_TOP_CLEAR,
+  decorative,
+} from "./stage/VideoOverlay";
 import { headline } from "../data/display";
 import { canRetry, playerError } from "./types";
 import { useDayDoneNotice } from "./dayDone";
@@ -68,6 +75,9 @@ export function PlayerHost() {
   const { sermon, engine, phase, cover, attempt, start, attach, onEvent, hold } =
     session;
   const pathname = usePathname();
+  // One lock for the dock's title and its video, so a double tap across
+  // them opens the sermon once.
+  const go = useGo();
   const full = !!sermon && session.stage === sermon.id;
   const isFullscreen = full && overlay.fullscreen;
   const rotateFullscreen = isFullscreen && turnsFullscreen(window);
@@ -120,6 +130,8 @@ export function PlayerHost() {
   if (full && phase === "error") return null;
   const f = fullFrame(window, insets);
   const videoHeight = isFullscreen ? fsHeight : full ? f.height : d.videoHeight;
+  const openSermon = () =>
+    go.push({ pathname: "/sermon/[id]", params: { id: sermon.id } });
   return (
     // box-none must stay a prop: react-native-web only honours it there, and
     // as a style this full-screen layer would swallow every tap in the app.
@@ -236,8 +248,9 @@ export function PlayerHost() {
             </Animated.View>
           )}
           {full && phase !== "error" ? <StageFullOverlay /> : null}
+          {!full ? <DockVideoTap onOpen={openSermon} /> : null}
         </View>
-        {!full && <DockBar compact={d.compact} />}
+        {!full && <DockBar compact={d.compact} onOpen={openSermon} />}
       </View>
     </View>
   );
@@ -311,6 +324,35 @@ function StageFullOverlay() {
 }
 
 /**
+ * A tap on the docked video opens the sermon's page, as a tap on its title
+ * does. Over YouTube's player it leaves YouTube's title strip and logo
+ * corner to YouTube, as the stage's overlay does, and it steps aside while
+ * only YouTube's own play button can start the video (tapsReachPlayer).
+ * Screen readers and keyboards have the title, so it isn't announced twice.
+ */
+function DockVideoTap({ onOpen }: { onOpen: () => void }) {
+  const session = usePlayerSession();
+  const { status } = usePlayback();
+  if (tapsReachPlayer(session.engine, status)) return null;
+  // A failed player shows only its poster, with nothing of YouTube's on it.
+  const youtube = session.engine === "youtube" && session.phase !== "error";
+  return (
+    <>
+      <Pressable
+        style={[styles.videoTap, youtube && styles.videoTapYouTube]}
+        onPress={onOpen}
+        {...decorative}
+        testID="dock-video-tap"
+      />
+      {/* Beside YouTube's logo corner, where the stage's times would be. */}
+      {youtube ? (
+        <Pressable style={styles.videoTapStrip} onPress={onOpen} {...decorative} />
+      ) : null}
+    </>
+  );
+}
+
+/**
  * The dock and its focused Close button are gone. On web, put keyboard focus
  * back on the page: the selected tab, or the screen's Back or Close.
  */
@@ -334,10 +376,9 @@ function afterClose() {
  * "Paused"), or while it plays how long is left ("1:12:04 left") over a
  * thin line of how far in it is.
  */
-function DockBar({ compact }: { compact: boolean }) {
+function DockBar({ compact, onOpen }: { compact: boolean; onOpen: () => void }) {
   const session = usePlayerSession();
   const playback = usePlayback();
-  const go = useGo();
   const sermon = session.sermon!;
   const playing = playback.playing;
   const failed = session.phase === "error";
@@ -367,9 +408,7 @@ function DockBar({ compact }: { compact: boolean }) {
         // The label replaces the text inside, so it carries the status too
         // (the word, not the ticking time).
         accessibilityLabel={`Open Now Playing: ${headline(sermon)}. ${status}`}
-        onPress={() =>
-          go.push({ pathname: "/sermon/[id]", params: { id: sermon.id } })
-        }
+        onPress={onOpen}
         feedback="dim"
         style={styles.barText}
       >
@@ -428,6 +467,16 @@ const styles = StyleSheet.create({
     boxShadow: shadows.floating,
   },
   video: { overflow: "hidden", backgroundColor: c.media },
+  videoTap: { ...StyleSheet.absoluteFill, cursor: "pointer" },
+  videoTapYouTube: { top: YOUTUBE_TOP_CLEAR, bottom: YOUTUBE_LOGO_HEIGHT },
+  videoTapStrip: {
+    position: "absolute",
+    left: 0,
+    right: YOUTUBE_LOGO_WIDTH,
+    bottom: 0,
+    height: YOUTUBE_LOGO_HEIGHT,
+    cursor: "pointer",
+  },
   gone: { display: "none" },
   offscreen: {
     position: "absolute",

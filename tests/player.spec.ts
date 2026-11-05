@@ -290,6 +290,61 @@ test("keyboard focus scrolls clear of the docked player", async ({ page }) => {
   }
 });
 
+test("a tap on the docked video opens its sermon, and YouTube keeps its title strip and logo corner", async ({
+  page,
+}) => {
+  await fakeYouTube(page);
+  await page.goto("/");
+  await rows(page).first().click();
+  await expect(page).toHaveURL(/\/sermon\//);
+  const sermon = page.url();
+  await page.getByRole("button", { name: watch, exact: true }).click();
+  await expect(page.getByTestId("playback-status")).toHaveText("Playing");
+  await page.getByRole("button", { name: "Back", exact: true }).click();
+  await expect(page.getByTestId("player-dock")).toBeVisible();
+  const video = (await page.getByTestId("fake-yt").boundingBox())!;
+  const under = (x: number, y: number) =>
+    page.evaluate(([x, y]) => {
+      const node = document.elementFromPoint(x, y);
+      return node?.closest('[data-testid="fake-yt"]')
+        ? "youtube"
+        : node?.closest('[data-testid="dock-video-tap"]')
+          ? "tap"
+          : "other";
+    }, [x, y]);
+  // YouTube's title strip and logo corner are still YouTube's.
+  expect(await under(video.x + video.width / 2, video.y + 10)).toBe("youtube");
+  expect(await under(video.x + video.width - 10, video.y + video.height - 10)).toBe("youtube");
+  const middle = { x: video.x + video.width / 2, y: video.y + video.height / 2 };
+  expect(await under(middle.x, middle.y)).toBe("tap");
+  // The centre opens the sermon's page, still playing in the same player.
+  await page.mouse.click(middle.x, middle.y);
+  await expect(page).toHaveURL(sermon);
+  await expect(page.getByTestId("player-full")).toBeVisible();
+  await expect(page.getByTestId("playback-status")).toHaveText("Playing");
+  const log = await ytLog(page);
+  expect(log.created).toBe(1);
+  expect(log.commands).not.toContain("pause");
+});
+
+test("while only YouTube's own play button can start it, the docked video stays YouTube's", async ({
+  page,
+}) => {
+  await fakeYouTube(page, { blockAutoplay: true });
+  await page.goto("/sermon/nUW8NT2Pe88");
+  await page.getByRole("button", { name: watch, exact: true }).click();
+  await expect(page.getByTestId("playback-status")).toHaveText("Tap Play to start", {
+    timeout: 6000,
+  });
+  await page.getByRole("button", { name: "Back", exact: true }).click();
+  await expect(page.getByTestId("dock-status")).toHaveText("Tap Play to start");
+  await expect(page.getByTestId("dock-video-tap")).toHaveCount(0);
+  // Once it plays, a tap on the video opens the sermon again.
+  await page.getByRole("button", { name: "Play", exact: true }).click();
+  await expect(page.getByTestId("dock-status")).toHaveText(/^\d+:\d\d left$/);
+  await expect(page.getByTestId("dock-video-tap")).toHaveCount(1);
+});
+
 test("when a browser refuses to start the video, the viewer is told how", async ({
   page,
 }) => {

@@ -24,11 +24,11 @@ const HIDE_AFTER_MS = 3000;
 /**
  * While YouTube's player is in use, its title strip at the top (~48pt) and
  * logo corner at the bottom-right (~96×44pt) stay clear of our buttons,
- * shading, and tap layer at all times.
+ * shading, and tap layer at all times (the dock's tap layer too).
  */
-const YOUTUBE_TOP_CLEAR = 48;
-const YOUTUBE_LOGO_WIDTH = 96;
-const YOUTUBE_LOGO_HEIGHT = 44;
+export const YOUTUBE_TOP_CLEAR = 48;
+export const YOUTUBE_LOGO_WIDTH = 96;
+export const YOUTUBE_LOGO_HEIGHT = 44;
 
 /** The times grow with the system text size up to this, and their boxes with them. */
 const TIME_TEXT_CAP = 1.3;
@@ -42,8 +42,11 @@ const MIN_RAIL = 72;
 const BOTTOM_SCRIM =
   "linear-gradient(0deg, rgba(15, 17, 21, 0.78) 0%, rgba(15, 17, 21, 0.34) 60%, rgba(15, 17, 21, 0) 100%)";
 
-/** Not announced or reachable by keyboard: the labelled backdrop is the one control. */
-const decorative = {
+/**
+ * Not announced or reachable by keyboard: another, labelled control does
+ * the same (here the backdrop; in the dock its title).
+ */
+export const decorative = {
   accessible: false,
   importantForAccessibility: "no",
   focusable: false,
