@@ -30,6 +30,32 @@ export function resumePoint(progress: WatchProgress | null) {
   return at;
 }
 
+/** Preaching that starts sooner than this has nothing worth skipping before it. */
+export const MESSAGE_MIN = 60;
+
+/** A preaching start must leave at least this much of the video after it. */
+export const MESSAGE_LEFT = 600;
+
+/**
+ * Where a sermon starts playing for a viewer with no place in it: where the
+ * Apostle starts preaching, after the worship and opening prayer, in whole
+ * seconds. `start` is a path day's teaching start or the sermon's card's
+ * preaching start, both read from its transcript and so approximate;
+ * `length` is the sermon's length in seconds (its listed length, which
+ * rounds down). Null, so it plays from the beginning, when there's no
+ * start, the length isn't known, the preaching starts within the first
+ * minute, or it leaves less than 10 minutes of the video: a start that late
+ * is more likely a misreading (a card written from part of a transcript, or
+ * a prayer meeting's closing words) than the message, would land in the part
+ * that counts as watched, and is never past the end.
+ */
+export function messageStart(start: number | null | undefined, length: number) {
+  if (start == null || !Number.isFinite(start) || !(length > 0)) return null;
+  const at = Math.floor(start);
+  if (at < MESSAGE_MIN || at > length - MESSAGE_LEFT) return null;
+  return at;
+}
+
 /** Watched part of the sermon, 0 to 1. */
 export function fraction(progress: WatchProgress) {
   if (!progress.durationSeconds) return 0;

@@ -186,7 +186,9 @@ export type HarnessSession = {
   attempt: number;
   start: number;
   resumedFrom: number;
-  load: (sermon: HarnessSermon, from?: number) => void;
+  messageFrom: number;
+  load: (sermon: HarnessSermon, from?: number, opening?: number) => void;
+  offerOpening: (sermonId: string, opening: number) => void;
   playWhenReady: () => void;
   retry: () => void;
   close: () => void;
@@ -240,6 +242,7 @@ export function mountPlayer(copy: WatchProgress[] = [], { hls = false, platform 
   };
   const appState: ((state: string) => void)[] = [];
   const opened: string[] = [];
+  const announced: string[] = [];
   const native = {
     Platform: { OS: platform },
     AppState: {
@@ -249,7 +252,11 @@ export function mountPlayer(copy: WatchProgress[] = [], { hls = false, platform 
         return { remove: () => appState.splice(appState.indexOf(listener), 1) };
       },
     },
-    AccessibilityInfo: { announceForAccessibility() {} },
+    AccessibilityInfo: {
+      announceForAccessibility: (text: string) => {
+        announced.push(text);
+      },
+    },
     Linking: {
       openURL: (url: string) => {
         opened.push(url);
@@ -298,6 +305,8 @@ export function mountPlayer(copy: WatchProgress[] = [], { hls = false, platform 
     timers,
     /** URLs opened outside the app. */
     opened,
+    /** What was announced to screen readers, in order. */
+    announced,
     /** PlayerProvider's own tapsReachPlayer. */
     tapsReachPlayer: provider.tapsReachPlayer as (engine: HarnessSession["engine"], status: string) => boolean,
     flush() {

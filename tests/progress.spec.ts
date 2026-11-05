@@ -1,6 +1,8 @@
 import type { Page } from "@playwright/test";
 import {
+  LENGTH,
   MEMBER,
+  SERMON,
   expect,
   fakeYouTube,
   pressControl,
@@ -250,20 +252,25 @@ test("docking, closing and leaving the app each save the place", async ({ page }
 test("docked on Home, the hero and Continue watching show the place just saved", async ({
   page,
 }) => {
-  await fakeYouTube(page);
+  // Home's newest sermon, at its real length.
+  await fakeYouTube(page, { duration: LENGTH[SERMON.pray] });
   await page.goto("/");
   const watch = shown(page.getByTestId("hero-watch"));
   await expect(watch).toHaveAccessibleName(/^Watch sermon: /);
   await expect(page.getByTestId("continue-watching")).toHaveCount(0);
   await watch.click();
   const id = page.url().split("/sermon/")[1];
-  await playUntil(page, 20);
+  // It starts where the preaching starts; 20 seconds on from there is a place.
+  await expect(page.getByTestId("playback-status")).toHaveText("Playing");
+  const [from] = (await ytLog(page)).starts;
+  expect(from).toBeGreaterThan(0);
+  await playUntil(page, from + 20);
   // Home follows only its own sermons' progress; docking saves one of them.
   await page.getByRole("button", { name: "Back", exact: true }).click();
   const dock = page.getByTestId("player-dock");
   await expect(dock).toBeVisible();
   await expect.poll(async () => (await savedFor(page, id))?.positionSeconds ?? 0)
-    .toBeGreaterThanOrEqual(20);
+    .toBeGreaterThanOrEqual(from + 20);
   const docked = (await savedFor(page, id))!.positionSeconds;
   await expect(watch).toHaveAccessibleName(new RegExp(`^Resume sermon: .+, from ${spoken(docked)}$`));
   await expect(shown(page.getByTestId("continue-card"))).toHaveCount(1);

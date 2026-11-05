@@ -72,7 +72,8 @@ const KEYS = {
   // v2: paths carry their kind (guided path or teaching series).
   paths: "aao.learning.paths.v2",
   moments: "aao.learning.moments.v1",
-  cards: "aao.learning.cards.v1",
+  // v2: cards carry where the preaching starts.
+  cards: "aao.learning.cards.v2",
   progress: (owner: string) => `aao.learning.progress.v1.${owner}`,
   recent: (owner: string) => `aao.learning.recent.v1.${owner}`,
 };

@@ -41,8 +41,12 @@ test("a path day starts where the Apostle starts preaching", async ({ page }) =>
   await expect(page).toHaveURL(new RegExp(`/sermon/${SERMON.dayOne}\\?path=${HABIT}&day=1$`));
   await expect(page.getByTestId("playback-status")).toHaveText("Playing");
   expect((await ytLog(page)).starts).toEqual([DAY_ONE_TEACHING]);
-  // Not a place of the viewer's, so nothing offers to start over.
+  // Not a place of the viewer's, so nothing offers to start over; it says
+  // where it started, and offers to play from the start.
   await expect(page.getByTestId("resume-note")).toHaveCount(0);
+  await expect(page.getByTestId("message-note")).toHaveText(
+    /^Started at the message\s*·\s*Play from the start$/,
+  );
   expect(await playhead(page)).toBeGreaterThanOrEqual(DAY_ONE_TEACHING);
 });
 

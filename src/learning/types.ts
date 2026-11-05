@@ -66,6 +66,13 @@ export type SermonCardData = {
   scriptures: string[];
   /** One line on who it would help most: "Believers who keep falling into the same sin." */
   forWhom: string;
+  /**
+   * Seconds into the video where the Apostle starts preaching, after the
+   * worship and opening prayer; null when the card has none. Read from the
+   * transcript, so approximate: the player only trusts it through
+   * `messageStart` (src/player/progress.ts).
+   */
+  preachingStart: number | null;
 };
 
 export type PathStatus = "draft" | "published";

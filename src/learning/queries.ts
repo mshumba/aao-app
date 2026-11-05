@@ -86,6 +86,7 @@ type CardRow = {
   main_points: string[] | null;
   scriptures: string[] | null;
   for_whom: string | null;
+  preaching_start: number | null;
 };
 type PathRow = {
   id: string;
@@ -150,10 +151,10 @@ export async function fetchMoments(youtubeId: string): Promise<Moment[]> {
   }));
 }
 
-/** A sermon's card (only what its page shows), or null when it has none. */
+/** A sermon's card (what its page shows, and where it starts playing), or null when it has none. */
 export async function fetchCard(youtubeId: string): Promise<SermonCardData | null> {
   const [row] = await table<CardRow>(
-    `sermon_cards?select=youtube_id,summary,main_points,scriptures,for_whom&youtube_id=eq.${encodeURIComponent(youtubeId)}&limit=1`,
+    `sermon_cards?select=youtube_id,summary,main_points,scriptures,for_whom,preaching_start&youtube_id=eq.${encodeURIComponent(youtubeId)}&limit=1`,
   );
   if (!row) return null;
   return {
@@ -162,6 +163,7 @@ export async function fetchCard(youtubeId: string): Promise<SermonCardData | nul
     mainPoints: row.main_points ?? [],
     scriptures: row.scriptures ?? [],
     forWhom: row.for_whom ?? "",
+    preachingStart: row.preaching_start ?? null,
   };
 }
 

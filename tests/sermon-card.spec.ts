@@ -27,6 +27,7 @@ const GARBLED: SermonCardData = {
   ],
   scriptures: [],
   forWhom: "Not enough transcript to say; the title suggests a teaching on Lucifer.",
+  preachingStart: null,
 };
 const EXCERPTS: SermonCardData = {
   youtubeId: "RmwJQKsQQMg",
@@ -42,6 +43,7 @@ const EXCERPTS: SermonCardData = {
   ],
   scriptures: ["Matthew 16:24-27", "Hebrews 10:39"],
   forWhom: "Believers who want to grow beyond new birth and learn to deny fleshly desires so their souls are saved.",
+  preachingStart: null,
 };
 const ELTON: SermonCardData = {
   youtubeId: "xMSzopDlBDk",
@@ -56,6 +58,7 @@ const ELTON: SermonCardData = {
   ],
   scriptures: ["Mark 9:41", "Matthew 25:40"],
   forWhom: "Believers and ministers who want to live with eternal reward in view and honour God's true messengers.",
+  preachingStart: null,
 };
 const MERCY: SermonCardData = {
   youtubeId: "c3gLtJ3054E",
@@ -80,6 +83,7 @@ const MERCY: SermonCardData = {
     "Exodus 3:7",
   ],
   forWhom: "Believers who want to intercede for the church and nation and approach God with repentance and sincerity.",
+  preachingStart: null,
 };
 const CAPTURED: SermonCardData = {
   youtubeId: "4_nYBsjQm74",
@@ -94,6 +98,7 @@ const CAPTURED: SermonCardData = {
   ],
   scriptures: [],
   forWhom: "Those wanting to join in worship at the Northern Ghana Apostolic Invasion; not a teaching resource.",
+  preachingStart: null,
 };
 
 const failCards = (page: Page) =>

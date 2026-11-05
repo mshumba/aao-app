@@ -15,10 +15,11 @@ const BOTTOM_SCRIM =
 
 /**
  * The sermon's 16:9 poster before the player loads: shows the artwork, the
- * centred 64pt white Play disc, a single Resume / Play-from badge when
- * applicable, and the bottom progress rail with gold moment dots. Serves as
- * the single accessible call to play ("Watch sermon", "Resume at 4:10", or
- * "Play from 1 hour 8 minutes 40 seconds").
+ * centred 64pt white Play disc, a single Resume / Play-from / message badge
+ * when applicable, and the bottom progress rail with gold moment dots.
+ * Serves as the single accessible call to play ("Watch sermon", "Resume at
+ * 4:10", or "Play from 1 hour 8 minutes 40 seconds"). `messageAt` is where
+ * it starts without a place of the viewer's: where the preaching starts.
  */
 export const Poster = memo(function Poster({
   sermon,
@@ -27,6 +28,7 @@ export const Poster = memo(function Poster({
   radius: corner,
   startAt = null,
   resumeAt = 0,
+  messageAt = null,
   watched = 0,
   left = 0,
   guest = false,
@@ -39,6 +41,7 @@ export const Poster = memo(function Poster({
   radius: number;
   startAt?: number | null;
   resumeAt?: number;
+  messageAt?: number | null;
   watched?: number;
   left?: number;
   guest?: boolean;
@@ -60,6 +63,9 @@ export const Poster = memo(function Poster({
     accessibilityLabel = `Resume at ${clock(resumeAt)}`;
     accessibilityHint = ask ?? "Plays the sermon from where you left off";
     badgeText = left > 0 ? `Resume · ${leftText(left)}` : "Resume";
+  } else if (messageAt) {
+    accessibilityHint = ask ?? `Starts where the preaching starts, at ${spokenTime(messageAt)}`;
+    badgeText = `Starts at the message · ${clockText(messageAt)}`;
   }
 
   const total = marks?.estimate || 0;
