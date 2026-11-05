@@ -7,7 +7,7 @@ import { SermonRow, T, Tap } from "../ui";
 import { seriesCaption } from "./copy";
 
 /**
- * "Latest sermons": the next few after the hero's, as the app's one sermon
+ * "Latest sermons": the newest few (latestSermons), as the app's one sermon
  * row (artwork, the event as a kicker, the headline, the date and length),
  * and "See all" for every sermon in the library, newest first.
  */

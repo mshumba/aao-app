@@ -409,6 +409,30 @@ export function seriesRails(
 }
 
 /**
+ * Home's "Latest sermons" from a list newest first: the newest `count`,
+ * from the very newest, so they repeat the hero's (the hero shows one at a
+ * time, and only as the viewer swipes; a list called Latest that began
+ * further back would read as out of date). A series' sermons on one day
+ * show as one, the newest, so a gathering's morning and evening don't fill
+ * the list, yet every recent day of it is there. See all and the series'
+ * card hold every session.
+ */
+export function latestSermons(list: readonly Sermon[], count: number) {
+  const days = new Set<string>();
+  const out: Sermon[] = [];
+  for (const sermon of list) {
+    if (out.length === count) break;
+    if (sermon.seriesKey) {
+      const day = `${sermon.seriesKey} ${sermon.day}`;
+      if (days.has(day)) continue;
+      days.add(day);
+    }
+    out.push(sermon);
+  }
+  return out;
+}
+
+/**
  * Sermons to suggest after this one: the rest of its series (the parts after
  * it first), then ones sharing a topic, then the newest.
  */

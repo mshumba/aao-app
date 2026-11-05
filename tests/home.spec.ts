@@ -278,6 +278,22 @@ test("the common needs open with hope, and the struggles are still there", async
   ]);
 });
 
+test("Latest sermons starts from the newest, the hero's first, with a series' one day as one", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await expect(heroWatch(page)).toHaveAccessibleName("Watch sermon: Pray Without Ceasing");
+  const latest = shown(page.getByTestId("latest-sermons"));
+  const names = latest.getByTestId("sermon-row");
+  // Apostolic Shift's Grand Finale and Day Two Morning were both on 23
+  // September: the later shows, and Day One (22 September) still does.
+  await expect(names).toHaveCount(3);
+  await expect(names.nth(0)).toHaveAccessibleName(/^Pray Without Ceasing\./);
+  await expect(names.nth(1)).toHaveAccessibleName(/^Apostolic Shift: Grand Finale\./);
+  await expect(names.nth(2)).toHaveAccessibleName(/^Apostolic Shift: Day One\./);
+  await expect(latest.getByRole("button", { name: "See all", exact: true })).toBeVisible();
+});
+
 test("Home ends with the library, with no line about the channel under it", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByTestId("start-here")).toBeVisible();

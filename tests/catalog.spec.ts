@@ -2,8 +2,11 @@ import { expect, test } from "@playwright/test";
 import { editorialHeadlines } from "../src/catalogue/editorial";
 import { parseTitle } from "../src/catalogue/parseTitle";
 import { eventLine, eventParts, headline } from "../src/data/display";
+import type { SermonRecord } from "../src/catalogue/records";
 import {
+  compareNewest,
   fromTopics,
+  latestSermons,
   relatedSermons,
   sampleRecords,
   sampleSermons as sermons,
@@ -190,6 +193,89 @@ test("a row's one-line kicker keeps the session apart, so the event is what shor
     lead: "RCN Houston TX",
     session: null,
   });
+});
+
+/** The library's newest from late October 2026, as the catalogue lists them (newest first). */
+function lateOctober() {
+  const record = (
+    youtube_id: string,
+    published_at: string,
+    fields: Partial<SermonRecord> = {},
+  ): SermonRecord => ({
+    ...sampleRecords[0],
+    youtube_id,
+    published_at,
+    preached_on: null,
+    series_key: null,
+    part: null,
+    event: null,
+    session: null,
+    ...fields,
+  });
+  const capital = (part: number, preached_on: string) => ({
+    series_key: "spiritual-capital-conference-2026",
+    event: "Spiritual Capital Conference",
+    session: `Day ${part}`,
+    part,
+    preached_on,
+  });
+  const nations = (session: string, part: number, preached_on: string) => ({
+    series_key: "gathering-of-nations-2026",
+    event: "Gathering of Nations 2026",
+    session,
+    part,
+    preached_on,
+  });
+  return [
+    record("Zx2CrxN6-r8", "2026-10-30T13:00:09Z"),
+    record("Pr5vmCYz020", "2026-10-28T11:00:07Z"),
+    record("umNlS9T6ZEU", "2026-10-28T03:33:32Z", { preached_on: "2026-10-27" }),
+    record("GZ1w2N7_6jI", "2026-10-25T00:10:12Z", capital(3, "2026-10-24")),
+    record("hXov09CejNc", "2026-10-24T13:29:51Z", capital(2, "2026-10-23")),
+    record("-K8eEQDLUvw", "2026-10-23T03:48:45Z", capital(1, "2026-10-22")),
+    record("Lo8dc1IpGsM", "2026-10-21T03:23:26Z", { preached_on: "2026-10-20" }),
+    record("5ZF8r-zvhwg", "2026-10-07T00:25:18Z", nations("Day 2 Morning", 2, "2026-10-06")),
+    record("Xk1AicbKN_s", "2026-10-06T21:26:52Z", nations("Day 2 Evening", 2, "2026-10-06")),
+    record("Z1Xvtip8ZoE", "2026-10-05T20:15:39Z", nations("Day 1", 1, "2026-10-05")),
+    record("uG0fEPJPDMA", "2026-10-05T20:00:31Z"),
+  ]
+    .map((r) => toSermon(r))
+    .sort(compareNewest);
+}
+
+test("Home's latest sermons start from the newest, with every recent day of a conference", () => {
+  const list = lateOctober();
+  // The newest first, as the hero's first page is: the latest days of the
+  // Spiritual Capital Conference stay in, rather than the list starting on
+  // 20 October.
+  expect(latestSermons(list, 6).map((s) => `${s.id} ${s.day}`)).toEqual([
+    "Zx2CrxN6-r8 2026-10-30",
+    "Pr5vmCYz020 2026-10-28",
+    "umNlS9T6ZEU 2026-10-27",
+    "GZ1w2N7_6jI 2026-10-24",
+    "hXov09CejNc 2026-10-23",
+    "-K8eEQDLUvw 2026-10-22",
+  ]);
+  expect(latestSermons(list, 2).map((s) => s.id)).toEqual(["Zx2CrxN6-r8", "Pr5vmCYz020"]);
+});
+
+test("Home's latest sermons show a series' sessions on one day as one", () => {
+  const list = lateOctober().slice(6);
+  // Gathering of Nations' Day 2 morning and evening (6 October) show as the
+  // newer upload; its Day 1, and another sermon the same day, still show.
+  expect(latestSermons(list, 6).map((s) => s.id)).toEqual([
+    "Lo8dc1IpGsM",
+    "5ZF8r-zvhwg",
+    "Z1Xvtip8ZoE",
+    "uG0fEPJPDMA",
+  ]);
+  // The bundled sample: Apostolic Shift's Grand Finale and Day Two Morning
+  // were both on 23 September.
+  expect(latestSermons(sermons, 6).map((s) => s.id)).toEqual([
+    "nUW8NT2Pe88",
+    "H9sRbSUt0YE",
+    "WYiA7rjenVI",
+  ]);
 });
 
 test("series rails and related sermons follow the series order", () => {
