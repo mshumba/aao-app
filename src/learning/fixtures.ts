@@ -145,7 +145,7 @@ export const fixturePaths: Path[] = [
     why: "For the sin that keeps coming back: seven messages, one a day, from laying the weight aside to living from grace.",
     needs: ["same-sin", "temptation", "shame", "self-control"],
     minutesPerDay: 16,
-    // Test data: published so the "Order set by the ministry" state shows.
+    // Test data: a published path, as the ministry's own would be.
     status: "published",
     sort: 8,
     dayCount: 7,

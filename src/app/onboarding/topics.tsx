@@ -43,7 +43,7 @@ export default function OnboardingTopics() {
       <FlowTitle
         title="What would you like to grow in?"
         italic="grow in"
-        lead="Pick any that speak to you. We’ll put them first."
+        lead="Pick any that speak to you."
       />
       <TopicPicker value={value} onChange={setPicked} />
     </FlowScreen>

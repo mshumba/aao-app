@@ -15,18 +15,23 @@ const said = (text: string | null) => (text ? words(text).trim().split(" ") : []
  * says the series, event or session again ("Cameroon for Jesus", "IEC: Day
  * 2 Evening") gives way to the session, "Day 4 · Morning"; a real message
  * title stays, with the session as its small label. A guest preacher is
- * still named in the label. `shared` is what the series' rows all say (see
- * seriesRows).
+ * still named in the label (`speaker`: none when every row shares them, see
+ * seriesRows). `shared` is what the series' rows all say.
  */
-export function seriesRowText(sermon: Sermon, seriesName: string | null, shared: readonly string[] = []) {
+export function seriesRowText(
+  sermon: Sermon,
+  seriesName: string | null,
+  shared: readonly string[] = [],
+  speaker = sermon.speaker,
+) {
   const session = sermon.session ? sessionLabel(sermon.session) : null;
   const known = new Set([seriesName, sermon.event, sermon.session, ...shared].flatMap(said));
   // A word of its own makes a title; a bare date ("06 08 2021") doesn't.
   const titled = said(headline(sermon)).some((word) => /[a-z]/.test(word) && !known.has(word));
-  if (session && !titled) return { title: session, label: sermon.speaker };
+  if (session && !titled) return { title: session, label: speaker };
   return {
     title: headline(sermon),
-    label: [sermon.speaker, session].filter(Boolean).join(" · ") || null,
+    label: [speaker, session].filter(Boolean).join(" · ") || null,
   };
 }
 
@@ -37,16 +42,25 @@ export function seriesRowText(sermon: Sermon, seriesName: string | null, shared:
  * sessions, which read "Day 2 · Evening", and "Hospital Dedication" keeps its
  * title. Unless its rows would then read as another message does: Operation
  * Nigeria 2022's "Night Watch" after each day's session isn't a theme.
+ * Preachers every row shares (Spiritual Capital Conference 2026's "Dr. Arome
+ * Osayi & Rev. Philip Gbir") aren't named on each: a row names them only
+ * where they differ from the rest. Each row's `speaker` is what it names.
  */
 export function seriesRows(list: readonly Sermon[], seriesName: string | null) {
+  const same = list.every((sermon) => sermon.speaker === list[0].speaker);
+  const speakerOf = (sermon: Sermon) => (same ? null : sermon.speaker);
+  const rowOf = (sermon: Sermon, themes?: string[]) => {
+    const speaker = speakerOf(sermon);
+    return { sermon, speaker, ...seriesRowText(sermon, seriesName, themes, speaker) };
+  };
   const texts = list.map((sermon) => words(headline(sermon)));
   const counts = new Map<string, number>();
   for (const text of texts) counts.set(text, (counts.get(text) ?? 0) + 1);
   const themes = [...counts].filter(([, n]) => n > 1 && n * 2 >= list.length).map(([text]) => text);
-  const rows = list.map((sermon) => ({ sermon, ...seriesRowText(sermon, seriesName, themes) }));
+  const rows = list.map((sermon) => rowOf(sermon, themes));
   const others = new Set(rows.filter((_, i) => !themes.includes(texts[i])).map((row) => row.title));
   const clash = rows.some((row, i) => themes.includes(texts[i]) && others.has(row.title));
-  return clash ? list.map((sermon) => ({ sermon, ...seriesRowText(sermon, seriesName) })) : rows;
+  return clash ? list.map((sermon) => rowOf(sermon)) : rows;
 }
 
 // ---- A gathering, by day -------------------------------------------------------------
@@ -78,7 +92,10 @@ export type SessionRow = {
    * 2 · Evening" (as seriesRows).
    */
   title: string;
-  /** A guest preacher, and the time of day under a message's own title. */
+  /**
+   * A guest preacher (where the series' preachers differ), and the time of
+   * day under a message's own title.
+   */
   label: string | null;
 };
 
@@ -125,7 +142,7 @@ export function sessionDays(list: readonly Sermon[], seriesName: string | null) 
     const { day, rest } = splitSession(session);
     const titled = row.title !== sessionLabel(session);
     const under: SessionRow = titled
-      ? { sermon, title: row.title, label: [sermon.speaker, rest].filter(Boolean).join(" · ") || null }
+      ? { sermon, title: row.title, label: [row.speaker, rest].filter(Boolean).join(" · ") || null }
       : { sermon, title: rest, label: row.label };
     const last = days[days.length - 1];
     const joins = !!last && (day ? last.day === day : last.rows[0].sermon.day === sermon.day);

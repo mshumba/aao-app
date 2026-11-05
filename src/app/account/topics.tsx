@@ -41,15 +41,7 @@ export default function YourTopics() {
 
   return (
     <Page header={<Header back />}>
-      <PageTitle
-        kicker="Account"
-        title="Your topics"
-        lead={
-          account.user
-            ? "Pick any that speak to you. We’ll put them first wherever you’re signed in."
-            : "Pick any that speak to you. We’ll put them first on this device."
-        }
-      />
+      <PageTitle title="Your topics" lead="Pick any that speak to you." />
       <View style={styles.form}>
         <TopicPicker
           value={value}

@@ -13,13 +13,14 @@ test("the Paths tab lists teaching series in a section of their own", async ({ p
   await tab(page, "Paths").click();
   // The masthead and "More paths" are guided paths only.
   await expect(page.getByTestId("paths-featured")).toHaveAccessibleName(/^Start here\. 5 days\. Learning to wait on God\./);
-  await expect(shown(page.getByText("1 path", { exact: true }))).toBeVisible();
+  await expect(shown(page.getByRole("heading", { name: "More paths" }))).toBeVisible();
   const heading = shown(page.getByRole("heading", { name: "Teaching series" }));
   await expect(heading).toBeVisible();
-  await expect(shown(page.getByText("2 series", { exact: true }))).toBeVisible();
+  // No counts beside the headings: the rows are right there.
+  await expect(shown(page.getByText("2 series", { exact: true }))).toHaveCount(0);
   const spirit = page.getByTestId(`path-card-${SPIRIT}`);
   await expect(spirit).toContainText("4 teachings");
-  await expect(spirit).toHaveAccessibleName(/^Knowing the Holy Spirit\. 4 teachings\. The Apostle/);
+  await expect(spirit).toHaveAccessibleName("Knowing the Holy Spirit. 4 teachings.");
   const face = page.getByTestId(`path-card-${FACE}`);
   await expect(face).toContainText("1 teaching");
   // In order: the guided paths' cards, then the series.

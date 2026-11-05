@@ -314,7 +314,6 @@ function GuestHeader({ signedOut = false }: { signedOut?: boolean }) {
         <Heading level={1} style={styles.name} maxFontSizeMultiplier={textCap.display}>
           Account
         </Heading>
-        {signedOut ? <T style={s.meta}>Not signed in</T> : null}
       </View>
     </View>
   );

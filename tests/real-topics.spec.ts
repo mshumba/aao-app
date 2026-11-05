@@ -187,26 +187,28 @@ test.describe("Home, signed in", () => {
 test.describe("a topic's page", () => {
   test.use({ viewer: "guest" });
 
-  test("lists its sermons and says how they were matched", async ({ page }) => {
+  test("lists its sermons under its name and line", async ({ page }) => {
     await page.goto("/topics/purpose-calling");
     const topic = shown(page.getByTestId("topic-page"));
     await expect(topic.getByRole("heading", { level: 1, name: "Purpose & Calling" })).toBeVisible();
-    await expect(topic).toContainText("Topic · 1 sermon");
+    // "Topic", with no count: the rows are right under it.
+    await expect(shown(topic.getByText("Topic", { exact: true }))).toBeVisible();
+    await expect(topic).not.toContainText("1 sermon");
     await expect(topic).toContainText("Finding your assignment and walking in it.");
     expect(await rows(page).evaluateAll((els) => els.map((el) => el.getAttribute("aria-label")?.split(".")[0]))).toEqual([
       "Apostolic Shift: Day Two Morning",
     ]);
     // Short of a page, so there's nothing more to show.
     await expect(shown(page.getByRole("button", { name: /^Show / }))).toHaveCount(0);
-    await expect(
-      shown(page.getByText("Topics are matched automatically from each sermon’s transcript.", { exact: true })),
-    ).toBeVisible();
+    await expect(page.getByText(/matched automatically/)).toHaveCount(0);
   });
 
-  test("Search's topic cards count each topic's sermons and open its page", async ({ page }) => {
+  test("Search's topic cards name each topic, with no count, and open its page", async ({ page }) => {
     await page.goto("/search");
     await expect(shown(page.getByRole("heading", { name: "Browse by topic" }))).toBeVisible();
-    await shown(page.getByRole("button", { name: "Purpose & Calling, 1 sermon", exact: true })).click();
+    const card = shown(page.getByRole("button", { name: "Purpose & Calling", exact: true }));
+    await expect(card).not.toContainText("sermon");
+    await card.click();
     await expect(page).toHaveURL(/\/topics\/purpose-calling$/);
   });
 });

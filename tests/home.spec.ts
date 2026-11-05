@@ -244,16 +244,18 @@ test("not on a path: Home offers paths to start, opening with hope rather than s
   await expect(
     first.getByRole("button", { name: /^Start the path with day 1\. God is a King, not a servant\. / }),
   ).toBeVisible();
-  // Counted in days, as its promise and "Day 1" are.
+  // Counted in days, as "Day 1" is.
   await expect(first).toContainText("Start here · 5 days");
-  // A draft carries no label, and never claims the ministry set its order.
+  // A draft carries no label.
   await expect(first).toContainText("Learning to wait on God");
   await expect(first).not.toContainText(/Draft|awaiting ministry review/);
-  await expect(first).not.toContainText("Order set by the ministry");
-  // Habitual sin comes later, among the others; the ministry set its order.
+  // Not started, so nothing is counted done.
+  await expect(first.getByRole("button", { name: "Start here. 5 days. Learning to wait on God.", exact: true })).toBeVisible();
+  // Habitual sin comes later, among the others: its length and name, with
+  // no one-line description and no claim that the ministry set its order.
   await expect(rail.getByRole("heading", { name: "More paths" })).toBeVisible();
-  const habit = rail.getByRole("button", { name: /^Breaking free from habitual sin\./ });
-  await expect(habit).toContainText("Order set by the ministry");
+  const habit = rail.getByRole("button", { name: "Breaking free from habitual sin. 7 days.", exact: true });
+  await expect(habit).toHaveText(/^7 days\s*Breaking free from habitual\ssin$/i);
   await habit.click();
   await expect(page).toHaveURL(new RegExp(`/path/${HABIT}$`));
   await page.getByTestId("path-back").click();

@@ -83,9 +83,8 @@ export function pathWords(path: Pick<Path, "kind">) {
     /** "path" or "series", in sentences ("Your path", "Why this series"). */
     noun: series ? "series" : "path",
     /**
-     * "7 days" or "12 teachings": a path counts its days, as its promise
-     * ("Seven days…") and "Day 3 of 7" do; a conference, not a path, keeps
-     * "messages".
+     * "7 days" or "12 teachings": a path counts its days, as "Day 3 of 7"
+     * does; a conference, not a path, keeps "messages".
      */
     count: (n: number) => (series ? teachingsLabel(n) : `${n} day${n === 1 ? "" : "s"}`),
   };

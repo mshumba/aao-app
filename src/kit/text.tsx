@@ -8,12 +8,10 @@ import {
   type TextStyle,
   type ViewStyle,
 } from "react-native";
-import { trustLine } from "../learning/format";
-import type { PathStatus } from "../learning/types";
 import { c, font, textCap, type } from "../theme";
-import { Heading, Icon, T, TextButton, web } from "../ui";
+import { Heading, T, TextButton, web } from "../ui";
 import { splitItalic } from "./italic";
-import { spokenKicker, spokenText } from "./time";
+import { spokenKicker } from "./time";
 
 // ---- ItalicTitle -------------------------------------------------------------------
 
@@ -165,13 +163,12 @@ const prettyWrap = web({ textWrap: "pretty" }) as TextStyle;
 // ---- SectionHeader -----------------------------------------------------------------
 
 /**
- * A section's serif heading, with "See all" (navy, 44pt target) or a muted
- * count on the right, sharing the title's baseline.
+ * A section's serif heading, with "See all" (navy, 44pt target) on the
+ * right, sharing the title's baseline.
  */
 export const SectionHeader = memo(function SectionHeader({
   title,
   action,
-  count,
   kicker,
   size = "lg",
   inset = 0,
@@ -179,11 +176,9 @@ export const SectionHeader = memo(function SectionHeader({
 }: {
   title: string;
   action?: { label?: string; onPress: () => void; hint?: string };
-  /** "4 moments", "14 found". */
-  count?: string;
   kicker?: string;
-  /** "lg" 24/28 (Home); "md" 22/28 (Search results); "sermon" 24/28 (moments on a sermon). */
-  size?: "lg" | "md" | "sermon";
+  /** "lg" 24/28 (Home, a sermon's moments); "md" 22/28 (Search results). */
+  size?: "lg" | "md";
   /** Horizontal padding (24 when it sits directly on a page). */
   inset?: number;
   style?: StyleProp<ViewStyle>;
@@ -191,16 +186,10 @@ export const SectionHeader = memo(function SectionHeader({
   return (
     <View style={[{ paddingHorizontal: inset }, style]}>
       {kicker ? <Kicker style={styles.sectionKicker}>{kicker}</Kicker> : null}
-      {/* With a count, a title that needs the room keeps its line and the
-          count moves under it, rather than the title breaking. */}
-      <View style={[styles.sectionRow, !action && count ? styles.sectionWrap : null]}>
+      <View style={styles.sectionRow}>
         <Heading
           level={2}
-          style={[
-            size === "md" ? type.sectionSmall : type.section,
-            styles.sectionTitle,
-            !action && count ? styles.sectionTitleWhole : null,
-          ]}
+          style={[size === "md" ? type.sectionSmall : type.section, styles.sectionTitle]}
           maxFontSizeMultiplier={textCap.section}
         >
           {title}
@@ -209,52 +198,8 @@ export const SectionHeader = memo(function SectionHeader({
           <View style={styles.sectionAction}>
             <TextButton label={action.label ?? "See all"} onPress={action.onPress} hint={action.hint} align="end" />
           </View>
-        ) : count ? (
-          <T style={[styles.count, styles.countEnd, size === "sermon" && styles.countStrong]} numberOfLines={1}>
-            {count}
-          </T>
         ) : null}
       </View>
-    </View>
-  );
-});
-
-// ---- TrustLine -----------------------------------------------------------------------
-
-/**
- * Who set a path's order: "Order set by the ministry" (navy shield-check),
- * only when it's published. A draft shows nothing at all (no "Draft" label,
- * at the owner's request), so `extra` shows only beside the ministry's line.
- */
-export const TrustLine = memo(function TrustLine({
-  status,
-  extra,
-  tone = "light",
-  style,
-}: {
-  status: PathStatus;
-  /** Appended after a dot: "7 messages". */
-  extra?: string;
-  /** "dark" on the dark path cards and covers. */
-  tone?: "light" | "dark";
-  style?: StyleProp<ViewStyle>;
-}) {
-  const line = trustLine(status);
-  if (!line) return null;
-  const dark = tone === "dark";
-  const text = extra ? `${line.text} · ${extra}` : line.text;
-  // "Order set by the ministry. 7 messages."
-  const spoken = [line.text, extra ? spokenText(extra) : null].filter(Boolean).join(". ");
-  return (
-    <View
-      style={[styles.trust, style]}
-      accessible
-      accessibilityLabel={spoken}
-      // Web drops a label on an element with no role.
-      {...web({ role: "img" })}
-    >
-      <Icon name={line.icon} size={15} color={dark ? c.white : c.accent} />
-      <T style={[styles.trustText, dark && styles.trustOnDark]}>{text}</T>
     </View>
   );
 });
@@ -278,16 +223,8 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   sectionTitle: { flexShrink: 1, color: c.text },
-  sectionWrap: { flexWrap: "wrap", rowGap: 2 },
-  sectionTitleWhole: { flexShrink: 0, maxWidth: "100%" },
-  countEnd: { marginLeft: "auto" },
   // The text button is 48pt tall; pull it back so its label sits on the
   // title's baseline instead of pushing the row taller.
   sectionAction: { marginVertical: -14 },
-  count: { ...type.meta, color: c.muted, flexShrink: 0 },
-  countStrong: { fontFamily: font.semibold },
-  trust: { flexDirection: "row", alignItems: "center", gap: 6 },
-  trustText: { ...type.metaSmall, color: c.muted, flexShrink: 1 },
-  trustOnDark: { color: c.onMediaMuted },
   strong: { fontFamily: font.bold, color: c.text },
 });

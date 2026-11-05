@@ -10,7 +10,6 @@ import {
   PathProgress,
   PlayPill,
   SectionHeader,
-  TrustLine,
   Wash,
   spokenKicker,
   spokenText,
@@ -21,7 +20,6 @@ import { keepLastWord } from "../../kit/paths";
 import {
   doneLabel,
   nextDay,
-  trustLine,
   useEnrollment,
   usePaths,
   type Path,
@@ -79,18 +77,18 @@ type Row =
       /** The first under its heading (no hairline above it). */
       first: boolean;
     }
-  | { kind: "heading"; title: string; count: string };
+  | { kind: "heading"; title: string };
 
 /**
  * The Paths tab. A dark masthead under the status bar, built like a path's
- * own cover: "Paths", "Guided journeys, *one message a day*", then the path
+ * own cover: "Guided journeys, *one message a day*" (its name, "Paths", is
+ * the tab's, and read to screen readers as the page's heading), then the path
  * you're on with its fan, name and progress (or the first to start, with
  * its length by a clock: "12h") and a white "Continue Day 3" that plays
  * today's sermon, whole. On an ivory panel rising over it, every other path
  * as a row led by a small dark cover, then the teaching series in a section
  * of their own ("12 teachings"; one of a single teaching opens that
- * teaching). Drafts carry no label; the ministry's name is only claimed for
- * a published path.
+ * teaching). Drafts carry no label.
  */
 export default function PathsTab() {
   usePageTitle("Paths");
@@ -203,13 +201,13 @@ export default function PathsTab() {
     return series.length
       ? [
           ...guided,
-          { kind: "heading", title: "Teaching series", count: `${series.length} series` },
+          { kind: "heading", title: "Teaching series" },
           ...series,
         ]
       : guided;
   }, [paths, featured?.path.id, joined, progressFor, watchOf]);
-  const guidedCount = list.findIndex((row) => row.kind === "heading");
-  const morePaths = guidedCount === -1 ? list.length : guidedCount;
+  // Guided paths besides the featured one (the teaching series follow them).
+  const morePaths = list[0]?.kind === "card";
 
   // The rows whose tiles draw their fan (FanReach): each row reads it for
   // itself, so a scroll redraws only the rows it brings near.
@@ -259,11 +257,7 @@ export default function PathsTab() {
       <View style={[styles.panel, { width: "100%" }]}>
         <View style={styles.column}>
           {morePaths ? (
-            <SectionHeader
-              title={featured ? "More paths" : "Choose a path"}
-              count={`${morePaths} ${morePaths === 1 ? "path" : "paths"}`}
-              style={styles.section}
-            />
+            <SectionHeader title={featured ? "More paths" : "Choose a path"} style={styles.section} />
           ) : null}
           {loading && !paths.length ? <Placeholders /> : null}
           {!loading && !paths.length ? (
@@ -292,7 +286,7 @@ export default function PathsTab() {
     ({ item, index }) =>
       item.kind === "heading" ? (
         <View style={styles.column}>
-          <SectionHeader title={item.title} count={item.count} style={styles.seriesSection} />
+          <SectionHeader title={item.title} style={styles.seriesSection} />
         </View>
       ) : (
         <PathRow row={item} index={index} reach={reach} onOpen={openRow} />
@@ -339,8 +333,6 @@ const Masthead = memo(function Masthead({
   const words = pathWords(f?.path ?? { kind: "path" });
   // Never one word alone on the name's last line.
   const name = f ? keepLastWord(f.path.name, f.path.italic) : null;
-  // "Order set by the ministry" for a published path; a draft says nothing.
-  const trust = f ? trustLine(f.path.status) : null;
   const kicker = f
     ? f.mine
       ? `Your ${words.noun} · ${nowrap(`${words.unit} ${f.day} of ${f.total}`)}`
@@ -349,13 +341,14 @@ const Masthead = memo(function Masthead({
   const spoken = f
     ? f.mine
       ? `Your ${words.noun}. ${words.unit} ${f.day} of ${f.total}. ${f.path.name}. ${doneLabel(f.done.length, f.total)}.`
-      : `Start here. ${words.count(f.total)}. ${f.path.name}.${trust ? ` ${trust.text}.` : ""}${f.length ? ` ${totalTime(f.length).spoken}.` : ""}`
+      : `Start here. ${words.count(f.total)}. ${f.path.name}.${f.length ? ` ${totalTime(f.length).spoken}.` : ""}`
     : "";
   return (
     <View style={[styles.mast, { paddingTop: top + 18 }]} {...web({ dataSet: { dark: "true" } })}>
       <Wash kind="pathCover" />
       <View style={styles.mastHead}>
-        <Heading level={1} style={[styles.mastKicker]} maxFontSizeMultiplier={textCap.section}>
+        {/* The page's name for screen readers: the tab bar already shows it. */}
+        <Heading level={1} style={styles.unseen}>
           Paths
         </Heading>
         <ItalicTitle
@@ -387,7 +380,6 @@ const Masthead = memo(function Masthead({
               style={[type.coverTitle, styles.featuredName]}
               maxFontSizeMultiplier={textCap.display}
             />
-            {f.mine ? null : <TrustLine status={f.path.status} tone="dark" style={styles.trust} />}
             {!f.mine && f.length ? <TotalTime seconds={f.length} style={styles.length} /> : null}
           </Tap>
           {/* On it, how far: the kicker already says which day. Not started,
@@ -510,13 +502,13 @@ const styles = StyleSheet.create({
   },
   mast: { backgroundColor: c.media, overflow: "hidden", paddingBottom: 26 + OVERLAP },
   mastHead: { width: "100%", maxWidth: MAX_WIDTH, alignSelf: "center", paddingHorizontal: space.gutter },
-  mastKicker: { ...type.overline, color: c.onMediaKicker },
-  mastTitle: { color: c.white, marginTop: 6 },
+  // Read by screen readers, not drawn.
+  unseen: { position: "absolute", left: 0, top: 0, width: 1, height: 1, overflow: "hidden" },
+  mastTitle: { color: c.white },
   featured: { alignItems: "center", marginTop: 26, paddingHorizontal: space.gutter },
   featuredTap: { alignItems: "center", alignSelf: "stretch" },
   center: { textAlign: "center", marginTop: 14 },
   featuredName: { color: c.white, textAlign: "center", marginTop: 6 },
-  trust: { marginTop: 8, justifyContent: "center" },
   length: { marginTop: 8 },
   progress: { width: "100%", maxWidth: 300, marginTop: 16 },
   play: { marginTop: 18 },

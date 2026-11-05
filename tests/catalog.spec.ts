@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { editorialHeadlines } from "../src/catalogue/editorial";
 import { parseTitle } from "../src/catalogue/parseTitle";
-import { eventLine, eventParts, headline } from "../src/data/display";
+import { eventLine, headline, kickerParts, sermonKicker } from "../src/data/display";
 import type { SermonRecord } from "../src/catalogue/records";
 import {
   compareNewest,
@@ -119,13 +119,16 @@ test("every sermon has a short headline kept apart from its verified title", () 
     expect(headline(sermon).length).toBeLessThan(sermon.title.length);
     expect(headline(sermon)).not.toMatch(/\|/);
   }
-  // The hand-written event lines of 30 September 2026 still read the same.
+  // The hand-written event lines of 30 September 2026 still read the same
+  // in the About tab.
   expect(sermons.map(eventLine)).toEqual([
     "Lioness Conference · Grand Finale",
     "The Votage",
     "The Votage",
     "The Votage",
   ]);
+  // Over them in a list, only the session the headline doesn't say.
+  expect(sermons.map(sermonKicker)).toEqual(["Grand Finale", "", "", ""]);
   // Search still finds a sermon by words that are only in its exact title.
   expect(searchSermons(sermons, "votage").length).toBe(3);
   expect(searchSermons(sermons, "27th september").map((s) => s.id)).toEqual([
@@ -156,6 +159,7 @@ test("event lines name guest ministers and skip what the headline says", () => {
     video_ready_at: null,
   });
   expect(eventLine(sermon)).toBe("Rev. Anthony Audu");
+  expect(sermonKicker(sermon)).toBe("Rev. Anthony Audu");
   expect(sermon.duration).toBe("1 hr");
   expect(sermon.thumbnail).toBe("https://i.ytimg.com/vi/abcdefghijk/hqdefault.jpg");
   const fast = toSermon({
@@ -167,11 +171,13 @@ test("event lines name guest ministers and skip what the headline says", () => {
     venue: "RCN Houston TX",
   });
   expect(eventLine(fast)).toBe("RCN Houston TX");
+  // A list doesn't name the church.
+  expect(sermonKicker(fast)).toBe("");
 });
 
-test("a row's one-line kicker keeps the session apart, so the event is what shortens", () => {
-  // "Lioness Conference · Grand Finale".
-  expect(eventParts(sermons[0])).toEqual({ lead: "Lioness Conference", session: "Grand Finale" });
+test("a row's kicker names a guest minister and the session, never the event, service or venue", () => {
+  // "Lioness Conference · Grand Finale" in its About tab.
+  expect(kickerParts(sermons[0])).toEqual({ lead: "Grand Finale", session: null });
   const day = toSermon({
     ...sampleRecords[0],
     youtube_id: "cdefghijklm",
@@ -180,19 +186,21 @@ test("a row's one-line kicker keeps the session apart, so the event is what shor
     session: "Day 2 Morning",
     speaker: null,
   });
-  expect(eventParts(day)).toEqual({ lead: "Gathering of Nations 2026", session: "Day 2 Morning" });
+  // The session tells a gathering's look-alike sermons apart.
+  expect(sermonKicker(day)).toBe("Day 2 Morning");
   expect(eventLine(day)).toBe("Gathering of Nations 2026 · Day 2 Morning");
-  // A guest minister leads, and shortens with the event.
-  expect(eventParts({ ...day, speaker: "Rev. Anthony Audu" })).toEqual({
-    lead: "Rev. Anthony Audu · Gathering of Nations 2026",
+  // A guest minister leads, and is what shortens on one line.
+  expect(kickerParts({ ...day, speaker: "Rev. Anthony Audu" })).toEqual({
+    lead: "Rev. Anthony Audu",
     session: "Day 2 Morning",
   });
-  // A session on its own is the whole line, as is a venue with nothing else.
-  expect(eventParts({ ...day, event: null })).toEqual({ lead: "Day 2 Morning", session: null });
-  expect(eventParts({ ...day, event: null, session: null, venue: "RCN Houston TX" })).toEqual({
-    lead: "RCN Houston TX",
-    session: null,
-  });
+  expect(sermonKicker({ ...day, speaker: "Rev. Anthony Audu" })).toBe("Rev. Anthony Audu · Day 2 Morning");
+  // An event, service, church or venue alone says nothing.
+  expect(sermonKicker({ ...day, session: null })).toBe("");
+  expect(sermonKicker({ ...day, event: "Tuesday Service", session: null, venue: "RCN Minnesota" })).toBe("");
+  expect(sermonKicker({ ...day, event: null, session: null, venue: "RCNLagos" })).toBe("");
+  // The About tab still names a venue when there's nothing else to say.
+  expect(eventLine({ ...day, event: null, session: null, venue: "RCN Houston TX" })).toBe("RCN Houston TX");
 });
 
 /** The library's newest from late October 2026, as the catalogue lists them (newest first). */

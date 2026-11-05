@@ -8,7 +8,6 @@ import { CardFan } from "../kit";
 import { useGo } from "../navigation";
 import { useDockInset } from "../player/useDockInset";
 import { space, textCap, type } from "../theme";
-import { sermonCount } from "../topics";
 import { Button, Header, Heading, Page, PageTitle, SermonRow, StatePanel, T, TextButton, c, web } from "../ui";
 
 export default function Saved() {
@@ -41,14 +40,7 @@ export default function Saved() {
 
   return (
     <Page header={<Header back />}>
-      <PageTitle
-        title="Saved"
-        lead={
-          !loading && account.user && !saved.savedError && list.length
-            ? `${sermonCount(list.length)}, the most recently saved first.`
-            : undefined
-        }
-      />
+      <PageTitle title="Saved" />
       {loading ? (
         <View style={styles.loading}>
           <ActivityIndicator color={c.accent} accessibilityLabel="Loading saved sermons" />

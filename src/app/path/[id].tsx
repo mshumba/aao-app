@@ -9,7 +9,7 @@ import { useCatalogue } from "../../catalogue/CatalogueProvider";
 import { Kicker, RoundButton, StickyCTA, useStickyCTASpace } from "../../kit";
 import { BAND, CoverBand, CoverNav, CoverRoom, useCoverScroll } from "../../kit/CoverPage";
 import { useStatusBar } from "../../kit/statusBar";
-import { nextDay, trustLine, useEnrollment, usePath, type PathDayWithSermon } from "../../learning";
+import { nextDay, useEnrollment, usePath, type PathDayWithSermon } from "../../learning";
 import { firstParam, useExitTo, useGo, usePageTitle } from "../../navigation";
 import { DayCompleteSheet } from "../../paths/DayCompleteSheet";
 import { DayCarousel, type DayItem } from "../../paths/DayCarousel";
@@ -49,10 +49,9 @@ const WHY_LINES = 3;
  * that opens on today's with the next day at its edge (the owner: "see only
  * your day and the next day, and if you want to scroll ahead, scroll
  * ahead"), today's with its "Mark Day 3 done" ring, then "Why this path" in
- * three lines, "Order set by the ministry" under it (published paths
- * only); and the navy
- * call to action, "Continue Day 3 · 48 min left" or "Start Day 1 · 2 hr 16
- * min". Every day plays its whole sermon, from where the viewer left off.
+ * three lines; and the navy call to action, "Continue Day 3 · 48 min left"
+ * or "Start Day 1 · 2 hr 16 min". Every day plays its whole sermon, from
+ * where the viewer left off.
  * Once a day is done (watched, or marked done) the page shows "Day 3 done."
  * A series counts teachings instead of days; one of a single teaching opens
  * that teaching.
@@ -325,7 +324,6 @@ export default function PathScreen() {
       : null;
 
   const column = Math.min(width, COLUMN);
-  const trust = trustLine(path.status);
   return (
     <View style={styles.screen}>
       {/* Pinned over the page once the cover's title has scrolled away. First
@@ -354,7 +352,7 @@ export default function PathScreen() {
           />
           <View style={styles.panel}>
             <DayCarousel days={items} focus={today ?? 1} column={column} active={focused} markDone={markDone} />
-            <WhyThis noun={words.noun} why={path.why} trust={trust?.text} />
+            <WhyThis noun={words.noun} why={path.why} />
           </View>
         </View>
         <CoverRoom layout={layout} top={top} padding={padding} />
@@ -424,12 +422,11 @@ export default function PathScreen() {
 }
 
 /**
- * "Why this path" in three lines, the rest a tap away when it runs long,
- * then who set the order, quietly under the prose (`trust`: published
- * paths only). Whether it runs long is measured: an unseen copy, whole,
- * against the three. Measuring it, and opening it, redraw only this.
+ * "Why this path" in three lines, the rest a tap away when it runs long.
+ * Whether it runs long is measured: an unseen copy, whole, against the
+ * three. Measuring it, and opening it, redraw only this.
  */
-const WhyThis = memo(function WhyThis({ noun, why, trust }: { noun: string; why: string; trust?: string }) {
+const WhyThis = memo(function WhyThis({ noun, why }: { noun: string; why: string }) {
   const [open, setOpen] = useState(false);
   const [heights, setHeights] = useState({ shown: 0, whole: 0 });
   const long = heights.whole > heights.shown + 2;
@@ -469,7 +466,6 @@ const WhyThis = memo(function WhyThis({ noun, why, trust }: { noun: string; why:
           <TextButton label={open ? "Show less" : "Read more"} align="start" onPress={() => setOpen((was) => !was)} />
         </View>
       ) : null}
-      {trust ? <T style={[styles.trust, long && styles.trustAfterMore]}>{trust}</T> : null}
     </View>
   );
 });
@@ -487,9 +483,6 @@ const styles = StyleSheet.create({
   whyKicker: { marginTop: 18, paddingHorizontal: space.gutter },
   why: { color: c.text, marginTop: 6, paddingHorizontal: space.gutter },
   whyMore: { paddingHorizontal: space.gutter - 2, marginTop: -4 },
-  trust: { ...type.caption, color: c.muted, marginTop: 8, paddingHorizontal: space.gutter },
-  // "Read more" brings its own room.
-  trustAfterMore: { marginTop: 0 },
   // The unseen copy "Why this path" is measured by, whole.
   measure: { position: "absolute", top: 0, left: 0, right: 0, opacity: 0, pointerEvents: "none" },
   nav: {

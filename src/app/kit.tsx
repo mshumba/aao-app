@@ -29,7 +29,6 @@ import {
   StickyCTA,
   Strong,
   TimeLeft,
-  TrustLine,
   Wash,
   durationText,
   leftText,
@@ -170,7 +169,6 @@ function Gallery() {
         {/* ---- 02 Search ------------------------------------------------------ */}
         <Label>02 · Search</Label>
         <View style={styles.pad}>
-          <Kicker>Search by what you need</Kicker>
           <ItalicTitle
             text="What are you going through?"
             italic="going through?"
@@ -212,7 +210,6 @@ function Gallery() {
         <SectionHeader
           title="Moments that speak to this"
           size="md"
-          count={result.data ? `${result.data.total.moments} found` : undefined}
           inset={24}
           style={styles.section}
         />
@@ -264,10 +261,7 @@ function Gallery() {
           />
         </View>
         <View style={styles.sheet}>
-          <View style={styles.whyRow}>
-            <Kicker>Why this path</Kicker>
-            <TrustLine status={habit.status} />
-          </View>
+          <Kicker>Why this path</Kicker>
           <ItalicTitle text={habit.why} italic="grace" style={[type.prose, { marginTop: 6 }]} />
           <DayTimeline days={days} style={{ marginTop: 14 }} />
         </View>
@@ -305,7 +299,7 @@ function Gallery() {
             fan={fan}
             onPress={noop}
           />
-          <SectionHeader title="Moments in this sermon" size="md" count="4 moments" style={{ marginTop: 20, marginBottom: 6, marginHorizontal: 4 }} />
+          <SectionHeader title="Moments in this sermon" size="md" style={{ marginTop: 20, marginBottom: 6, marginHorizontal: 4 }} />
           <MomentRow first at={3224} title="Victory over sin" quote={habitDays[2].keyQuote} state="past" onPress={noop} />
           <MomentRow at={4158} title="Win in your soul" quote="If you win in your soul you will win on the ground; if you lose in your soul you will lose on the ground." state="next" comingUpMinutes={4} onPress={noop} />
           <MomentRow first at={4384} title="Quietness within" quote="Do you have quietness within you? Because if you have quietness you will not feel any need to respond." onPress={noop} />
@@ -386,7 +380,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingTop: 20,
   },
-  whyRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 12 },
   stage: { backgroundColor: c.media, paddingHorizontal: 24, paddingTop: 24, paddingBottom: 56, overflow: "hidden" },
   by: { ...type.meta, color: "rgba(255,255,255,0.76)", marginTop: 4 },
   transport: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 20 },

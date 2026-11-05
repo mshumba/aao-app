@@ -367,16 +367,17 @@ function NowPlayingScreen({ sermon, link }: { sermon: Sermon; link: SermonParams
   );
 
   const shared = !account.user && account.guestWatch === "shared" && account.hasPass(sermon.id);
-  const baseKicker = pathDay
-    ? `${pathWords(pathDay.path).unit} ${pathDay.day.day}`
-    : inSeries && seriesPart > 0
-      ? `Teaching ${seriesPart}`
-      : sermon.date;
+  // Over the title: the day of the path it's playing as, else its date (a
+  // series' part is in its "Part of a series" panel).
+  const baseKicker = pathDay ? `${pathWords(pathDay.path).unit} ${pathDay.day.day}` : sermon.date;
+  const sharedAt = shared ? link.t : null;
   const kicker = shared
-    ? link.t != null
-      ? `Shared with you · at ${clockText(link.t)}`
+    ? sharedAt != null
+      ? `Shared with you · at ${clockText(sharedAt)}`
       : `Shared with you · ${baseKicker}`
     : baseKicker;
+  // The About tab gives the date only when the kicker doesn't.
+  const dateAbove = !pathDay && sharedAt == null;
 
   const openYouTube = useCallback(() => {
     const { session } = latest.current;
@@ -475,7 +476,7 @@ function NowPlayingScreen({ sermon, link }: { sermon: Sermon; link: SermonParams
 
   const aboutSlot = (
     <View>
-      <SermonDescription sermon={sermon} pathTheme={pathDay?.day.theme ?? null} />
+      <SermonDescription sermon={sermon} pathTheme={pathDay?.day.theme ?? null} showDate={!dateAbove} />
       {inSeries && !pathDay ? (
         <SeriesRow
           name={seriesName!}

@@ -1,21 +1,10 @@
 import { formatDay, formatDuration } from "../data/sermons";
-import type { PathStatus, SearchSermon, SermonCardData } from "./types";
+import type { SearchSermon, SermonCardData } from "./types";
 
 /**
  * Words the path and search screens share, so every screen says the same
- * thing the same way, and drafts are never presented as the ministry's.
+ * thing the same way.
  */
-
-/**
- * The line beside "Why this path". Only a published path may say the
- * ministry set its order; a draft says nothing (null), as the owner asked:
- * no "Draft" label anywhere.
- */
-export function trustLine(status: PathStatus) {
-  return status === "published"
-    ? { text: "Order set by the ministry", icon: "shield-checkmark-outline" as const }
-    : null;
-}
 
 /** "7 messages". */
 export function messagesLabel(count: number) {

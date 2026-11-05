@@ -68,8 +68,6 @@ export const MomentsSection = memo(function MomentsSection({
     <View testID="sermon-moments">
       <SectionHeader
         title="Moments in this sermon"
-        size="sermon"
-        count={`${moments.length} moment${moments.length === 1 ? "" : "s"}`}
         style={first ? styles.headerFirst : styles.header}
       />
       {current ? (

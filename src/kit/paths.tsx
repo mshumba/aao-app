@@ -1,12 +1,11 @@
 import { memo } from "react";
 import { StyleSheet, View, useWindowDimensions, type StyleProp, type ViewStyle } from "react-native";
-import type { PathStatus } from "../learning/types";
 import { c, font, fontSize, radius, shadows, tabular, textCap, type } from "../theme";
 import { Icon, T, Tap, nowrap, web } from "../ui";
 import { type ArtSource } from "./Artwork";
 import { CardFan, fanSize } from "./CardFan";
 import { PathProgress } from "./PathProgress";
-import { ItalicTitle, Kicker, TrustLine } from "./text";
+import { ItalicTitle, Kicker } from "./text";
 import { Wash } from "./Wash";
 import { spokenKicker, spokenText } from "./time";
 
@@ -55,12 +54,8 @@ type HomeCard = {
   todayLead?: string;
   /** Read before the play row's title ("Play today, day 3"). */
   playLabel?: string;
-  /**
-   * Who set the order, under the name (a path not started yet): "Order set
-   * by the ministry" when it's published; a draft shows nothing (TrustLine
-   * returns null, so there's no "Draft" label anywhere).
-   */
-  trust?: PathStatus;
+  /** A path not started yet ("Start here"): its label doesn't count days done. */
+  unstarted?: boolean;
   /** Opens the path. */
   onOpen: () => void;
   /** Plays today's day. */
@@ -71,8 +66,8 @@ type CompactCard = {
   /** Search's "A path for this". */
   variant: "compact";
   name: string;
-  /** "7 messages · You're on Day 3". */
-  meta: string;
+  /** "7 messages · You're on Day 3"; none for a path not started. */
+  meta?: string | null;
   fan: readonly (ArtSource | null | undefined)[];
   /** "A path for this" by default; null for none. */
   kicker?: string | null;
@@ -96,7 +91,7 @@ export const PathCardNavy = memo(function PathCardNavy(props: PathCardNavyProps)
       <Tap
         testID={testID}
         accessibilityRole="button"
-        accessibilityLabel={`${kicker ? `${kicker}. ` : ""}${name}. ${spokenText(spokenKicker(meta))}`}
+        accessibilityLabel={[kicker, name, meta && spokenText(spokenKicker(meta))].filter(Boolean).join(". ")}
         accessibilityHint="Opens the path"
         onPress={onPress}
         feedback="scaleLarge"
@@ -121,16 +116,18 @@ export const PathCardNavy = memo(function PathCardNavy(props: PathCardNavyProps)
 });
 
 /** The compact card's name and meta: two lines each, three for the name at large text. */
-function CompactLines({ name, meta }: { name: string; meta: string }) {
+function CompactLines({ name, meta }: { name: string; meta?: string | null }) {
   const { fontScale } = useWindowDimensions();
   return (
     <>
       <T style={styles.compactName} numberOfLines={fontScale >= 1.3 ? 3 : 2}>
         {name}
       </T>
-      <T style={styles.compactMeta} numberOfLines={2}>
-        {meta}
-      </T>
+      {meta ? (
+        <T style={styles.compactMeta} numberOfLines={2}>
+          {meta}
+        </T>
+      ) : null}
     </>
   );
 }
@@ -148,7 +145,7 @@ function HomePathCard(props: HomeCard & { testID?: string; style?: StyleProp<Vie
     todayMeta,
     todayLead = "Today",
     playLabel,
-    trust,
+    unstarted,
     onOpen,
     onPlay,
     testID,
@@ -177,7 +174,7 @@ function HomePathCard(props: HomeCard & { testID?: string; style?: StyleProp<Vie
       <Tap
         accessibilityRole="button"
         accessibilityLabel={`${spokenKicker(spoken)}. ${name}. ${
-          trust ? "" : `${done.length} of ${total} done.`
+          unstarted ? "" : `${done.length} of ${total} done.`
         }`.trim()}
         accessibilityHint="Opens the path"
         onPress={onOpen}
@@ -197,7 +194,6 @@ function HomePathCard(props: HomeCard & { testID?: string; style?: StyleProp<Vie
               style={[type.pathName, styles.homeName]}
               maxFontSizeMultiplier={textCap.section}
             />
-            {trust ? <TrustLine status={trust} tone="dark" style={styles.homeTrust} /> : null}
           </View>
         </View>
         <PathProgress total={total} done={done} current={day} partial={partial} tone="onDark" style={styles.homeSegs} />
@@ -309,7 +305,6 @@ const styles = StyleSheet.create({
   homeStack: { flexDirection: "column", alignItems: "flex-start", gap: 10 },
   homeText: { flex: 1, minWidth: 0 },
   homeTextStacked: { flex: 0, alignSelf: "stretch" },
-  homeTrust: { marginTop: 6 },
   homeName: { color: c.white, marginTop: 6 },
   homeSegs: { marginTop: 12 },
   next: {

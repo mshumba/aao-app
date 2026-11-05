@@ -388,7 +388,7 @@ test("a sermon's card shows on its About tab, as a description, not his words", 
   await expect(card.getByText(WRITTEN, { exact: true })).toBeVisible();
   // The player's notice is kept.
   const about = shown(page.getByTestId("about-sermon"));
-  await expect(about.getByText(/^Plays (through YouTube|in AAO’s own player)/)).toBeVisible();
+  await expect(about.getByText(/^Plays through YouTube/)).toBeVisible();
   // Read in this order: summary, who it's for, the heading, the points,
   // the scriptures, then where it's from.
   const top = async (locator: Locator) => (await locator.boundingBox())!.y;
@@ -418,7 +418,7 @@ test("a sermon without a card shows nothing in its place", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "In this sermon" })).toHaveCount(0);
   await expect(page.getByText(WRITTEN)).toHaveCount(0);
   const about = shown(page.getByTestId("about-sermon"));
-  await expect(about.getByText(/^Plays (through YouTube|in AAO’s own player)/)).toBeVisible();
+  await expect(about.getByText(/^Plays through YouTube/)).toBeVisible();
   await expect(shown(page.getByRole("heading", { level: 2, name: "More sermons" }))).toBeVisible();
 });
 
@@ -435,7 +435,7 @@ test("a card that can't be loaded leaves the page as it was, and loads on the ne
   await expect(page.getByTestId("sermon-card")).toHaveCount(0);
   await expect(page.getByText(WRITTEN)).toHaveCount(0);
   const about = shown(page.getByTestId("about-sermon"));
-  await expect(about.getByText(/^Plays (through YouTube|in AAO’s own player)/)).toBeVisible();
+  await expect(about.getByText(/^Plays through YouTube/)).toBeVisible();
   expect(errors).toEqual([]);
   // Back online, the next sermon opened brings its card…
   await page.evaluate(() => {

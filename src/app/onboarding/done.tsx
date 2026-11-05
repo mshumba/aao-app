@@ -16,7 +16,7 @@ import { useFinishFlow, useGate } from "../../auth/gate";
 import { setPendingIntent } from "../../auth/intent";
 import { FlowButton, FlowScreen } from "../../auth/ui";
 import { useCatalogue } from "../../catalogue/CatalogueProvider";
-import { eventLine, headline } from "../../data/display";
+import { headline, sermonKicker } from "../../data/display";
 import { fromTopics, sampleSermons, type Sermon } from "../../data/sermons";
 import { useMyTopics, type Topic } from "../../learning";
 import { useReducedMotion } from "../../motion";
@@ -145,7 +145,7 @@ export default function OnboardingDone() {
             {kicker ? <T style={styles.kicker}>{kicker}</T> : null}
             <SermonTitle list title={headline(sermon)} numberOfLines={0} />
             <T style={styles.meta}>
-              {[eventLine(sermon), nowrap(sermon.date)].filter(Boolean).join(" · ")}
+              {[sermonKicker(sermon), nowrap(sermon.date)].filter(Boolean).join(" · ")}
             </T>
           </View>
         </Tap>

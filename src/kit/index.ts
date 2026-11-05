@@ -5,7 +5,7 @@
  */
 export { Artwork, artCandidates, artUri, sizedArt, type ArtSource, type ArtworkProps } from "./Artwork";
 export { CardFan, fanSize, type FanSize } from "./CardFan";
-export { ItalicTitle, Kicker, Quote, SectionHeader, Strong, TrustLine, curly, splitItalic } from "./text";
+export { ItalicTitle, Kicker, Quote, SectionHeader, Strong, curly, splitItalic } from "./text";
 export type { ItalicTitleProps, KickerTone } from "./text";
 export { ChipRow, FilterChip, NeedChip, type ChipVariant } from "./chips";
 export { SearchField, type SearchFieldProps } from "./SearchField";

@@ -21,8 +21,8 @@ const fanScale = (tileH: number) => (tileH - 6) / fanSize("card").height;
 /**
  * A path on the Paths tab, as a row under the "Start here" masthead: a
  * small copy of the path page's dark cover (its fan under navy light),
- * then the name in serif, the one-line promise and "7 days · ◷ 18h" ("12
- * teachings" for a series), or, once started, where you are on it. A
+ * then the name in serif and "7 days · ◷ 18h" ("12 teachings" for a
+ * series), or, once started, where you are on it. A
  * hairline parts it from the row above (`first`: none). One element to
  * assistive tech. A row the list hasn't brought near the screen yet draws
  * its tile's navy alone (`fanned` false), as while its artwork loads, and
@@ -66,9 +66,8 @@ export const PathListCard = memo(function PathListCard({
       : progress.kind === "finished"
         ? "Finished"
         : null;
-  // One label, in words: "Breaking free from habitual sin. 7 days.
-  // <promise>."
-  const label = [path.name, spokenText(count), path.promise, status]
+  // One label, in words: "Breaking free from habitual sin. 7 days."
+  const label = [path.name, spokenText(count), status]
     .filter((part): part is string => !!part)
     .map((part) => part.trim().replace(/[.!?]$/, ""))
     .join(". ")
@@ -100,12 +99,6 @@ export const PathListCard = memo(function PathListCard({
           style={styles.name}
           maxFontSizeMultiplier={textCap.section}
         />
-        {/* A third line on a narrow phone, where the column is short. */}
-        {path.promise ? (
-          <T style={styles.promise} numberOfLines={narrow ? 3 : 2}>
-            {path.promise}
-          </T>
-        ) : null}
         {progress.kind === "on" ? (
           <PathProgress
             total={total}
@@ -159,7 +152,6 @@ const styles = StyleSheet.create({
     // Its first line sits level with the tile's top edge.
     marginTop: -3,
   },
-  promise: { ...type.meta, color: c.muted, marginTop: 2 },
   meta: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 6 },
   metaText: { ...type.metaSmall, color: c.muted, ...tabular },
   finished: { ...type.metaSmall, color: c.accent },
