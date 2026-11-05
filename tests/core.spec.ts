@@ -381,7 +381,7 @@ test("a double tap on a sermon opens it once", async ({ page }) => {
   await page.goto("/");
   await rows(page).first().dblclick();
   await expect(page.getByRole("heading", { level: 1 })).toContainText(
-    "Apostolic Shift",
+    "Pray Without Ceasing",
   );
   await page.getByRole("button", { name: "Back", exact: true }).click();
   await expect(
@@ -394,9 +394,12 @@ test("missing artwork falls back to the event name or an icon", async ({
 }) => {
   // The fixture blocks every YouTube image request.
   await page.goto("/");
-  // Home's rows name the event on the dark tile instead.
+  // Home's rows name the occasion on the dark tile instead, ahead of the
+  // row's words.
   await expect(rows(page)).toHaveCount(3);
-  for (const row of await rows(page).all()) await expect(row).toContainText("The Votage");
+  await expect(rows(page).nth(0)).toHaveText(/^Lioness Conference/);
+  await expect(rows(page).nth(1)).toHaveText(/^Apostolic Shift/);
+  await expect(rows(page).nth(2)).toHaveText(/^Apostolic Shift/);
   // Every list uses the same row, so a topic's rows do the same: the
   // occasion's name on the sermon's dark tile.
   await page.goto("/topics/purpose-calling");
