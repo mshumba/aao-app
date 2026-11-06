@@ -355,6 +355,8 @@ test.describe("on a path", () => {
     await expect(play).toHaveAccessibleName(/\. 9 minutes left$/);
     await play.click();
     await expect(page).toHaveURL(new RegExp(`/sermon/${SERMON.dayTwo}$`));
+    // The player is made once the page has settled, after the URL changes.
+    await expect(page.getByTestId("playback-status")).toHaveText("Playing");
     expect((await ytLog(page)).starts).toEqual([9670]);
     await expect(page.getByTestId("toast")).toContainText("Day 3 done", { timeout: 15_000 });
     await expect.poll(async () => (await storedPathProgress(page))?.done[HABIT]).toEqual([1, 2, 3]);
