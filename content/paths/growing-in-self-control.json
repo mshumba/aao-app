@@ -2,5 +2,56 @@
   "id": "growing-in-self-control",
   "kind": "path",
   "name": "Growing in self-control",
-  "needs": ["temptation", "self-control"]
+  "italic": "self-control",
+  "promise": "Five days to recognise temptation and practise self-control with the strength God supplies.",
+  "why": "For believers who want to respond differently when temptation comes. Begin with God's love and the grace that strengthens a willing heart, then learn how desires become openings for temptation. Identify the weights that hinder your walk, practise discipline in everyday choices and finish by looking to the Holy Spirit to establish Christ's rule within you. Each day brings a whole sermon, with a focus on one step towards a steadier life.",
+  "needs": ["temptation", "self-control"],
+  "minutes_per_day": 15,
+  "days": [
+    {
+      "youtube_id": "WdEJUCQu_uo",
+      "theme": "Begin with love and the strength grace supplies",
+      "focus_start": 300,
+      "focus_end": 1200,
+      "key_at": 846,
+      "key_title": "Strength for your commitments",
+      "key_quote": "So he supplies the strength for you to keep your commitments to him."
+    },
+    {
+      "youtube_id": "FGFtmPbRZCo",
+      "theme": "Recognise how temptation works through desire",
+      "focus_start": 540,
+      "focus_end": 1440,
+      "key_at": 983,
+      "key_title": "Learn to manage your desires",
+      "key_quote": "The laws of God help to unveil to us how to manage our desires."
+    },
+    {
+      "youtube_id": "vZCAT_AiUgc",
+      "theme": "Identify what is holding you back",
+      "focus_start": 773,
+      "focus_end": 1673,
+      "key_at": 1011,
+      "key_title": "Name the weights",
+      "key_quote": "We need to identify weights in our lives."
+    },
+    {
+      "youtube_id": "FbQeeCVCiy4",
+      "theme": "Practise discipline in everyday choices",
+      "focus_start": 2232,
+      "focus_end": 3192,
+      "key_at": 2386,
+      "key_title": "Self-control in all things",
+      "key_quote": "Everyone that is striving for mastery must be temperate in all things."
+    },
+    {
+      "youtube_id": "TwrFCXfp1SE",
+      "theme": "Let the Holy Spirit govern your choices",
+      "focus_start": 2550,
+      "focus_end": 3510,
+      "key_at": 3070,
+      "key_title": "Christ's rule within you",
+      "key_quote": "The Holy Spirit comes to establish the reign of Christ."
+    }
+  ]
 }
