@@ -2,7 +2,67 @@
   "id": "faithful-with-money",
   "kind": "path",
   "name": "Faithful with money",
+  "italic": "money",
+  "promise": "Six days of teaching to bring money worries to God and handle what you have faithfully.",
+  "why": "For believers worried about bills, an uncertain income or the pressure to have more. The Apostle begins with the Father who knows our needs, then teaches us to seek guidance in hard times and depend on God when our own resources are limited. The later days turn from ownership to stewardship, faithfulness and generosity, helping us consider both where our security rests and how we use what is in our hands.",
   "needs": [
     "money"
+  ],
+  "minutes_per_day": 15,
+  "days": [
+    {
+      "youtube_id": "OqiQ6T9SAUM",
+      "theme": "Your Father knows what you need",
+      "focus_start": 1800,
+      "focus_end": 2640,
+      "key_at": 2335,
+      "key_title": "Come to the Father by faith",
+      "key_quote": "So what Jesus was saying is that in relating with a God that knows, you relate with him by faith."
+    },
+    {
+      "youtube_id": "9xPFHLFT6ZA",
+      "theme": "Seek guidance when money is tight",
+      "focus_start": 1860,
+      "focus_end": 2760,
+      "key_at": 2511,
+      "key_title": "A heart of faith",
+      "key_quote": "You need a heart of faith to be able to deal with God."
+    },
+    {
+      "youtube_id": "UUlFrsyCodY",
+      "theme": "Bring your limits to the all-sufficient God",
+      "focus_start": 120,
+      "focus_end": 1020,
+      "key_at": 292,
+      "key_title": "The One who sustains",
+      "key_quote": "The one that sustains all but yet is sustained by none."
+    },
+    {
+      "youtube_id": "l1r3fhgeqrg",
+      "theme": "Hold resources as a steward",
+      "focus_start": 420,
+      "focus_end": 1320,
+      "key_at": 1071,
+      "key_title": "Stewardship rather than ownership",
+      "key_quote": "The call to prosperity is a call to stewardship and not ownership."
+    },
+    {
+      "youtube_id": "Sipn_guiz20",
+      "theme": "Let faithfulness guide your finances",
+      "focus_start": 0,
+      "focus_end": 900,
+      "key_at": 46,
+      "key_title": "Finances are a trust",
+      "key_quote": "So the issue of financial management in the Kingdom falls under the broad subject of stewardship."
+    },
+    {
+      "youtube_id": "88Xk2ZvoCP8",
+      "theme": "Become a channel of generosity",
+      "focus_start": 840,
+      "focus_end": 1740,
+      "key_at": 1550,
+      "key_title": "A channel in His hands",
+      "key_quote": "But you become a channel through which he can do it because you understand that you are a steward."
+    }
   ]
 }
