@@ -2,5 +2,56 @@
   "id": "walking-in-purity",
   "kind": "path",
   "name": "Walking in purity",
-  "needs": ["purity"]
+  "italic": "purity",
+  "promise": "Five days of teaching to help you resist lust, choose purity and grow in fellowship with God.",
+  "why": "For believers who want freedom from lust and a life that honours Jesus. Begin with the grace Christ provides, then settle your commitment before temptation comes. Learn when to leave a compromising situation, guard the life of your mind and grow in daily fellowship with the indwelling Holy Spirit. The days move from confidence in Christ to practical choices and a sustained relationship with Him.",
+  "needs": ["purity"],
+  "minutes_per_day": 15,
+  "days": [
+    {
+      "youtube_id": "r51yvbNt_1Y",
+      "theme": "Grace is stronger than lust",
+      "focus_start": 3000,
+      "focus_end": 3900,
+      "key_at": 3340,
+      "key_title": "Something stronger than sin",
+      "key_quote": "There is something stronger than sin. It is called grace."
+    },
+    {
+      "youtube_id": "AZ692dD9EP8",
+      "theme": "Choose purity before the pressure comes",
+      "focus_start": 4220,
+      "focus_end": 5120,
+      "key_at": 4887,
+      "key_title": "A relationship worth protecting",
+      "key_quote": "I have a living relationship with Jesus that I cannot trade for anything."
+    },
+    {
+      "youtube_id": "jt9du2l0ZoE",
+      "theme": "Give yourself permission to leave",
+      "focus_start": 4400,
+      "focus_end": 5300,
+      "key_at": 5028,
+      "key_title": "The strength to escape",
+      "key_quote": "I had to escape in order for me to be saved. I did a lot of escaping. May you have the strength to escape in the name of Jesus Christ."
+    },
+    {
+      "youtube_id": "tltlI5ZYKs0",
+      "theme": "Tend the life of your mind",
+      "focus_start": 1900,
+      "focus_end": 2800,
+      "key_at": 2538,
+      "key_title": "Keep tending the fire",
+      "key_quote": "The contamination of this world will corrupt you if you are not diligent to tend the fire."
+    },
+    {
+      "youtube_id": "_FH75a3Lacw",
+      "theme": "Grow in the life God has given you",
+      "focus_start": 1700,
+      "focus_end": 2600,
+      "key_at": 2036,
+      "key_title": "Alive to God",
+      "key_quote": "The same grace that makes you dead to sin is the same grace that makes you alive to God."
+    }
+  ]
 }
