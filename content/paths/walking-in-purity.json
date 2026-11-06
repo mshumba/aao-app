@@ -1,0 +1,6 @@
+{
+  "id": "walking-in-purity",
+  "kind": "path",
+  "name": "Walking in purity",
+  "needs": ["purity"]
+}
