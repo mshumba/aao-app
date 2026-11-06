@@ -1,0 +1,6 @@
+{
+  "id": "feeling-gods-presence",
+  "kind": "path",
+  "name": "Feeling God's presence",
+  "needs": ["presence"]
+}
