@@ -1,0 +1,60 @@
+{
+  "id": "hearing-the-voice-of-god",
+  "kind": "path",
+  "name": "Hearing the voice of God",
+  "italic": "voice of God",
+  "promise": "Five days to recognise how God speaks to you, and to answer.",
+  "why": "For believers who long to hear God but are unsure what his voice sounds like. The path explains the senses of the recreated spirit, how knowings and the inner voice work, how to tell his voice from your own, how Scripture becomes his voice, and why obedience keeps your hearing clear.",
+  "needs": [
+    "hear-god"
+  ],
+  "minutes_per_day": 14,
+  "sort": 1,
+  "days": [
+    {
+      "youtube_id": "32cOFekz4ds",
+      "theme": "Your spirit was made to hear God",
+      "focus_start": 3803.4,
+      "focus_end": 4545,
+      "key_at": 4125.2,
+      "key_title": "The voice within",
+      "key_quote": "That voice is not without. That voice is within."
+    },
+    {
+      "youtube_id": "G3UvVP7US-4",
+      "theme": "Knowings and the inner voice",
+      "focus_start": 2829,
+      "focus_end": 3731.2,
+      "key_at": 3065.1,
+      "key_title": "Small impressions",
+      "key_quote": "A little impression is a testimony to a mighty thing."
+    },
+    {
+      "youtube_id": "O1u7szjsr9s",
+      "theme": "Telling his voice from your own",
+      "focus_start": 2726.8,
+      "focus_end": 3689.2,
+      "key_at": 2883.4,
+      "key_title": "His voice or mine",
+      "key_quote": "You do not live by his explanations; you live by his instructions."
+    },
+    {
+      "youtube_id": "-VxddgaYe9o",
+      "theme": "Let Scripture slow you down to hear",
+      "focus_start": 1765.3,
+      "focus_end": 2613.7,
+      "key_at": 1787.1,
+      "key_title": "Slow down with Scripture",
+      "key_quote": "Don't be in a hurry with Scripture, because you just read it and you don't know that the scriptures are gateways to spirit dimensions."
+    },
+    {
+      "youtube_id": "AYsESvakKek",
+      "theme": "Obedience keeps your hearing clear",
+      "focus_start": 315.2,
+      "focus_end": 1159.1,
+      "key_at": 513.7,
+      "key_title": "Obey what you hear",
+      "key_quote": "The last time you heard God clearly, it was the last time you obeyed him."
+    }
+  ]
+}

@@ -1,0 +1,67 @@
+{
+  "id": "living-by-faith",
+  "kind": "series",
+  "name": "Living by faith",
+  "italic": "by faith",
+  "promise": "Six teachings that take faith from what it is to how it holds, real and steady, through every season.",
+  "why": "For believers who want faith that is real and steady, not hype. It starts with what faith is and where it comes from (God's spoken word), shows the spirit of faith that sees and acts, then walks through the trial of faith, the patience it needs and the long road, so that faith holds to the end.",
+  "needs": [],
+  "minutes_per_day": 22,
+  "sort": 104,
+  "days": [
+    {
+      "youtube_id": "mrXgkyh2uSk",
+      "theme": "Faith is substance, not slogans",
+      "focus_start": 133.1,
+      "focus_end": 1367,
+      "key_at": 202.6,
+      "key_title": "The substance of faith",
+      "key_quote": "He did not say faith is a substance, but faith is the substance. It is the substance that brings certainty to hope."
+    },
+    {
+      "youtube_id": "loQOKaz_AMA",
+      "theme": "Faith grows from God's spoken word",
+      "focus_start": 1140.5,
+      "focus_end": 2296.2,
+      "key_at": 1754.8,
+      "key_title": "The word of faith",
+      "key_quote": "Build capacity in the spirit for you to be able to trust God because your life depends on the spoken word of God."
+    },
+    {
+      "youtube_id": "NNFD05-QEQQ",
+      "theme": "Faith sees victory, then speaks and moves",
+      "focus_start": 0,
+      "focus_end": 783.2,
+      "key_at": 532.3,
+      "key_title": "The sight of faith",
+      "key_quote": "Every new spiritual experience begins by seeing something that has been accomplished already and accepting it by faith."
+    },
+    {
+      "youtube_id": "r_yjGe_WuXg",
+      "theme": "Holding on when circumstances say no",
+      "focus_start": 2285.7,
+      "focus_end": 3395.3,
+      "key_at": 2871.2,
+      "key_title": "Against all hope",
+      "key_quote": "So circumstances were allowed to try his faith. There was no hope in the circumstances. It was not logical for you to still keep believing. But against hope, he believed in hope."
+    },
+    {
+      "youtube_id": "57GQMbk3qF8",
+      "theme": "Keep your confidence while faith waits",
+      "focus_start": 0.1,
+      "focus_end": 1266.6,
+      "key_at": 789.1,
+      "key_title": "Faith takes patience",
+      "key_quote": "If the substance is in view, your waiting is a day closer to a time of manifestation."
+    },
+    {
+      "youtube_id": "HeayLqRG_ec",
+      "theme": "Keep your heart and finish the journey",
+      "focus_start": 2710.3,
+      "focus_end": 4194.3,
+      "key_at": 4097.9,
+      "key_title": "Faith that endures",
+      "key_quote": "Our own breakthrough took 17 years. Who can have faith for 17 years? No human being has that ability. But you know what? The Holy Spirit did not stop."
+    }
+  ]
+}

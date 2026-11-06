@@ -1,0 +1,61 @@
+{
+  "id": "overcoming-fear-and-anxiety",
+  "kind": "path",
+  "name": "Overcoming fear and anxiety",
+  "italic": "fear and anxiety",
+  "promise": "Five days to trade anxious thoughts for the peace of God.",
+  "why": "For anyone whose mind races with worry about money, health or the future. The path names how anxiety works, roots you in the Father who already knows your needs, and builds habits of prayer and inner quietness that let God's peace guard your heart.",
+  "needs": [
+    "fear",
+    "anxiety"
+  ],
+  "minutes_per_day": 15,
+  "sort": 5,
+  "days": [
+    {
+      "youtube_id": "vwKimnaQoco",
+      "theme": "How anxiety tries to win without a fight",
+      "focus_start": 3236.6,
+      "focus_end": 4119.1,
+      "key_at": 3844.5,
+      "key_title": "Anxiety into prayer",
+      "key_quote": "Anything that is supposed to make you anxious is the same thing that should draw you to prayer."
+    },
+    {
+      "youtube_id": "ezPm1KC_qiE",
+      "theme": "Your heavenly Father already knows",
+      "focus_start": 1058,
+      "focus_end": 2212.1,
+      "key_at": 2136.5,
+      "key_title": "Your Father knows",
+      "key_quote": "If you want to deal with a God that knows, the only thing that can impress him is your faith."
+    },
+    {
+      "youtube_id": "gP9MubHuVL4",
+      "theme": "Jesus speaks peace to fear and doubt",
+      "focus_start": 2655.2,
+      "focus_end": 3264.7,
+      "key_at": 2813.2,
+      "key_title": "Win in your soul",
+      "key_quote": "If you win in your soul you will win on the ground; if you lose in your soul you will lose on the ground."
+    },
+    {
+      "youtube_id": "K7n_7hi3xuk",
+      "theme": "Find inner quietness before you react",
+      "focus_start": 1879,
+      "focus_end": 2815.7,
+      "key_at": 2592.7,
+      "key_title": "Quietness within",
+      "key_quote": "Do you have quietness within you? Because if you have quietness you will not feel any need to respond."
+    },
+    {
+      "youtube_id": "Fal0ICd-XHw",
+      "theme": "Peace that holds until God answers",
+      "focus_start": 1189.2,
+      "focus_end": 1875.1,
+      "key_at": 1529,
+      "key_title": "A place of rest",
+      "key_quote": "If you stay in that place of rest, not considering what is in the external, you will begin to see the sovereign hand of God."
+    }
+  ]
+}

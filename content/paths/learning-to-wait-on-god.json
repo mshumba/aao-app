@@ -1,0 +1,70 @@
+{
+  "id": "learning-to-wait-on-god",
+  "kind": "path",
+  "name": "Learning to wait on God",
+  "italic": "wait on God",
+  "promise": "Six days on staying faithful when God's promise seems slow.",
+  "why": "For anyone in a season where prayers seem unanswered and promises delayed. The path shows why God makes us wait, how he renews strength while we wait, the danger of helping God in the flesh, and how to keep believing until the word comes to pass.",
+  "needs": [
+    "waiting",
+    "delay"
+  ],
+  "minutes_per_day": 14,
+  "sort": 4,
+  "days": [
+    {
+      "youtube_id": "-4r-s-jMFbo",
+      "theme": "God is a King, not a servant",
+      "focus_start": 2891.6,
+      "focus_end": 3591.9,
+      "key_at": 3408.7,
+      "key_title": "Waiting on a King",
+      "key_quote": "The way up is waiting at the foot of the King until he stretches forth his scepter in your direction."
+    },
+    {
+      "youtube_id": "0O_H4IyR3lo",
+      "theme": "He makes everything beautiful in its time",
+      "focus_start": 462.3,
+      "focus_end": 1257.2,
+      "key_at": 784.3,
+      "key_title": "Beautiful in its time",
+      "key_quote": "God doesn't live in time, but he will use time to test your soul."
+    },
+    {
+      "youtube_id": "MiE70TINsJo",
+      "theme": "Strength renewed for the faint",
+      "focus_start": 2920.4,
+      "focus_end": 3694.8,
+      "key_at": 3004.5,
+      "key_title": "Power for the faint",
+      "key_quote": "The specialty of God is that he gives power to the faint."
+    },
+    {
+      "youtube_id": "EdDHjGT6zrM",
+      "theme": "Do not help God in the flesh",
+      "focus_start": 3473.1,
+      "focus_end": 4430.9,
+      "key_at": 3487.1,
+      "key_title": "Milk or wine",
+      "key_quote": "Wine gets better with time; milk gets bad with time. So the question is, are you milk or are you wine?"
+    },
+    {
+      "youtube_id": "6vzoGqCUSDc",
+      "theme": "Keep the condition while you wait",
+      "focus_start": 6380,
+      "focus_end": 7170.1,
+      "key_at": 6878,
+      "key_title": "Keep the condition",
+      "key_quote": "The proof that you believe in a conditional promise is that you are busy fulfilling the condition."
+    },
+    {
+      "youtube_id": "TDVokmH0WAw",
+      "theme": "Believe against hope until it comes",
+      "focus_start": 3679.8,
+      "focus_end": 4661.7,
+      "key_at": 4529.9,
+      "key_title": "Believe against hope",
+      "key_quote": "No one was there when God spoke to you; you are the only one to bear the burden of your faith."
+    }
+  ]
+}

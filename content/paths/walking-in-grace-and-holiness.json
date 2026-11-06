@@ -1,0 +1,61 @@
+{
+  "id": "walking-in-grace-and-holiness",
+  "kind": "path",
+  "name": "Walking in grace and holiness",
+  "italic": "grace and holiness",
+  "promise": "Five days on the grace that teaches us to live holy.",
+  "why": "For believers who have heard that grace covers everything and want to see how grace and holiness belong together. The path corrects the abuse of grace, describes holiness as oneness with God, and builds the daily habits of consecration, godly fear and a growing knowledge of God.",
+  "needs": [
+    "holiness",
+    "grace"
+  ],
+  "minutes_per_day": 16,
+  "sort": 6,
+  "days": [
+    {
+      "youtube_id": "KPcnaSrUpDI",
+      "theme": "Grace is not a license for sin",
+      "focus_start": 367.6,
+      "focus_end": 1558.8,
+      "key_at": 841.2,
+      "key_title": "What grace is not",
+      "key_quote": "The antidote for sin cannot become the reason for sin."
+    },
+    {
+      "youtube_id": "Ey1CtHPRrzY",
+      "theme": "Holiness is oneness with God",
+      "focus_start": 1352.6,
+      "focus_end": 2072.6,
+      "key_at": 1804,
+      "key_title": "One with God",
+      "key_quote": "You may not be committing adultery or fornication, but you are not holy because you are not one with God."
+    },
+    {
+      "youtube_id": "kSMvE2AWlTY",
+      "theme": "Yield yourself to God every morning",
+      "focus_start": 3562,
+      "focus_end": 4612.6,
+      "key_at": 3668.9,
+      "key_title": "Holiness from love",
+      "key_quote": "Holy living is not motivated by the fear of hell. Holy living is a function of the fact that you actually stumbled on the love of God."
+    },
+    {
+      "youtube_id": "GKjIC36hWs0",
+      "theme": "The fear of the Lord keeps you",
+      "focus_start": 3710.2,
+      "focus_end": 4361.7,
+      "key_at": 3930.5,
+      "key_title": "The fear of the Lord",
+      "key_quote": "It is only the wisdom of God that can keep you from trespassing into the forbidden zone."
+    },
+    {
+      "youtube_id": "0QjtSGDxR8s",
+      "theme": "Grow from grace to grace",
+      "focus_start": 218,
+      "focus_end": 1298.7,
+      "key_at": 821.8,
+      "key_title": "Grace multiplied",
+      "key_quote": "You need a multiplication of grace consistently in your life, and the agency through which this grace is multiplied is through the knowledge of God and the knowledge of our Lord Jesus Christ."
+    }
+  ]
+}
