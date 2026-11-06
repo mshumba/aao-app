@@ -1,0 +1,8 @@
+{
+  "id": "faithful-with-money",
+  "kind": "path",
+  "name": "Faithful with money",
+  "needs": [
+    "money"
+  ]
+}
