@@ -1,0 +1,68 @@
+{
+  "id": "trusting-god-with-tomorrow",
+  "kind": "path",
+  "name": "Trusting God with tomorrow",
+  "italic": "tomorrow",
+  "promise": "Six days for a future you cannot see: no finished map, timings in God's hands, a life already written, and a word to move on.",
+  "why": "This path is for anyone who lies awake over what comes next: a calling not yet clear, a breakthrough not yet come, a future that feels unwritten and unsafe. Apostle Arome teaches that God rarely hands us a finished map. He tells us the first step and trains us to depend on Him for the next. The timings and seasons of a life belong to Him, and what He gives us for the road is power. Before you were born your life was written in the scripture of truth in heaven, so the future is not a blank page but a written one. Across six days you will learn to live from the witness of eternity instead of the pressure of time, to draw strength and comfort from what God speaks while you wait, and to move only when His proceeding word comes. You do not need to see the whole road. You need to know the One who has already walked it.",
+  "needs": [
+    "future"
+  ],
+  "minutes_per_day": 15,
+  "days": [
+    {
+      "youtube_id": "lkUIYfPxPxQ",
+      "theme": "No finished map: He gives you the first step",
+      "focus_start": 1280,
+      "focus_end": 2180,
+      "key_at": 1729,
+      "key_title": "The First Step",
+      "key_quote": "You don't know where he's taking you, but he will tell you the first step to take. Then you will depend on him for the next."
+    },
+    {
+      "youtube_id": "UClczako_lY",
+      "theme": "Times and seasons: the timings belong to God",
+      "focus_start": 1750,
+      "focus_end": 2650,
+      "key_at": 2193,
+      "key_title": "Timings in His Hands",
+      "key_quote": "The timings and the seasons of your life, they belong to me, but what belongs to you is the power that you need to wade through life."
+    },
+    {
+      "youtube_id": "VC4CyMGGP50",
+      "theme": "Already written: your life in the scripture of truth",
+      "focus_start": 1950,
+      "focus_end": 2850,
+      "key_at": 2401,
+      "key_title": "Existing or Living",
+      "key_quote": "If you are not fulfilling that which is written in the scripture of Truth, you are existing; you are not living."
+    },
+    {
+      "youtube_id": "Hhhq3MNUZVI",
+      "theme": "Measured by eternity: not by the pressure of time",
+      "focus_start": 3200,
+      "focus_end": 4100,
+      "key_at": 3663,
+      "key_title": "The Witness of Eternity",
+      "key_quote": "You are doing things according to time. You are not operating according to the witness that came from eternity."
+    },
+    {
+      "youtube_id": "3QDB1zZMKNY",
+      "theme": "Spoken strength: prophecy for the long wait",
+      "focus_start": 550,
+      "focus_end": 1450,
+      "key_at": 1008,
+      "key_title": "Strength, Encouragement, Comfort",
+      "key_quote": "The one who prophesies speaks to people for their strengthening, for their encouraging and their comfort."
+    },
+    {
+      "youtube_id": "Pr5vmCYz020",
+      "theme": "The proceeding word: do not move until He speaks",
+      "focus_start": 600,
+      "focus_end": 1500,
+      "key_at": 1044,
+      "key_title": "Until There Is a Word",
+      "key_quote": "According to Jesus, the way human beings are designed to live is that we do not act until there is a proceeding word from the Father."
+    }
+  ]
+}
