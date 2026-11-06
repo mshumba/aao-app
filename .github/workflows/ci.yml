@@ -1,7 +1,11 @@
 name: App checks
+# A change that only adds or edits paths (content/paths) can't change the app, which
+# reads paths from the database, so it gets the quick Paths workflow instead.
 on:
   push:
+    paths-ignore: ["content/paths/**"]
   pull_request:
+    paths-ignore: ["content/paths/**"]
 permissions:
   contents: read
 concurrency:
@@ -25,9 +29,6 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run lint
-      # Paths and series (content/paths): every file's rules. The library checks (quotes,
-      # lengths, preacher) need the read-only login, so contributors run them locally.
-      - run: node scripts/paths.mjs check --offline
       - run: npm run doctor
       - run: npm run export:all
   # The browser tests run one at a time and outgrew a single job's limit, so
