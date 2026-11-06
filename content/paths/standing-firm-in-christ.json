@@ -2,7 +2,67 @@
   "id": "standing-firm-in-christ",
   "kind": "path",
   "name": "Standing firm in Christ",
+  "italic": "firm in Christ",
+  "promise": "Six days of teaching to ground your prayers in Christ, draw on His strength and stand firm together.",
+  "why": "For believers who feel under spiritual pressure and want a grounded way to respond. The Apostle begins with our place in Christ and the strength God supplies for a holy walk. He then teaches on authoritative prayer and keeping the word of God alive in our hearts. The final days move from praying alone to agreement with other believers and steadfast resistance in faith, keeping dependence on Christ at the centre.",
   "needs": [
     "spiritual-attack"
+  ],
+  "minutes_per_day": 15,
+  "days": [
+    {
+      "youtube_id": "ed0Oc1MGI2w",
+      "theme": "Begin with your place in Christ",
+      "focus_start": 300,
+      "focus_end": 1200,
+      "key_at": 812,
+      "key_title": "Seated with Christ",
+      "key_quote": "The Bible reveals in the book of Ephesians chapter 2 that we are seated with Christ in the Heavenly places far above principalities and Powers."
+    },
+    {
+      "youtube_id": "nFFQIP0pldc",
+      "theme": "Receive strength for a holy walk",
+      "focus_start": 600,
+      "focus_end": 1500,
+      "key_at": 1204,
+      "key_title": "Strength for your commitments",
+      "key_quote": "He supplies the strength for you to keep your commitments to him."
+    },
+    {
+      "youtube_id": "KBPEpyWcIn0",
+      "theme": "Pray from Christ’s authority",
+      "focus_start": 2700,
+      "focus_end": 3600,
+      "key_at": 2990,
+      "key_title": "Remember where you are seated",
+      "key_quote": "In order for you to pray authoritative prayer you must see yourself where you are seated in the heavenlies."
+    },
+    {
+      "youtube_id": "sAKFc9mbV24",
+      "theme": "Bring God’s word into your prayers",
+      "focus_start": 1200,
+      "focus_end": 2100,
+      "key_at": 1593,
+      "key_title": "From your heart to your mouth",
+      "key_quote": "When God lays a scripture or a word upon your heart especially in the place of prayer you translate and transfer the word from your heart to your mouth and begin to release it."
+    },
+    {
+      "youtube_id": "jSaQIOxdX00",
+      "theme": "Find agreement in prayer together",
+      "focus_start": 600,
+      "focus_end": 1500,
+      "key_at": 1442,
+      "key_title": "Let Jesus lead the prayer",
+      "key_quote": "Symphony is only possible if Jesus is the one that is conducting the prayer."
+    },
+    {
+      "youtube_id": "SpvDcmeVBHc",
+      "theme": "Remain steadfast in faith",
+      "focus_start": 1800,
+      "focus_end": 2700,
+      "key_at": 2160,
+      "key_title": "Continue in faith",
+      "key_quote": "Until the devil departs you do not end your persistent resistance in the faith."
+    }
   ]
 }
