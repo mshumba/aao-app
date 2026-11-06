@@ -25,10 +25,9 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run lint
-      # Paths and series: the files' rules, and the seed generated from them. The library
-      # checks (quotes, lengths) need the read-only login, so contributors run them locally.
+      # Paths and series (content/paths): every file's rules. The library checks (quotes,
+      # lengths, preacher) need the read-only login, so contributors run them locally.
       - run: node scripts/paths.mjs check --offline
-      - run: node scripts/paths.mjs build --check
       - run: npm run doctor
       - run: npm run export:all
   # The browser tests run one at a time and outgrew a single job's limit, so
