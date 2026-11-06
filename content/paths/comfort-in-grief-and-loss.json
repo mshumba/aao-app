@@ -1,0 +1,66 @@
+{
+  "id": "comfort-in-grief-and-loss",
+  "kind": "path",
+  "name": "Comfort in grief and loss",
+  "italic": "grief and loss",
+  "promise": "Six days of resurrection hope, Christ's consolation and the oil of joy for hearts walking through bereavement and sorrow.",
+  "why": "Grief can leave the soul feeling hollowed out and alone, yet the New Testament never speaks of loss without the note of Christ's victory and comfort. Across six days, Apostle Arome Osayi points the bereaved to the certainty of resurrection, the consolation administered from Christ's throne, unshaken faith in affliction and the Spirit who exchanges ashes for beauty.",
+  "needs": ["grief"],
+  "minutes_per_day": 15,
+  "days": [
+    {
+      "youtube_id": "G3GNxeD1MRQ",
+      "focus_start": 4041,
+      "focus_end": 5034,
+      "theme": "Death has lost its sting",
+      "key_at": 4935,
+      "key_title": "The hope of resurrection",
+      "key_quote": "Resurrection is the hope of anyone that sleeps in the Lord with his faith in Jesus. That victory that Jesus won over the grave, it will play out in your own experience."
+    },
+    {
+      "youtube_id": "_1a5CIKGIFE",
+      "focus_start": 15,
+      "focus_end": 779,
+      "theme": "The righteous triumph in the morning",
+      "key_at": 300,
+      "key_title": "Dominion in the morning",
+      "key_quote": "Anytime we talk about death and you exclude the note of victory, you are not preaching with the voice of the New Testament. The note of victory is always inclusive, and the note of victory in this case is that the righteous shall have dominion over them in the morning."
+    },
+    {
+      "youtube_id": "trhnXw8XV2A",
+      "focus_start": 4022,
+      "focus_end": 4672,
+      "theme": "Consolation from the throne of Christ",
+      "key_at": 4235,
+      "key_title": "Consolation in Christ",
+      "key_quote": "Many of you don't know the things you go through can kill, but you go through it and come out, and you have shock absorber because there's consolation in Christ. The office of the Christ administers a consolation."
+    },
+    {
+      "youtube_id": "b2XlM99GoDg",
+      "focus_start": 450,
+      "focus_end": 1353,
+      "theme": "I know my Redeemer lives",
+      "key_at": 1105,
+      "key_title": "Unshaken in affliction",
+      "key_quote": "Surprisingly, Job did not speak out of pain and he did not speak out of grief, but the statement he uttered that he wanted to be written down was a statement that he spoke out of conviction."
+    },
+    {
+      "youtube_id": "3nf0LMu-86Y",
+      "focus_start": 4895,
+      "focus_end": 5997,
+      "theme": "Beauty for ashes and the oil of joy",
+      "key_at": 5665,
+      "key_title": "Beauty for ashes",
+      "key_quote": "The Bible says for ashes he will produce beauty, so your ashes, your waste becomes the raw material with which God will now create beauty."
+    },
+    {
+      "youtube_id": "HZsZfMCPpos",
+      "focus_start": 6868,
+      "focus_end": 7666,
+      "theme": "The river of God that breaks sorrow",
+      "key_at": 7400,
+      "key_title": "A river that breaks sorrow",
+      "key_quote": "There is a river, the streams whereof make glad the city of God. If that river is flowing from inside of you, sorrow cannot have a stronghold; it breaks."
+    }
+  ]
+}
