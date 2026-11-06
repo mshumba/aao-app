@@ -1,0 +1,68 @@
+{
+  "id": "receiving-divine-healing",
+  "kind": "path",
+  "name": "Receiving divine healing",
+  "italic": "divine healing",
+  "promise": "Six days to stand on Christ's finished work for your body.",
+  "why": "For anyone facing sickness, pain or a frightening medical report. The path settles the question of whether God wants you well, shows how Christ's stripes satisfied heaven's justice for your healing and teaches you to take hold of his word, resist spirits of infirmity and strengthen your spirit to sustain your body.",
+  "needs": [
+    "healing"
+  ],
+  "minutes_per_day": 15,
+  "days": [
+    {
+      "youtube_id": "Bt-zSO1nb-s",
+      "theme": "It is God's will for you to be healed",
+      "focus_start": 3133,
+      "focus_end": 4166,
+      "key_at": 3470,
+      "key_title": "God's standing will",
+      "key_quote": "For every person sick, it is God's will for them to be healed; that is why the provision for healing, Jesus Christ made it in full."
+    },
+    {
+      "youtube_id": "fYevZJvPAyc",
+      "theme": "Healing is a matter of divine justice",
+      "focus_start": 1644,
+      "focus_end": 2569,
+      "key_at": 2020,
+      "key_title": "Paid for at the cross",
+      "key_quote": "It is when you understand the justice behind your healing that you can believe God for healing, and you will know that God does not have a choice. God will not decide whether to heal you or not; it's a matter of justice."
+    },
+    {
+      "youtube_id": "6gUmctLdbSU",
+      "theme": "Take hold of what Jesus already bore",
+      "focus_start": 4400,
+      "focus_end": 5109,
+      "key_at": 4920,
+      "key_title": "Paid for once",
+      "key_quote": "Jesus is not about to take your sickness; Jesus took your sickness. No matter how good a commodity is, you don't pay for it twice. Your link to enjoying the things that have been paid for is in your ability to exercise your faith."
+    },
+    {
+      "youtube_id": "c4b8rycF5wQ",
+      "theme": "He sends his word to heal you",
+      "focus_start": 897,
+      "focus_end": 1853,
+      "key_at": 1725,
+      "key_title": "The healing word",
+      "key_quote": "One of the consequences of receiving the word of the Lord and echoing the word of the Lord is that there will be a consequence of healing."
+    },
+    {
+      "youtube_id": "e267Y66BeeM",
+      "theme": "Confronting the spirit behind infirmity",
+      "focus_start": 1425,
+      "focus_end": 2196,
+      "key_at": 2065,
+      "key_title": "Address the root",
+      "key_quote": "When you check his prescription, there was no tablet, there was no injection; Jesus just discerned the spirit that was behind the situation and he addressed the spirit."
+    },
+    {
+      "youtube_id": "oqWvuGBIPMA",
+      "theme": "A strong spirit sustains your body",
+      "focus_start": 169,
+      "focus_end": 1014,
+      "key_at": 485,
+      "key_title": "Strength in your spirit",
+      "key_quote": "It is with your spirit that you are going to sustain your infirmity. If God comes to give strength, he applies this strength in your spirit, because he knows that if your spirit is okay, you can bear load."
+    }
+  ]
+}
