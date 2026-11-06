@@ -9,6 +9,7 @@
  *   node scripts/paths.mjs transcript <youtube_id> [from] [to]  its transcript with times (seconds or h:mm:ss)
  *   node scripts/paths.mjs used                                 which sermons the paths already use
  *   node scripts/paths.mjs check [files…] [--offline]           checks paths against the rules and the library
+ *   node scripts/paths.mjs ready                                may this branch's path PR merge itself? (the gate)
  *   node scripts/paths.mjs sql [ids…]                           the SQL that loads these paths (default: all)
  *
  * The library commands, and check without --offline, read the sermon library through the read-only
@@ -263,7 +264,7 @@ async function checkLibrary(client, entries, results) {
   }
 }
 
-async function check(args) {
+async function check(args, { exit = true } = {}) {
   const offline = args.includes("--offline");
   const files = args.filter((a) => !a.startsWith("--"));
   const entries = readPaths(files);
@@ -289,7 +290,58 @@ async function check(args) {
     if (errors.length) failed++;
   });
   console.log(`\n${entries.length - failed} of ${entries.length} pass${offline ? " (offline: the library wasn't checked)" : ""}.`);
-  if (failed) process.exit(1);
+  if (failed && exit) process.exit(1);
+  return failed;
+}
+
+// ---------- ready: may this branch's PR merge itself? ----------
+
+const BASE = "claude/frontend-ux-pass";
+
+function git(...args) {
+  return execFileSync("git", args, { cwd: ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+}
+
+/** The gate an agent passes before merging its own path PR: one new path file, synced, checked, pushed. */
+async function ready() {
+  const problems = [];
+  try {
+    git("fetch", "-q", "origin", BASE);
+  } catch {
+    die("Could not fetch origin.");
+  }
+  const branch = git("rev-parse", "--abbrev-ref", "HEAD");
+  if ([BASE, "main", "HEAD"].includes(branch)) problems.push(`you're on ${branch}; work on your own path branch`);
+  if (git("status", "--porcelain")) problems.push("there are uncommitted changes; commit your path file or remove them");
+  try {
+    git("merge-base", "--is-ancestor", `origin/${BASE}`, "HEAD");
+  } catch {
+    problems.push(`not up to date; run: git fetch origin && git rebase origin/${BASE}`);
+  }
+  const changed = git("diff", "--name-status", "--no-renames", `origin/${BASE}...HEAD`).split("\n").filter(Boolean).map((line) => line.split("\t"));
+  const only = changed.length === 1 && changed[0][0] === "A" && /^content\/paths\/[a-z0-9-]+\.json$/.test(changed[0][1]);
+  if (!only) {
+    const list = changed.map(([status, file]) => `${status} ${file}`).join(", ") || "nothing";
+    problems.push(`a path PR adds exactly one new file in content/paths/ and changes nothing else; this branch changes: ${list}`);
+  }
+  if (only && (await check([path.join(ROOT, changed[0][1])], { exit: false }))) problems.push("check found errors (above)");
+  let pr = null;
+  try {
+    pr = JSON.parse(execFileSync("gh", ["pr", "view", "--json", "number,state,baseRefName,headRefOid,isDraft"], { cwd: ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }));
+  } catch {
+    problems.push("no PR for this branch yet; push it and open one into " + BASE);
+  }
+  if (pr) {
+    if (pr.state !== "OPEN") problems.push(`PR #${pr.number} is ${pr.state.toLowerCase()}`);
+    if (pr.baseRefName !== BASE) problems.push(`PR #${pr.number} targets ${pr.baseRefName}, not ${BASE}`);
+    if (pr.headRefOid !== git("rev-parse", "HEAD")) problems.push("the PR doesn't have your latest commit; push (after a rebase: git push --force-with-lease)");
+    if (pr.isDraft) problems.push(`PR #${pr.number} is a draft; mark it ready (gh pr ready ${pr.number})`);
+  }
+  if (problems.length) {
+    console.log(`\nNOT READY to merge:\n${problems.map((m) => `  - ${m}`).join("\n")}`);
+    process.exit(1);
+  }
+  console.log(`\nREADY. Once every check on PR #${pr.number} has passed (gh pr checks ${pr.number}), merge it yourself:\n  gh pr merge ${pr.number} --rebase`);
 }
 
 // ---------- sql: loading paths into the library ----------
@@ -456,7 +508,7 @@ function used() {
 // ---------- main ----------
 
 const [command, ...rest] = process.argv.slice(2);
-const commands = { needs: needsCovered, find, sermon, transcript, used, check, sql };
+const commands = { needs: needsCovered, find, sermon, transcript, used, check, ready, sql };
 if (!commands[command]) {
   console.log(fs.readFileSync(fileURLToPath(import.meta.url), "utf8").split("*/")[0].replace(/^#!.*\n\/\*\*\n/, "").replace(/^ \* ?/gm, ""));
   process.exit(command ? 1 : 0);

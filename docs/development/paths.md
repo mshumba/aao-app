@@ -1,6 +1,6 @@
 # Building guided paths and teaching series
 
-This is the whole job, start to finish, for any agent (Claude, ChatGPT, Gemini in Antigravity, Muse or anyone else). Follow it as written and your PR can be merged without anyone re-reading the transcripts.
+This is the whole job, start to finish, for any agent (Claude, ChatGPT, Gemini in Antigravity, Muse or anyone else). Follow it as written and you merge your own PR: the checks replace a reviewer re-reading the transcripts.
 
 ## What a path is
 - **A guided path** walks a viewer through one need ("I can't forgive", "I feel spiritually dry") in about 5 to 7 days.
@@ -110,11 +110,25 @@ git commit -m "Path: <name>"
   - one line per day on why that sermon;
   - any warnings you kept, with the reason.
 
+**8. Merge it yourself.**
+```bash
+node scripts/paths.mjs ready
+```
+- **What `ready` checks:** it says READY only when all of these hold:
+  - your branch is up to date with `origin/claude/frontend-ux-pass`;
+  - it adds exactly one new file in `content/paths/` and changes nothing else;
+  - that file passes `check` against the library;
+  - its PR is open, pushed and not a draft.
+- **Then wait for CI:** `gh pr checks <number>` must show every check passed.
+- **Then merge:** `gh pr merge <number> --rebase`.
+- **If another agent merged first,** rebase, push with `git push --force-with-lease` and run `ready` again.
+
 ## Never in a path PR
 - Any file other than your own `content/paths/<id>.json`.
 - Changes to another path's file, unless the owner asked for them.
 - A `status` field, or any write to the database.
+- Merging any PR but your own path PR, or merging without READY from `ready`.
 - App code, migrations or other content. Those go in their own PRs, following `AGENTS.md`.
 
 ## What happens next
-Claude re-runs `check` on your branch and merges by rebase. The owner then says when to load the path into the live library, and it appears in the app as a draft.
+A merged path is in the repo, not yet in the app. The owner says when to load paths into the live library, and they appear as drafts.
