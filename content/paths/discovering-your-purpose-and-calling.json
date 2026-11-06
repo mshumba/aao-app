@@ -1,0 +1,70 @@
+{
+  "id": "discovering-your-purpose-and-calling",
+  "kind": "path",
+  "name": "Discovering your purpose and calling",
+  "italic": "purpose and calling",
+  "promise": "Six days on why you were made and how to walk in it.",
+  "why": "For anyone asking what their life is for. The path defines a call from God, roots purpose in Christ the Maker, helps you take inventory of the grace on your life, shows what a call carries, and asks for faithfulness in small things and steadiness in your assignment.",
+  "needs": [
+    "purpose",
+    "calling"
+  ],
+  "minutes_per_day": 14,
+  "sort": 3,
+  "days": [
+    {
+      "youtube_id": "itIp_xL8EOk",
+      "theme": "What a call from God is",
+      "focus_start": 1280.8,
+      "focus_end": 2205.2,
+      "key_at": 2066.3,
+      "key_title": "Your meaning is your assignment",
+      "key_quote": "It's not your ability that is your meaning; it's your assignment that is your meaning."
+    },
+    {
+      "youtube_id": "RG2nnvXKKHY",
+      "theme": "Purpose is found in the Maker",
+      "focus_start": 679.5,
+      "focus_end": 1385.5,
+      "key_at": 854.3,
+      "key_title": "Ask the Manufacturer",
+      "key_quote": "It is not the product that tells the manufacturer what it was manufactured for."
+    },
+    {
+      "youtube_id": "DNkFzBGAHXk",
+      "theme": "Take inventory of your grace",
+      "focus_start": 972.7,
+      "focus_end": 2010.2,
+      "key_at": 1708,
+      "key_title": "Sharpen your grace",
+      "key_quote": "When you locate the fact that there is grace in a certain area, you need to labor to sharpen it."
+    },
+    {
+      "youtube_id": "VdkD5g4qOFc",
+      "theme": "A call has an objective and place",
+      "focus_start": 1517.6,
+      "focus_end": 2217.5,
+      "key_at": 1752.3,
+      "key_title": "What a call carries",
+      "key_quote": "God will not do anything on the earth without a calling."
+    },
+    {
+      "youtube_id": "wAYwEhxGYVY",
+      "theme": "Be faithful in the little things",
+      "focus_start": 3071,
+      "focus_end": 3922.5,
+      "key_at": 3336.9,
+      "key_title": "Faithful in little",
+      "key_quote": "If you are too big to do little things, you'll be too little to do big things."
+    },
+    {
+      "youtube_id": "aY3Nj2rgk0o",
+      "theme": "Your assignment does not change",
+      "focus_start": 833.2,
+      "focus_end": 1619.6,
+      "key_at": 1410.7,
+      "key_title": "Your assignment stays",
+      "key_quote": "You will pass through many seasons in the implementation of that assignment, but the assignment itself does not change."
+    }
+  ]
+}

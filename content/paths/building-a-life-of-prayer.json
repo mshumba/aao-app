@@ -1,0 +1,69 @@
+{
+  "id": "building-a-life-of-prayer",
+  "kind": "path",
+  "name": "Building a life of prayer",
+  "italic": "life of prayer",
+  "promise": "Six days from occasional prayer to a daily place with God.",
+  "why": "For believers who want to pray but find it hard to start or to stay consistent. The path begins with why we were made to pray, then moves through giving yourself to prayer, finding your place, guarding your time and praying in the Spirit, and ends with the persistence that keeps knocking.",
+  "needs": [
+    "prayer"
+  ],
+  "minutes_per_day": 16,
+  "sort": 2,
+  "days": [
+    {
+      "youtube_id": "Kqw36QLZr6E",
+      "theme": "We were made to pray",
+      "focus_start": 1614.8,
+      "focus_end": 2517.9,
+      "key_at": 2388.4,
+      "key_title": "Made to pray",
+      "key_quote": "Men ought always to pray, not to faint. You will never enter into that economy until you acknowledge the fact that you are insufficient."
+    },
+    {
+      "youtube_id": "wem3w4ZPLyc",
+      "theme": "Give your whole self to prayer",
+      "focus_start": 1311.4,
+      "focus_end": 2414.9,
+      "key_at": 1322.9,
+      "key_title": "Prayer is who we are",
+      "key_quote": "Prayer is who we are and not what we do."
+    },
+    {
+      "youtube_id": "TWiVZeKhO2w",
+      "theme": "Find your point of prayer",
+      "focus_start": 1158.8,
+      "focus_end": 2199,
+      "key_at": 1613,
+      "key_title": "The point of prayer",
+      "key_quote": "It is when you arrive the point of prayer that you can begin to offer your prayer point."
+    },
+    {
+      "youtube_id": "YGnx3g5xOzQ",
+      "theme": "Shut the door and keep the time",
+      "focus_start": 571.2,
+      "focus_end": 1599.8,
+      "key_at": 991.6,
+      "key_title": "Shut the door",
+      "key_quote": "Shut the door is a serious business; it's not something that you can do double-minded."
+    },
+    {
+      "youtube_id": "A3YdLXMlRxg",
+      "theme": "Build yourself up in the Spirit",
+      "focus_start": 472,
+      "focus_end": 1088,
+      "key_at": 819.3,
+      "key_title": "Build yourself up",
+      "key_quote": "There are dimensions of believing that become possible when you gain heights in the Spirit."
+    },
+    {
+      "youtube_id": "5e7Y83Z7BIA",
+      "theme": "Keep knocking and do not faint",
+      "focus_start": 0,
+      "focus_end": 1113.6,
+      "key_at": 637.3,
+      "key_title": "Pray or faint",
+      "key_quote": "The opposite of prayerful is not prayerless."
+    }
+  ]
+}

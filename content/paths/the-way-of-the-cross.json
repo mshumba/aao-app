@@ -1,0 +1,67 @@
+{
+  "id": "the-way-of-the-cross",
+  "kind": "series",
+  "name": "The way of the cross",
+  "italic": "the cross",
+  "promise": "See what Jesus did on the cross, what it makes you, and how to live the crucified life.",
+  "why": "For believers who want to understand what the cross accomplished and what it asks of them. It starts with what Jesus did there and the exchange he made in our place, then shows that you died and rose with him, and ends with God's daily dealings with self and the cost and reward of following him.",
+  "needs": [],
+  "minutes_per_day": 20,
+  "sort": 103,
+  "days": [
+    {
+      "youtube_id": "8Yxk1dA8w-g",
+      "theme": "The cross brought God's rule to earth",
+      "focus_start": 3435.8,
+      "focus_end": 4708.8,
+      "key_at": 3895.8,
+      "key_title": "Why the cross",
+      "key_quote": "The meaning of the cross is the payment that was needed to bring the throne of God and make it efficacious upon the face of the earth."
+    },
+    {
+      "youtube_id": "7aablIT_eDU",
+      "theme": "He took our place, we take his",
+      "focus_start": 341.6,
+      "focus_end": 1501.8,
+      "key_at": 1145.6,
+      "key_title": "The great exchange",
+      "key_quote": "It's not change, but it's exchange. Exchange. That's the testimony of the Christian life."
+    },
+    {
+      "youtube_id": "U6PyFks9W-M",
+      "theme": "You died with Christ to the old",
+      "focus_start": 1011.2,
+      "focus_end": 2104.3,
+      "key_at": 1362,
+      "key_title": "Crucified with Christ",
+      "key_quote": "The cross has only one statement to make. The cross says death to the entire old creation."
+    },
+    {
+      "youtube_id": "AWKMSeH9PZ8",
+      "theme": "Dead to sin, alive to God",
+      "focus_start": 4770.2,
+      "focus_end": 6098,
+      "key_at": 5834.4,
+      "key_title": "Raised with him",
+      "key_quote": "My lot and portion experientially on the account of his resurrection is that I am sentenced to a life that is alive to God."
+    },
+    {
+      "youtube_id": "gZfqrw9NaOo",
+      "theme": "God's dealings turn Jacob into Israel",
+      "focus_start": 4037.4,
+      "focus_end": 5424.1,
+      "key_at": 5412.7,
+      "key_title": "From Jacob to Israel",
+      "key_quote": "There must be a transition. Israel must come out of Jacob in order for him to inherit the things that God has ordained."
+    },
+    {
+      "youtube_id": "MwSBuJ-kSiw",
+      "theme": "Deny yourself, live for the coming reward",
+      "focus_start": 1744.3,
+      "focus_end": 2845.6,
+      "key_at": 2826.8,
+      "key_title": "The cost and reward",
+      "key_quote": "The same way you chose Jesus on the crusade ground and gave your life to him, you will keep choosing him and denying yourself until this life is accomplished."
+    }
+  ]
+}

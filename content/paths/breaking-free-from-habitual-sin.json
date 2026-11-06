@@ -1,0 +1,69 @@
+{
+  "id": "breaking-free-from-habitual-sin",
+  "kind": "path",
+  "name": "Breaking free from habitual sin",
+  "italic": "habitual",
+  "promise": "Six days from the grip of a repeated sin to the freedom grace gives.",
+  "why": "For the believer who keeps returning to the same sin and is tired of starting over. The path begins with how temptation actually works, grounds you in the truth that you are dead to sin, then builds practical disciplines for the mind and the appetites. It ends at the throne of grace, for the days you fall.",
+  "needs": [
+    "same-sin"
+  ],
+  "minutes_per_day": 16,
+  "sort": 8,
+  "days": [
+    {
+      "youtube_id": "G4Waap067c0",
+      "theme": "How temptation finds its way in",
+      "focus_start": 211.3,
+      "focus_end": 1240,
+      "key_at": 498.9,
+      "key_title": "Temptation is personal",
+      "key_quote": "Temptation is idiosyncratic; temptation is particular to you."
+    },
+    {
+      "youtube_id": "OHhEiiMKXjg",
+      "theme": "You are dead to sin",
+      "focus_start": 639,
+      "focus_end": 1606.9,
+      "key_at": 1047.9,
+      "key_title": "Dead to sin",
+      "key_quote": "In the new covenant, this is the accurate position. You must account that you are dead to sin."
+    },
+    {
+      "youtube_id": "fxORkBiWxXs",
+      "theme": "Stop sin while it is a thought",
+      "focus_start": 4291,
+      "focus_end": 5292.1,
+      "key_at": 4880.5,
+      "key_title": "Sin starts as a thought",
+      "key_quote": "So according to scriptures, bad actions don't start from actions. Bad actions are incubated through the outlet of the mind until they find expression in the womb of the heart."
+    },
+    {
+      "youtube_id": "XHyqYaLSwPk",
+      "theme": "Find the flesh's booster stations",
+      "focus_start": 1457.6,
+      "focus_end": 2383.9,
+      "key_at": 1708.1,
+      "key_title": "The root is self",
+      "key_quote": "The foundation of all sin is self."
+    },
+    {
+      "youtube_id": "QaBMqju7NQQ",
+      "theme": "Gain mastery over your appetites",
+      "focus_start": 598.6,
+      "focus_end": 1664.8,
+      "key_at": 1515.6,
+      "key_title": "Learning to say no",
+      "key_quote": "Any man that cannot say no to himself cannot say no to others."
+    },
+    {
+      "youtube_id": "w-Nb7lByMxg",
+      "theme": "When you fall, come boldly for mercy",
+      "focus_start": 3837.6,
+      "focus_end": 4597.6,
+      "key_at": 4303.7,
+      "key_title": "Mercy, then grace",
+      "key_quote": "It's only those that have obtained mercy that can find grace."
+    }
+  ]
+}

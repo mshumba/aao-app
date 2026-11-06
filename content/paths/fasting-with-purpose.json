@@ -1,0 +1,60 @@
+{
+  "id": "fasting-with-purpose",
+  "kind": "path",
+  "name": "Fasting with purpose",
+  "italic": "with purpose",
+  "promise": "Five days on why to fast, how to fast and how to fast wisely.",
+  "why": "For believers who want to fast but are unsure of the reason or the right way. The path follows Jesus into the wilderness, explains what fasting does to the flesh and the spirit, gives practical guidance with limits, and ends with fasting as part of a temperate, disciplined life.",
+  "needs": [
+    "fasting"
+  ],
+  "minutes_per_day": 14,
+  "sort": 7,
+  "days": [
+    {
+      "youtube_id": "K7n_7hi3xuk",
+      "theme": "Why Jesus fasted before the test",
+      "focus_start": 650.3,
+      "focus_end": 1448.3,
+      "key_at": 1132.8,
+      "key_title": "Fasting, then prayer",
+      "key_quote": "When Jesus said fasting and prayer, he meant the environment should not influence you, but you must influence environment."
+    },
+    {
+      "youtube_id": "Yao8V16wrzE",
+      "theme": "Build capacity before the battle",
+      "focus_start": 0,
+      "focus_end": 727.9,
+      "key_at": 418.2,
+      "key_title": "Build capacity",
+      "key_quote": "Don't leave your life to chance. Don't leave your destiny to chance. Build capacity."
+    },
+    {
+      "youtube_id": "AwoOykuNJGM",
+      "theme": "Fast wisely and within safe limits",
+      "focus_start": 2409.2,
+      "focus_end": 3475.5,
+      "key_at": 2823.5,
+      "key_title": "It changes you",
+      "key_quote": "Fasting doesn't change God; fasting actually changes you."
+    },
+    {
+      "youtube_id": "K1Q19hHq8Do",
+      "theme": "Set your face like Daniel",
+      "focus_start": 7050.2,
+      "focus_end": 7763.3,
+      "key_at": 7593.8,
+      "key_title": "Set your face",
+      "key_quote": "If you set your face, it means you have decided to ignore what is behind you."
+    },
+    {
+      "youtube_id": "9a6NynM_D2o",
+      "theme": "Be temperate in all things",
+      "focus_start": 2028.4,
+      "focus_end": 2793.7,
+      "key_at": 2609.1,
+      "key_title": "Temperate in all things",
+      "key_quote": "The requirement for expertise in the things of the Spirit is that you must master every appetite."
+    }
+  ]
+}
