@@ -2,5 +2,56 @@
   "id": "seeking-god-in-relationships",
   "kind": "path",
   "name": "Seeking God in relationships",
-  "needs": ["singleness", "relationships"]
+  "italic": "relationships",
+  "promise": "Five days to seek God's wisdom for your relationship choices and grow in the character that sustains love.",
+  "why": "For believers waiting for a spouse or wanting their relationship to honour God. Begin by making Christ your focus, then learn to test spiritual guidance by Scripture and remember what God has already taught you. The final days look beyond attraction to covenant faithfulness, shared purpose and the humility to receive God's help. These teachings offer foundations for wise choices and faithful love without promising a wedding date.",
+  "needs": ["singleness", "relationships"],
+  "minutes_per_day": 14,
+  "days": [
+    {
+      "youtube_id": "RIbGLAFvi-I",
+      "theme": "Make Christ your focus before making a choice",
+      "focus_start": 2820,
+      "focus_end": 3660,
+      "key_at": 3001,
+      "key_title": "Christ as your goal",
+      "key_quote": "The journey of a believer is to make Christ his unique goal."
+    },
+    {
+      "youtube_id": "6a_UWJSaHYY",
+      "theme": "Test relationship guidance by Scripture",
+      "focus_start": 1140,
+      "focus_end": 1980,
+      "key_at": 1430,
+      "key_title": "Learn the voice of Scripture",
+      "key_quote": "Those that know the voice of scripture will eventually know the voice of God."
+    },
+    {
+      "youtube_id": "3znhWufhI1s",
+      "theme": "Remember God's guidance when attraction grows strong",
+      "focus_start": 1900,
+      "focus_end": 2590,
+      "key_at": 2016,
+      "key_title": "Write it down",
+      "key_quote": "When God speaks to you write it down."
+    },
+    {
+      "youtube_id": "lD7xR4rVQ70",
+      "theme": "Build the character that lasts beyond attraction",
+      "focus_start": 780,
+      "focus_end": 1620,
+      "key_at": 866,
+      "key_title": "A covenant with God first",
+      "key_quote": "What will keep you going if you are a noble man is going to be covenant, that covenant that you have first of all with God."
+    },
+    {
+      "youtube_id": "2JCnNQlAqMQ",
+      "theme": "Receive God's help to love with humility",
+      "focus_start": 3525,
+      "focus_end": 4365,
+      "key_at": 4199,
+      "key_title": "Begin by receiving help",
+      "key_quote": "The first thing you need to do in order for you to operate in the supernatural is to acknowledge your inadequacy."
+    }
+  ]
 }
