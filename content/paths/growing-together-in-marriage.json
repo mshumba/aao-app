@@ -2,5 +2,58 @@
   "id": "growing-together-in-marriage",
   "kind": "path",
   "name": "Growing together in marriage",
-  "needs": ["marriage"]
+  "italic": "together",
+  "promise": "Five days to nurture Christlike love, gentler responses and a shared life rooted in God.",
+  "why": "For husbands and wives who want to grow through strain and rediscover life together. Begin with love shaped by Christ, then examine your own response through the Apostle's teaching on meekness. Move from seeking unity to investing in greater intimacy and shared purpose, and finish by seeking God's guidance together through a consistent life of prayer. The days build a hopeful foundation for faithful love and renewed attention to your marriage.",
+  "needs": [
+    "marriage"
+  ],
+  "minutes_per_day": 14,
+  "days": [
+    {
+      "youtube_id": "SZvfhVDNh8k",
+      "theme": "Let Christ shape the way you love",
+      "focus_start": 2400,
+      "focus_end": 3240,
+      "key_at": 2760,
+      "key_title": "Love with the Spirit's help",
+      "key_quote": "You can only love to that extent by the help of the Holy Spirit."
+    },
+    {
+      "youtube_id": "7j9mHRAS9ZU",
+      "theme": "Choose meekness in your own response",
+      "focus_start": 3000,
+      "focus_end": 3840,
+      "key_at": 3162,
+      "key_title": "Strength with gentleness",
+      "key_quote": "The ability to be meek is the sign of spirituality."
+    },
+    {
+      "youtube_id": "i7SsZ4OnUKg",
+      "theme": "Seek the Spirit's help to dwell in unity",
+      "focus_start": 420,
+      "focus_end": 1260,
+      "key_at": 1083,
+      "key_title": "Different people can live in harmony",
+      "key_quote": "Different things can come together and synchronize if there is oil."
+    },
+    {
+      "youtube_id": "oKapd63Wje8",
+      "theme": "Invest in growing intimacy and shared purpose",
+      "focus_start": 2820,
+      "focus_end": 3660,
+      "key_at": 3000,
+      "key_title": "Keep growing closer",
+      "key_quote": "There is a system that is built. It is put in place to ensure greater intimacy and not less."
+    },
+    {
+      "youtube_id": "PFIHMQoDpE8",
+      "theme": "Let God's guidance shape how you handle conflict",
+      "focus_start": 4320,
+      "focus_end": 5160,
+      "key_at": 4844,
+      "key_title": "An authority above both of you",
+      "key_quote": "There's an authority that is higher than both of you that is managing your home."
+    }
+  ]
 }
