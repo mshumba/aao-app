@@ -13,7 +13,7 @@ This is the whole job, start to finish, for any agent (Claude, ChatGPT, Gemini i
 - **Every path arrives as a draft.** The app labels drafts until the ministry publishes them, and nobody but the owner changes that.
 
 ## The files
-Each path or series is one file: `content/paths/<id>.json`. That folder is the only place paths are written. `supabase/seed/paths.sql` is generated from it, and CI fails if anyone edits it by hand.
+Each path or series is one file: `content/paths/<id>.json`. That folder is the only place paths are written. There is no seed file to edit. When the owner says so, Claude loads paths into the library with `node scripts/paths.mjs sql <id>`. A path PR is that one file, so agents working in parallel never conflict.
 
 ```json
 {
@@ -96,15 +96,14 @@ node scripts/paths.mjs check content/paths/<id>.json
 - **Errors block the merge.**
 - **Warnings are judgement calls:** fix them, or explain each one in the PR.
 
-**6. Generate the seed and commit both together.**
+**6. Commit your one file.**
 ```bash
-node scripts/paths.mjs build
-git add content/paths/<id>.json supabase/seed/paths.sql
+git add content/paths/<id>.json
 git commit -m "Path: <name>"
 ```
 
 **7. Sync, then open the PR.**
-- **Sync first:** run `git fetch origin && git rebase origin/claude/frontend-ux-pass`, then `node scripts/paths.mjs build` again if the seed changed.
+- **Sync first:** run `git fetch origin && git rebase origin/claude/frontend-ux-pass`, then `check` again.
 - **The PR:** push, and mark the PR ready. Give it one path, titled `Path: <name>`.
 - **The PR body:**
   - the `check` output, pasted in full;
@@ -112,10 +111,10 @@ git commit -m "Path: <name>"
   - any warnings you kept, with the reason.
 
 ## Never in a path PR
-- Hand edits to `supabase/seed/paths.sql`.
+- Any file other than your own `content/paths/<id>.json`.
 - Changes to another path's file, unless the owner asked for them.
-- A `status` field, or any write to the database. The owner applies the seed after merging.
+- A `status` field, or any write to the database.
 - App code, migrations or other content. Those go in their own PRs, following `AGENTS.md`.
 
 ## What happens next
-Claude re-runs `check` on your branch and merges by rebase. The owner then says when to load the seed into the live library, and the path appears in the app as a draft.
+Claude re-runs `check` on your branch and merges by rebase. The owner then says when to load the path into the live library, and it appears in the app as a draft.

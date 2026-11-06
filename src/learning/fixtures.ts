@@ -6,7 +6,7 @@
  * Everything here hangs off the four sermons in the bundled sample
  * (src/data/sermons.ts), so focus segments and moments sit inside real
  * durations and real artwork shows. The quotes are verbatim spans from the
- * Apostle's transcripts (supabase/seed/paths.sql) but are attached to these
+ * Apostle's transcripts (content/paths) but are attached to these
  * sample sermons only for testing: they are NOT what was said in them.
  * One path is published and one is a draft, so both honesty states show.
  * Two teaching series follow the paths (kind "series"): one of four
