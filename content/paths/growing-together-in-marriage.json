@@ -1,0 +1,6 @@
+{
+  "id": "growing-together-in-marriage",
+  "kind": "path",
+  "name": "Growing together in marriage",
+  "needs": ["marriage"]
+}
