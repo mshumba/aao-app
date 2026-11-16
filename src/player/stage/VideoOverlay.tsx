@@ -1,3 +1,4 @@
+import { VideoAirPlayButton } from "expo-video";
 import { memo, useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import {
   AccessibilityInfo,
@@ -429,6 +430,23 @@ export const VideoOverlay = memo(function VideoOverlay({
               >
                 <CcBadge active={captionsOn} />
               </Tap>
+            ) : null}
+            {/* AirPlay to a TV or speaker: the app's own player only (YouTube's
+                embed can't be sent), on iPhone, where the system draws the
+                button and its device list. The controls stay up while the
+                list is open. */}
+            {!youtube && Platform.OS === "ios" ? (
+              <VideoAirPlayButton
+                tint={c.white}
+                activeTint={c.goldOnDark}
+                onBeginPresentingRoutes={() => {
+                  clearHideTimer();
+                  setVisible(true);
+                }}
+                onEndPresentingRoutes={scheduleHide}
+                style={styles.ccButton}
+                testID="player-airplay-button"
+              />
             ) : null}
           </View>
         </View>
